@@ -1,0 +1,77 @@
+name: PR Tests
+
+on:
+  pull_request:
+  push:
+    branches: ["main", "feature/**", "hotfix/**", "release-v**", "feat/**", "fix/**"]
+
+# 同分支多次 push 只保留最新一个
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: pytest (PG 16)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16.4-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fulfillment_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/fulfillment_test
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/fulfillment_test
+      JWT_SECRET_KEY: ci-test-secret-key-do-not-use-in-production-1234567890
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+          enable-cache: true
+          cache-dependency-glob: "backend/pyproject.toml"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          uv venv
+          source .venv/bin/activate
+          uv pip install -e ".[dev]"
+
+      - name: Run tests
+        working-directory: backend
+        run: |
+          source .venv/bin/activate
+          pytest -v --tb=short
+
+      - name: Test database migration (alembic upgrade head)
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/fulfillment_test
+          SQLALCHEMY_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fulfillment_test
+        run: |
+          source .venv/bin/activate
+          echo "🔄 Testing database migration with real PostgreSQL..."
+          sleep 2
+          alembic upgrade head
+          echo "✅ Migration test passed!"
+          alembic current

@@ -18,10 +18,10 @@ async def test_login_forces_password_change_then_succeeds(client):
     token = r.json()["data"]["access_token"]
     h = {"Authorization": f"Bearer {token}"}
 
-    # 2. must_change 期间访问 me:当前 /me 不挂 require_permission 门,
-    #    是否拦截取决于 guard 策略,两种结果都算通过。
+    # 2. must_change 期间访问 me:/me 路由只挂 get_current_user,不经
+    #    require_permission/block_if_must_change_password 门,故不拦截。
     r2 = await client.get("/api/v1/auth/me", headers=h)
-    assert r2.status_code in (403, 200)
+    assert r2.status_code == 200
 
     # 3. 改密(豁免端点)
     r3 = await client.post("/api/v1/auth/change-password", headers=h, json={
