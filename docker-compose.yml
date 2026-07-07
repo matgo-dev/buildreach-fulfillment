@@ -8,7 +8,8 @@
 # 无 nginx:本仓库无 deploy/nginx.conf,M0 阶段直连 backend/frontend 端口即可,
 # 需要反向代理时再按需补。
 #
-# 启动:docker compose --env-file .env up -d --build
+# 启动:docker compose --env-file .env up -d --build db minio backend
+#   (frontend 服务尚无 Dockerfile,勿用裸 `up`;详见下方 frontend 服务处注释)
 # ============================================================
 
 x-logging: &default-logging
@@ -98,6 +99,7 @@ services:
       LOGIN_RATE_LIMIT_MAX_FAILURES: ${LOGIN_RATE_LIMIT_MAX_FAILURES:-5}
       LOGIN_RATE_LIMIT_LOCK_SECONDS: ${LOGIN_RATE_LIMIT_LOCK_SECONDS:-300}
       TRUST_PROXY: ${TRUST_PROXY:-false}
+      TRUST_INBOUND_TRACE_ID: ${TRUST_INBOUND_TRACE_ID:-false}
 
       # 日志
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
