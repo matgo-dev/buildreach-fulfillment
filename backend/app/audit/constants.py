@@ -9,6 +9,7 @@ class AuditResourceType(str, Enum):
     USER = "user"
     ROLE = "role"
     PERMISSION = "permission"
+    SYSTEM = "system"
 
 
 class AuditAction(str, Enum):
