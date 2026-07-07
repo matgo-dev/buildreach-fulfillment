@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.env.*
+!.env.example
+uploads/
+private_uploads/
+.pytest_cache/
+node_modules/
+.next/
+*.tsbuildinfo
+.DS_Store
