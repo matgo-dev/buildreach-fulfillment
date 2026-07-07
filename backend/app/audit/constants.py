@@ -10,6 +10,7 @@ class AuditResourceType(str, Enum):
     ROLE = "role"
     PERMISSION = "permission"
     SYSTEM = "system"
+    USER_ROLE = "user_role"
 
 
 class AuditAction(str, Enum):
@@ -22,3 +23,6 @@ class AuditAction(str, Enum):
     LOGIN_LOCKED = "LOGIN_LOCKED"
     LOGOUT = "LOGOUT"
     PASSWORD_CHANGE = "PASSWORD_CHANGE"
+    USER_DISABLE = "USER_DISABLE"       # ADMIN 停用账号
+    USER_ENABLE = "USER_ENABLE"         # ADMIN 启用账号
+    ROLE_ASSIGN = "ROLE_ASSIGN"
