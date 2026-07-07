@@ -67,7 +67,9 @@ docker compose --env-file .env up -d --build db minio backend
 ```
 
 起 `db`(独立于本地开发用的 brew PG)+ `minio`(演示对象存储)+ `backend`(容器内自动等库就绪→
-`alembic upgrade head`→启动,见 `backend/docker-entrypoint.sh`)。
+`alembic upgrade head`→启动,见 `backend/docker-entrypoint.sh`)。`minio` 里业务用的 bucket
+(`fulfillment-attachments`)由 `minio-init` 一次性服务自动建好(幂等,随 `backend` 一起触发,不需要
+单独跑);生产走 aliyun OSS 时 bucket 由运维预先建好,没有对应的一次性服务。
 
 `frontend` 服务在 `docker-compose.yml` 里已占位,但**还没有 `frontend/Dockerfile`**(T7 只搭了本地
 `pnpm dev` 开发壳,未做生产构建镜像)——补齐 Dockerfile 前,`docker compose up` 不带 service 名的全量

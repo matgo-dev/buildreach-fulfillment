@@ -3,7 +3,7 @@ name: PR Tests
 on:
   pull_request:
   push:
-    branches: ["main", "feature/**", "hotfix/**", "release-v**", "feat/**", "fix/**"]
+    branches: ["main", "feat/**", "fix/**"]
 
 # 同分支多次 push 只保留最新一个
 concurrency:
@@ -48,7 +48,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
 
       - name: Install dependencies
         working-directory: backend

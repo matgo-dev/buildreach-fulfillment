@@ -51,9 +51,6 @@ RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors
     && apt-get install -y --no-install-recommends \
         curl \
         libpq5 \
-        libjpeg62-turbo \
-        zlib1g \
-        libwebp7 \
         # python-magic 运行时(附件 MIME 检测)
         libmagic1 \
         # CJK 字体(中文不乱码)

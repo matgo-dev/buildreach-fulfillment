@@ -6,11 +6,6 @@ from pydantic import BaseModel, Field, field_validator
 from app.core.security import PASSWORD_RULE_MESSAGE, validate_password_strength
 
 
-class RegisterOut(BaseModel):
-    user_id: int
-    email: str | None = None
-
-
 class LoginIn(BaseModel):
     # identifier:邮箱(含 @) / 用户名。M0 无国别手机号解析,不支持 phone_region。
     identifier: str = Field(..., min_length=3, max_length=255)
