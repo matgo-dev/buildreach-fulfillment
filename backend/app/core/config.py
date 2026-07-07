@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     S3_SECRET_KEY: str = ""
     S3_BUCKET: str = "fulfillment-attachments"
     S3_PUBLIC_BASE_URL: str = ""   # 公开资产基址(留空则不支持 public_url)
+    IMAGE_PATH_PREFIX: str = "/static"  # LocalDiskStorage.public_url() 前缀(本期未挂载,预留)
 
     @computed_field  # type: ignore[misc]
     @property
