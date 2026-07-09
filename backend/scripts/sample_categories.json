@@ -1,0 +1,26 @@
+[
+  {
+    "code": "01",
+    "parent_code": null,
+    "name_i18n": {"zh": "建材", "en": "Materials", "sw": "Vifaa"},
+    "level": 1,
+    "is_leaf": false,
+    "sort_order": 10
+  },
+  {
+    "code": "01.001",
+    "parent_code": "01",
+    "name_i18n": {"zh": "水泥", "en": "Cement", "sw": "Saruji"},
+    "level": 2,
+    "is_leaf": true,
+    "sort_order": 10
+  },
+  {
+    "code": "01.002",
+    "parent_code": "01",
+    "name_i18n": {"zh": "钢材", "en": "Steel", "sw": "Chuma"},
+    "level": 2,
+    "is_leaf": true,
+    "sort_order": 20
+  }
+]
