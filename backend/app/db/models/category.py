@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -13,6 +13,10 @@ class Category(Base, TimestampUpdateMixin):
     code 为业务主键(点分数字 XX.XXX.XXX,永久不变契约,关联引 code 不引 id)。
     """
     __tablename__ = "categories"
+    __table_args__ = (
+        CheckConstraint("level >= 1", name="ck_categories_level"),
+        CheckConstraint("sort_order >= 0", name="ck_categories_sort_nn"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     # unique=True(不加 index=True):PG UNIQUE 约束自带索引,且必须内联在

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import ForeignKey, Index, Integer, Numeric, String, Text
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -18,6 +18,9 @@ class Sku(Base, TimestampUpdateMixin):
         # pg_trgm GIN 加速 search_text ILIKE 模糊匹配(扩展由 base.py before_create 建)
         Index("ix_skus_search_text_trgm", "search_text",
               postgresql_using="gin", postgresql_ops={"search_text": "gin_trgm_ops"}),
+        # 内部采购参考价非负兜底
+        CheckConstraint("reference_price IS NULL OR reference_price >= 0",
+                        name="ck_skus_ref_price_nn"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

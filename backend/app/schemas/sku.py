@@ -52,7 +52,7 @@ class SkuSpecItemIn(BaseModel):
 class SkuCreateIn(BaseModel):
     spu_id: int
     unit: str = Field(..., max_length=20)
-    reference_price: float | None = None
+    reference_price: float | None = Field(default=None, ge=0)
     name_i18n: dict
     spec_items: list[SkuSpecItemIn] = []
 
@@ -62,7 +62,7 @@ class SkuCreateIn(BaseModel):
 class SkuUpdateIn(BaseModel):
     name_i18n: dict | None = None
     unit: str | None = None
-    reference_price: float | None = None
+    reference_price: float | None = Field(default=None, ge=0)
     spec_items: list[SkuSpecItemIn] | None = None
 
     @field_validator("name_i18n")

@@ -15,13 +15,13 @@ class QuotationCreateIn(BaseModel):
 
 class QuotationLineIn(BaseModel):
     sku_id: int
-    unit_price: float
-    qty: float
+    unit_price: float = Field(ge=0)   # 手录报价价,非负
+    qty: float = Field(gt=0)          # 数量为正
     # 快照可编辑覆盖(线下定稿措辞优先);不传则由 SKU + 模板按报价语言组合默认
     name_snapshot: str | None = None
     spec_text_snapshot: str | None = None
     unit_snapshot: str | None = None
-    sort_order: int = 0
+    sort_order: int = Field(default=0, ge=0)
 
 
 class QuotationOrderOut(BaseModel):
