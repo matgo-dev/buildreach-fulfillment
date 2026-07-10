@@ -22,13 +22,15 @@ async def list_spus(
     category_code: str | None = None,
     status: str | None = None,
     keyword: str | None = None,
+    include_descendants: bool = True,
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
     _current: CurrentUser = Depends(require_permission(Permissions.CATALOG_READ)),
     db: AsyncSession = Depends(get_db),
 ):
     rows, total = await spu_service.list_spus(
-        db, category_code=category_code, status=status, keyword=keyword, page=page, size=size)
+        db, category_code=category_code, status=status, keyword=keyword,
+        include_descendants=include_descendants, page=page, size=size)
     active_ids = await sku_service.spu_ids_with_active_sku(db, [s.id for s in rows])
     items = []
     for s in rows:

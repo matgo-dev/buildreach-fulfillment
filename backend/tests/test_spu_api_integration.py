@@ -137,3 +137,59 @@ async def test_spu_derived_availability(client, catalog_operator_headers, db_ses
     sku3 = next(s for s in b3["skus"] if s["id"] == skid)
     assert sku3["available"] is False
     assert sku3["status"] == "INACTIVE"
+
+
+@pytest.mark.asyncio
+async def test_spus_category_subtree_filter(client, catalog_operator_headers, db_session):
+    """品类子树前缀过滤:选父类含子孙 SPU;include_descendants=false 仅本级;前缀不误匹配兄弟。"""
+    h = catalog_operator_headers
+    # 建材(01) → 水泥(01.001) → 硅酸盐水泥(01.001.001,叶子);另建五金(02,叶子),前缀边界用。
+    db_session.add_all([
+        Category(code="01", parent_code=None, name_i18n={"zh": "建材"},
+                 level=1, is_leaf=False, sort_order=0),
+        Category(code="01.001", parent_code="01", name_i18n={"zh": "水泥"},
+                 level=2, is_leaf=False, sort_order=0),
+        Category(code="01.001.001", parent_code="01.001", name_i18n={"zh": "硅酸盐水泥"},
+                 level=3, is_leaf=True, sort_order=0),
+        Category(code="02", parent_code=None, name_i18n={"zh": "五金"},
+                 level=1, is_leaf=True, sort_order=0),
+    ])
+    await db_session.commit()
+
+    r_a = await client.post("/api/v1/spus", headers=h,
+                            json={"category_code": "01.001.001", "name_i18n": {"zh": "水泥A"},
+                                 "main_image": "img/a.jpg"})
+    assert r_a.status_code in (200, 201), r_a.text
+    spu_a_id = r_a.json()["data"]["id"]
+
+    r_b = await client.post("/api/v1/spus", headers=h,
+                            json={"category_code": "02", "name_i18n": {"zh": "五金B"},
+                                 "main_image": "img/b.jpg"})
+    assert r_b.status_code in (200, 201), r_b.text
+    spu_b_id = r_b.json()["data"]["id"]
+
+    # 选父类 01(含子树,默认) → 含 SPU_A
+    r1 = await client.get("/api/v1/spus?category_code=01", headers=h)
+    assert r1.status_code == 200
+    ids1 = {x["id"] for x in r1.json()["data"]["items"]}
+    assert spu_a_id in ids1
+    assert spu_b_id not in ids1
+
+    # 01 + include_descendants=false → 01 无直接挂载,不含 SPU_A
+    r2 = await client.get("/api/v1/spus?category_code=01&include_descendants=false", headers=h)
+    assert r2.status_code == 200
+    ids2 = {x["id"] for x in r2.json()["data"]["items"]}
+    assert spu_a_id not in ids2
+
+    # 精确叶子命中
+    r3 = await client.get("/api/v1/spus?category_code=01.001.001", headers=h)
+    assert r3.status_code == 200
+    ids3 = {x["id"] for x in r3.json()["data"]["items"]}
+    assert spu_a_id in ids3
+
+    # 前缀边界:02 不误含 01 子树
+    r4 = await client.get("/api/v1/spus?category_code=02", headers=h)
+    assert r4.status_code == 200
+    ids4 = {x["id"] for x in r4.json()["data"]["items"]}
+    assert spu_a_id not in ids4
+    assert spu_b_id in ids4

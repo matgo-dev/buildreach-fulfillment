@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
@@ -98,10 +98,17 @@ async def soft_delete_spu(db: AsyncSession, *, spu_id, actor_user_id, actor_user
 
 
 async def list_spus(db: AsyncSession, *, category_code=None, status=None, keyword=None,
+                    include_descendants: bool = True,
                     page: int = 1, size: int = 20) -> tuple[list[Spu], int]:
     conds = [Spu.deleted_at.is_(None)]
     if category_code:
-        conds.append(Spu.category_code == category_code)
+        if include_descendants:
+            conds.append(or_(
+                Spu.category_code == category_code,
+                Spu.category_code.like(f"{category_code}.%"),  # 点分保证 01 不误匹配 010/02
+            ))
+        else:
+            conds.append(Spu.category_code == category_code)
     if status:
         conds.append(Spu.status == status)
     if keyword:
