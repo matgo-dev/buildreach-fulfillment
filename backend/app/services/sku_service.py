@@ -41,7 +41,12 @@ async def _resolve_spec(db: AsyncSession, category_code: str, spec_items: list[d
     (可能是中文原文)直接当 key,而是后端生成独立随机稳定键 `a_<8位 base62>`
     (见 tmpl.create_new_attribute),把用户提交的 label_i18n(zh 必填)落回模板,
     SKU 引用生成键。未知 key 又没带 label_i18n → SpecContractError(新增属性必须带 label_i18n)。
-    enum 属性额外校验:填的 value 必须是模板 options 里的 code。
+
+    enum 属性额外校验:填的 value 必须是模板 options 里的 code;value 的 code 不在
+    options 内、但 item 带 label_i18n → 视为"inline 新增选项"请求(与"新增属性"同构的
+    逃生口,如"材质"缺"铝合金"):后端生成新 code(见 tmpl.add_enum_option)、行锁追加
+    进模板 options、SKU 落库用该新 code(此时提交的 value 可空/忽略)。既不在 options
+    又没带 label_i18n → 仍 SpecContractError,不静默接受未知值。
 
     计量单位归位(spec §11 Part B):单位是属性的固有元数据,只住模板
     category_spec_attributes.unit,spec_jsonb 永不落 unit。用户提交的 `item["unit"]`
@@ -54,6 +59,7 @@ async def _resolve_spec(db: AsyncSession, category_code: str, spec_items: list[d
     for item in spec_items:
         key = item.get("key")
         tmpl_row = known.get(key) if key else None
+        value = item.get("value")
         if tmpl_row is None:
             label_i18n = item.get("label_i18n")
             if not label_i18n or not label_i18n.get("zh"):
@@ -66,11 +72,17 @@ async def _resolve_spec(db: AsyncSession, category_code: str, spec_items: list[d
             known[key] = tmpl_row
         elif tmpl_row.get("value_type") == "enum":
             codes = {opt["code"] for opt in (tmpl_row.get("options") or [])}
-            value = item.get("value")
-            if not isinstance(value, str) or value not in codes:
-                raise SpecContractError(
-                    f"属性 '{key}' 的值 {value!r} 不在允许的 enum code 集 {sorted(codes)} 内")
-        resolved.append({"key": key, "value": item.get("value")})
+            if not (isinstance(value, str) and value in codes):
+                label_i18n = item.get("label_i18n")
+                if not label_i18n or not label_i18n.get("zh"):
+                    raise SpecContractError(
+                        f"属性 '{key}' 的值 {value!r} 不在允许的 enum code 集 {sorted(codes)} 内")
+                new_code = await tmpl.add_enum_option(db, category_code, key, label_i18n)
+                tmpl_row["options"] = [*(tmpl_row.get("options") or []),
+                                       {"code": new_code, "label_i18n": label_i18n}]
+                known[key] = tmpl_row
+                value = new_code
+        resolved.append({"key": key, "value": value})
     parsed = validate_spec_items(resolved)
     return [p.model_dump(exclude_none=True) for p in parsed]
 

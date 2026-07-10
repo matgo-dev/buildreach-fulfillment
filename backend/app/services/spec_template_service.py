@@ -25,6 +25,12 @@ def _random_attribute_key() -> str:
     return "a_" + "".join(secrets.choice(_KEY_ALPHABET) for _ in range(8))
 
 
+def _random_option_code() -> str:
+    """enum 选项 code:前缀 v_ + 8 位 base62,规矩同 _random_attribute_key(独立随机、
+    稳定、非中文、不翻译,secrets 生成)。"""
+    return "v_" + "".join(secrets.choice(_KEY_ALPHABET) for _ in range(8))
+
+
 def _to_item(row: CategorySpecAttribute) -> dict:
     return {
         "key": row.key,
@@ -150,3 +156,56 @@ async def create_new_attribute(
         # 撞键(概率 ~1/62^8,几乎不会触发):换个随机键重试
 
     raise SpecContractError("生成属性 key 连续冲突,请重试")
+
+
+async def add_enum_option(
+    db: AsyncSession,
+    category_code: str,
+    key: str,
+    label_i18n: dict,
+    *,
+    max_retries: int = 5,
+) -> str:
+    """inline 新增 enum 选项值(运营在录 SKU 时发现现有 options 缺值,如"材质"缺
+    "铝合金"):追加进属性行 options JSONB 数组,返回新生成的 code。
+
+    并发坑:options 是属性行上的一整个 JSONB 数组,追加 = read-modify-write
+    (CT11 把属性正规化成一属性一行,正是为了躲开这个;但 options 数组本身没法再拆表)。
+    这里用 `SELECT ... FOR UPDATE` 锁该属性行:锁住之后再读到的 options 一定是最新的,
+    追加完 flush 前锁一直持有,另一并发追加会等到本事务提交后才拿到锁、读到已包含本次
+    追加的最新数组,不会互相踩踏丢更新。grain 是单属性、选项数量少、并发概率极低,
+    行锁足够,不需要为此再拆一张 options 表。
+
+    code 生成规矩同属性键(_random_attribute_key):独立随机、v_ 前缀、8 位 base62、
+    secrets 生成、绝非中文/用户原文的翻译或派生。不按 label 去重——同一属性下选项集
+    通常很小,防重复主要靠前端下拉里优先展示已有选项,和属性键一样只认生成 code
+    这一个身份维度。
+    """
+    if not label_i18n.get("zh"):
+        raise SpecContractError("label_i18n.zh 必填")
+    if any(v in ("", None) for v in label_i18n.values()):
+        raise SpecContractError("label_i18n 禁止空串/空值")
+
+    row = (await db.execute(
+        select(CategorySpecAttribute)
+        .where(CategorySpecAttribute.category_code == category_code, CategorySpecAttribute.key == key)
+        .with_for_update()
+    )).scalar_one_or_none()
+    if row is None:
+        raise SpecContractError(f"属性不存在: category_code={category_code!r} key={key!r}")
+    if row.value_type != "enum":
+        raise SpecContractError(f"属性 '{key}' 非 enum 类型,不支持追加选项")
+
+    existing_codes = {opt["code"] for opt in (row.options or [])}
+    for _ in range(max_retries):
+        code = _random_option_code()
+        if code not in existing_codes:
+            break
+    else:
+        raise SpecContractError("生成选项 code 连续冲突,请重试")
+
+    # 整个新 list 重新赋值(而非原地 .append)——SQLAlchemy 靠属性重赋值侦测变更,
+    # 不依赖 MutableList 包装即可正确 UPDATE。
+    row.options = [*(row.options or []), {"code": code, "label_i18n": label_i18n}]
+    await db.flush()
+    return code

@@ -178,3 +178,41 @@ async def test_existing_key_submitted_unit_is_ignored(client, catalog_operator_h
 
     by_key = await tmpl.suggestions_by_key(db_session, "10")
     assert by_key["dn"]["unit"] == ""  # 未被 SKU 提交的 unit=inch 污染
+
+
+# ── Task 14: inline 新增 enum 选项值(现有 enum 属性缺值时,行锁追加 options) ──
+
+@pytest.mark.asyncio
+async def test_create_sku_with_new_enum_option_appends_and_uses_new_code(
+    client, catalog_operator_headers, db_session
+):
+    """enum 属性 value 的 code 不在模板 options 内、但带 label_i18n → 视为 inline
+    新增选项:后端生成 v_ 前缀新 code、追加进模板 options,SKU spec_jsonb 落库用该
+    新 code(与"新增属性"同构的逃生口,spec §10/§11)。"""
+    await _seed_category(db_session)
+    options = [{"code": "carbon_steel", "label_i18n": {"zh": "碳钢"}}]
+    await tmpl.upsert_attribute(db_session, "10", key="material", label_i18n={"zh": "材质"},
+                                value_type="enum", options=options)
+    await db_session.commit()
+
+    spu_id = (await client.post("/api/v1/spus", headers=catalog_operator_headers,
+              json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "main_image": "img/test.jpg"})).json()["data"]["id"]
+
+    r = await client.post("/api/v1/skus", headers=catalog_operator_headers, json={
+        "spu_id": spu_id, "unit": "piece", "name_i18n": {"zh": "阀"},
+        "spec_items": [{"key": "material", "label_i18n": {"zh": "铝合金"}}]})
+    assert r.status_code == 200, r.text
+
+    spec_jsonb = r.json()["data"]["spec_jsonb"]
+    assert len(spec_jsonb) == 1
+    new_code = spec_jsonb[0]["value"]
+    assert spec_jsonb[0]["key"] == "material"
+    assert isinstance(new_code, str) and new_code.startswith("v_")
+    suffix = new_code.removeprefix("v_")
+    assert len(suffix) == 8 and suffix.isalnum()
+
+    by_key = await tmpl.suggestions_by_key(db_session, "10")
+    material_options = by_key["material"]["options"]
+    assert {"code": "carbon_steel", "label_i18n": {"zh": "碳钢"}} in material_options  # 既有选项原样保留
+    assert {"code": new_code, "label_i18n": {"zh": "铝合金"}} in material_options
+    assert len(material_options) == 2

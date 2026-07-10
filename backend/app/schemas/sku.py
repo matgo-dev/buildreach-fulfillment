@@ -49,12 +49,17 @@ class SkuSpecItemIn(BaseModel):
     # key 可缺省:新属性(带 label_i18n)由后端生成稳定键,不接受调用方直接指定
     # 中文/任意原文当 key —— 身份≠展示铁律(_resolve_spec 强制)。
     key: str | None = None
-    value: str | float | int | dict[str, str]
+    # enum 新增选项分支(带 label_i18n 且 code 不在模板 options 内)时可缺省/为 None——
+    # 最终落库值由后端生成的选项 code 覆盖,不接受调用方越过校验直接指定 code。
+    value: str | float | int | dict[str, str] | None = None
     # 仅在"新增属性"分支生效:落进该新属性模板行的计量单位(如新增"长度"顺手给
     # unit=mm)。对已存在的 key 一律忽略——计量单位以模板 category_spec_attributes.unit
     # 为准,不接受某个 SKU 单独覆盖(spec §11 Part B:单位归位,spec_jsonb 永不存 unit)。
     unit: str | None = None
-    label_i18n: dict | None = None  # 新属性时带(zh 必填),回写模板用
+    # 新属性时带(zh 必填),回写模板用;enum 已知属性时带 = 请求新增该属性一个新选项
+    # (value 的 code 不在模板 options 内 + 带此字段 → inline 新增选项,label_i18n 即
+    # 新选项展示名;code 不在 options 又不带此字段 → 仍 SpecContractError,不静默)
+    label_i18n: dict | None = None
 
 
 class SkuCreateIn(BaseModel):

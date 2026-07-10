@@ -94,3 +94,44 @@ async def test_upsert_different_keys_both_persist_no_lost_update(db_session):
     await svc.upsert_attribute(db_session, "10", key="beta", label_i18n={"zh": "乙属性"})
     by_key = await svc.suggestions_by_key(db_session, "10")
     assert "alpha" in by_key and "beta" in by_key
+
+
+# ── Task 14: inline 新增 enum 选项值(行锁追加 options) ──
+
+async def _seed_enum_attr(db, code="10", key="material", options=None):
+    await _seed_cat(db, code)
+    options = options or [{"code": "carbon_steel", "label_i18n": {"zh": "碳钢"}}]
+    await svc.upsert_attribute(db, code, key=key, label_i18n={"zh": "材质"},
+                               value_type="enum", options=options)
+    return options
+
+
+@pytest.mark.asyncio
+async def test_add_enum_option_generates_v_prefixed_code_and_appends(db_session):
+    original_options = await _seed_enum_attr(db_session)
+    code = await svc.add_enum_option(db_session, "10", "material", {"zh": "铝合金"})
+
+    assert code.startswith("v_")
+    suffix = code.removeprefix("v_")
+    assert len(suffix) == 8 and suffix.isalnum()
+
+    by_key = await svc.suggestions_by_key(db_session, "10")
+    options = by_key["material"]["options"]
+    assert options[0] == original_options[0]  # 既有选项原样保留
+    assert {"code": code, "label_i18n": {"zh": "铝合金"}} in options
+    assert len(options) == 2
+
+
+@pytest.mark.asyncio
+async def test_add_enum_option_rejects_label_without_zh(db_session):
+    await _seed_enum_attr(db_session)
+    with pytest.raises(Exception):
+        await svc.add_enum_option(db_session, "10", "material", {"en": "Aluminum"})
+
+
+@pytest.mark.asyncio
+async def test_add_enum_option_rejects_non_enum_attribute(db_session):
+    await _seed_cat(db_session)
+    await svc.upsert_attribute(db_session, "10", key="dn", label_i18n={"zh": "公称通径"})
+    with pytest.raises(Exception):
+        await svc.add_enum_option(db_session, "10", "dn", {"zh": "新值"})
