@@ -97,6 +97,31 @@ async def test_update_sku_rejects_name_without_zh(client, catalog_operator_heade
 
 
 @pytest.mark.asyncio
+async def test_create_sku_rejects_enum_value_not_in_options(client, catalog_operator_headers, db_session):
+    """enum 属性运行期守卫:SKU 填的 value 必须 ∈ 模板 options 的 code 集,否则 400(SpecContractError)。"""
+    await _seed_category(db_session)
+    options = [{"code": "carbon_steel", "label_i18n": {"zh": "碳钢"}}]
+    await tmpl.upsert_attribute(db_session, "10", key="material", label_i18n={"zh": "材质"},
+                                value_type="enum", options=options)
+    await db_session.commit()
+
+    spu_id = (await client.post("/api/v1/spus", headers=catalog_operator_headers,
+              json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "main_image": "img/test.jpg"})).json()["data"]["id"]
+
+    # 负例:value 不在 options code 集内 → 400
+    r_bad = await client.post("/api/v1/skus", headers=catalog_operator_headers, json={
+        "spu_id": spu_id, "unit": "PCS", "name_i18n": {"zh": "阀"},
+        "spec_items": [{"key": "material", "value": "titanium"}]})
+    assert r_bad.status_code == 400, r_bad.text
+
+    # 正例对照:value 在 options code 集内 → 成功
+    r_ok = await client.post("/api/v1/skus", headers=catalog_operator_headers, json={
+        "spu_id": spu_id, "unit": "PCS", "name_i18n": {"zh": "阀"},
+        "spec_items": [{"key": "material", "value": "carbon_steel"}]})
+    assert r_ok.status_code == 200, r_ok.text
+
+
+@pytest.mark.asyncio
 async def test_handwritten_key_label_without_zh_rejected(client, catalog_operator_headers, db_session):
     await _seed_category(db_session)
     spu_id = (await client.post("/api/v1/spus", headers=catalog_operator_headers,
