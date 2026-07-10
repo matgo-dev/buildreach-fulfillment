@@ -8,8 +8,8 @@ def _require_zh(v: dict) -> dict:
     """name_i18n 校验:zh 必填非空,禁止空串(未填语言不放 key)。"""
     if not isinstance(v, dict) or not v.get("zh"):
         raise ValueError("name_i18n.zh 必填且非空")
-    if any(val == "" for val in v.values()):
-        raise ValueError("禁止空串(未填语言不放 key)")
+    if any(val in ("", None) for val in v.values()):
+        raise ValueError("禁止空串/空值(未填语言不放 key)")
     return v
 
 

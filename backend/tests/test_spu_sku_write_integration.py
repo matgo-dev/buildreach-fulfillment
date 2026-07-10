@@ -69,3 +69,29 @@ async def test_create_sku_rejects_duplicate_spec_key(client, superadmin_headers,
         "spu_id": spu_id, "unit": "PCS", "name_i18n": {"zh": "阀"},
         "spec_items": [{"key": "dn", "value": "1"}, {"key": "dn", "value": "2"}]})
     assert r.status_code == 400  # SpecContractError
+
+
+@pytest.mark.asyncio
+async def test_update_sku_rejects_name_without_zh(client, superadmin_headers, db_session):
+    await _seed_category(db_session)
+    spu_id = (await client.post("/api/v1/spus", headers=superadmin_headers,
+              json={"category_code": "10", "name_i18n": {"zh": "球阀"}})).json()["data"]["id"]
+    sku_id = (await client.post("/api/v1/skus", headers=superadmin_headers, json={
+        "spu_id": spu_id, "unit": "PCS", "name_i18n": {"zh": "阀"},
+        "spec_items": [{"key": "dn", "value": "DN50"}]})).json()["data"]["id"]
+    # 改 SKU 名成无 zh → 422(zh 必填铁律,更新路径也守)
+    r = await client.put(f"/api/v1/skus/{sku_id}", headers=superadmin_headers,
+                         json={"name_i18n": {"en": "no zh"}})
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_handwritten_key_label_without_zh_rejected(client, superadmin_headers, db_session):
+    await _seed_category(db_session)
+    spu_id = (await client.post("/api/v1/spus", headers=superadmin_headers,
+              json={"category_code": "10", "name_i18n": {"zh": "球阀"}})).json()["data"]["id"]
+    # 手输新 key 但 label_i18n 无 zh → 400,不得污染模板(模板 label 也守 zh 必填)
+    r = await client.post("/api/v1/skus", headers=superadmin_headers, json={
+        "spu_id": spu_id, "unit": "PCS", "name_i18n": {"zh": "阀"},
+        "spec_items": [{"key": "coating", "value": "x", "label_i18n": {"en": "Coating"}}]})
+    assert r.status_code == 400

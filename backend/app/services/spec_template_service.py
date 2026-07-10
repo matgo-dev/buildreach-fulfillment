@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.core.exceptions import SpecContractError
 from app.db.models.category_spec_suggestion import CategorySpecSuggestion, SuggestionSource
 
 
@@ -34,6 +35,12 @@ async def upsert_suggestion_key(
     unit: str | None = None,
 ) -> dict:
     """手输新 key 即时回写模板(source=运营手加);已存在则原样返回不覆盖。"""
+    # 模板 label 也走 zh 必填、禁空串/禁 null 契约(与 SKU 文本一致)
+    if not label_i18n.get("zh"):
+        raise SpecContractError(f"手输 key '{key}' 的 label_i18n.zh 必填")
+    if any(v in ("", None) for v in label_i18n.values()):
+        raise SpecContractError(f"key '{key}' 的 label_i18n 禁止空串/空值")
+
     row = await _get_row(db, category_code)
     if row is None:
         row = CategorySpecSuggestion(category_code=category_code, suggestions=[])

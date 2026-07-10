@@ -25,8 +25,8 @@ class SpecItem(BaseModel):
         if isinstance(v, dict):
             if not v.get("zh"):
                 raise ValueError("语言映射 zh 必填")
-            if any(val == "" for val in v.values()):
-                raise ValueError("禁止空串")
+            if any(val in ("", None) for val in v.values()):
+                raise ValueError("禁止空串/空值")
         return v
 
 
@@ -64,6 +64,12 @@ class SkuUpdateIn(BaseModel):
     unit: str | None = None
     reference_price: float | None = None
     spec_items: list[SkuSpecItemIn] | None = None
+
+    @field_validator("name_i18n")
+    @classmethod
+    def _v_name(cls, v):
+        # 部分更新:仅当提供 name_i18n 时才校验 zh 必填/禁空串(与 create 一致)
+        return _require_zh(v) if v is not None else v
 
 
 class SkuOut(BaseModel):
