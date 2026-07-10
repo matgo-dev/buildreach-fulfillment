@@ -7,7 +7,7 @@ from starlette.requests import Request
 
 from app.audit.constants import AuditAction, AuditResourceType
 from app.audit.logger import write_audit
-from app.core.codegen import format_sku_code
+from app.core.codegen import format_code
 from app.core.exceptions import NotFoundError
 from app.core.search_text import build_search_text
 from app.db.models.sku import Sku
@@ -64,7 +64,7 @@ async def create_sku(db: AsyncSession, *, spu_id, unit, reference_price, name_i1
                      request: Request | None = None) -> Sku:
     _, category_code = await _spu_category(db, spu_id)
     spec_jsonb = await _resolve_spec(db, category_code, [i for i in spec_items])
-    sku_code = format_sku_code(await allocate(db, NumberScope.SKU))
+    sku_code = format_code(NumberScope.SKU, await allocate(db, NumberScope.SKU))
     sku = Sku(spu_id=spu_id, sku_code=sku_code, unit=unit, reference_price=reference_price,
               spec_jsonb=spec_jsonb, name_i18n=name_i18n,
               search_text=build_search_text(name_i18n, spec_jsonb, sku_code))

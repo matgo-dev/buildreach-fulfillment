@@ -10,7 +10,7 @@ from starlette.requests import Request
 
 from app.audit.constants import AuditAction, AuditResourceType
 from app.audit.logger import write_audit
-from app.core.codegen import format_quote_no
+from app.core.codegen import format_code
 from app.core.exceptions import NotFoundError
 from app.core.i18n import compose_spec_text, display
 from app.core.languages import resolve_quote_language
@@ -25,7 +25,7 @@ async def _next_quote_no(db: AsyncSession) -> str:
     # 单据号:Q{YYYYMM}{期内序号};按年月号段(编号服务)
     period = datetime.now(timezone.utc).strftime("%Y%m")
     seq = await allocate(db, NumberScope.QUOTATION, period)
-    return format_quote_no(period, seq)
+    return format_code(NumberScope.QUOTATION, seq, period)
 
 
 async def create_draft(db: AsyncSession, *, customer_id, currency, valid_until=None,

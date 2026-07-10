@@ -14,6 +14,7 @@ from app.db.models.number_sequence import NumberSequence
 
 class NumberScope:
     SKU = "SKU"
+    SPU = "SPU"
     CUSTOMER = "CUSTOMER"
     QUOTATION = "QUOTATION"
 
