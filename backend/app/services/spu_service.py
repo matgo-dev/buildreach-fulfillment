@@ -103,9 +103,13 @@ async def list_spus(db: AsyncSession, *, category_code=None, status=None, keywor
     conds = [Spu.deleted_at.is_(None)]
     if category_code:
         if include_descendants:
+            # category_code 来自裸查询参数,可能含 LIKE 元字符(%、_),需转义避免误匹配;
+            # 结尾 ".%" 是故意的通配符,不转义。
+            escaped = (category_code.replace("\\", "\\\\")
+                       .replace("%", "\\%").replace("_", "\\_"))
             conds.append(or_(
                 Spu.category_code == category_code,
-                Spu.category_code.like(f"{category_code}.%"),  # 点分保证 01 不误匹配 010/02
+                Spu.category_code.like(f"{escaped}.%", escape="\\"),  # 点分保证 01 不误匹配 010/02
             ))
         else:
             conds.append(Spu.category_code == category_code)

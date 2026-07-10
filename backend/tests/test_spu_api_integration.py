@@ -193,3 +193,62 @@ async def test_spus_category_subtree_filter(client, catalog_operator_headers, db
     ids4 = {x["id"] for x in r4.json()["data"]["items"]}
     assert spu_a_id not in ids4
     assert spu_b_id in ids4
+
+
+@pytest.mark.asyncio
+async def test_spus_category_subtree_filter_escapes_like_wildcards(client, catalog_operator_headers,
+                                                                     db_session):
+    """category_code 含 LIKE 元字符(%)时不当通配符解释:转义前会把 01.001 误吸进 '0%' 的结果。"""
+    h = catalog_operator_headers
+    db_session.add_all([
+        Category(code="01", parent_code=None, name_i18n={"zh": "建材"},
+                 level=1, is_leaf=False, sort_order=0),
+        Category(code="01.001", parent_code="01", name_i18n={"zh": "水泥"},
+                 level=2, is_leaf=True, sort_order=0),
+    ])
+    await db_session.commit()
+
+    r_a = await client.post("/api/v1/spus", headers=h,
+                            json={"category_code": "01.001", "name_i18n": {"zh": "水泥A"},
+                                 "main_image": "img/a.jpg"})
+    assert r_a.status_code in (200, 201), r_a.text
+    spu_a_id = r_a.json()["data"]["id"]
+
+    # "0%" 若未转义会被当"0 后跟任意字符"的通配符,误把 01.001 吸进来;
+    # 转义生效后应等价于精确查找 code="0%" 的品类(不存在)→ 不含 SPU_A。
+    r = await client.get("/api/v1/spus", params={"category_code": "0%"}, headers=h)
+    assert r.status_code == 200
+    ids = {x["id"] for x in r.json()["data"]["items"]}
+    assert spu_a_id not in ids
+
+
+@pytest.mark.asyncio
+async def test_spus_category_subtree_filter_variable_length_prefix_boundary(
+        client, catalog_operator_headers, db_session):
+    """变长同前缀边界:01 与 010 是两个独立顶级分类,查 01 不应吸入挂在 010 下的 SPU。"""
+    h = catalog_operator_headers
+    db_session.add_all([
+        Category(code="01", parent_code=None, name_i18n={"zh": "建材"},
+                 level=1, is_leaf=True, sort_order=0),
+        Category(code="010", parent_code=None, name_i18n={"zh": "建材配件"},
+                 level=1, is_leaf=True, sort_order=0),
+    ])
+    await db_session.commit()
+
+    r_a = await client.post("/api/v1/spus", headers=h,
+                            json={"category_code": "01", "name_i18n": {"zh": "水泥A"},
+                                 "main_image": "img/a.jpg"})
+    assert r_a.status_code in (200, 201), r_a.text
+    spu_a_id = r_a.json()["data"]["id"]
+
+    r_b = await client.post("/api/v1/spus", headers=h,
+                            json={"category_code": "010", "name_i18n": {"zh": "配件B"},
+                                 "main_image": "img/b.jpg"})
+    assert r_b.status_code in (200, 201), r_b.text
+    spu_b_id = r_b.json()["data"]["id"]
+
+    r = await client.get("/api/v1/spus?category_code=01", headers=h)
+    assert r.status_code == 200
+    ids = {x["id"] for x in r.json()["data"]["items"]}
+    assert spu_a_id in ids
+    assert spu_b_id not in ids
