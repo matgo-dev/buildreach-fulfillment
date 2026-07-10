@@ -9,9 +9,11 @@ from app.db.models.category import Category  # noqa: F401
 from app.db.models.category_spec_suggestion import CategorySpecSuggestion  # noqa: F401
 from app.db.models.customer import Customer  # noqa: F401
 from app.db.models.number_sequence import NumberSequence  # noqa: F401
+from app.db.models.spu import Spu  # noqa: F401
+from app.db.models.sku import Sku  # noqa: F401
 
 __all__ = [
     "User", "Role", "RoleCode", "Permission",
     "UserRole", "RolePermission", "AuditLog", "Category",
-    "CategorySpecSuggestion", "Customer", "NumberSequence",
+    "CategorySpecSuggestion", "Customer", "NumberSequence", "Spu", "Sku",
 ]

@@ -101,5 +101,13 @@ class NotFoundError(BusinessError):
         super().__init__(status.HTTP_404_NOT_FOUND, 40008, message, message_key=MessageKey.NOT_FOUND)
 
 
+class SpecContractError(BusinessError):
+    """spec_jsonb 契约违规(key 唯一/来自模板/zh 必填/禁空串等)。模块段 13=SKU。"""
+
+    def __init__(self, message: str = "spec_jsonb contract violated"):
+        super().__init__(status.HTTP_400_BAD_REQUEST, 41301, message,
+                         message_key=MessageKey.SPEC_CONTRACT)
+
+
 def success(data: Any = None, message: str = "ok") -> dict:
     return {"code": 0, "message": message, "data": data}

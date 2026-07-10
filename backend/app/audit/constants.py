@@ -12,6 +12,8 @@ class AuditResourceType(str, Enum):
     SYSTEM = "system"
     USER_ROLE = "user_role"
     CUSTOMER = "customer"
+    SPU = "spu"
+    SKU = "sku"
 
 
 class AuditAction(str, Enum):
