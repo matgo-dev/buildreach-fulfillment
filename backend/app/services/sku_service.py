@@ -42,6 +42,32 @@ async def _spu_category(db: AsyncSession, spu_id: int) -> tuple[Spu, str]:
     return spu, spu.category_code
 
 
+async def list_skus_by_spu(db: AsyncSession, spu_id: int) -> list[Sku]:
+    return list((await db.execute(select(Sku).where(
+        Sku.spu_id == spu_id, Sku.deleted_at.is_(None))
+        .order_by(Sku.created_at.desc()))).scalars().all())
+
+
+def sku_available(sku: Sku, spu: Spu) -> bool:
+    """派生可用性(不改字段):SKU 与其所属 SPU 均 ACTIVE 且未删。"""
+    return (sku.status == "ACTIVE" and sku.deleted_at is None
+            and spu.status == "ACTIVE" and spu.deleted_at is None)
+
+
+async def spu_ids_with_active_sku(db: AsyncSession, spu_ids: list[int]) -> set[int]:
+    """一次分组子查询:给定 SPU id 集合中,哪些至少有一个 ACTIVE 未删 SKU(避免 N+1)。
+
+    仅承载 SKU 侧条件;SPU 自身是否 ACTIVE/未删由调用方另行判断并 AND 之。
+    """
+    if not spu_ids:
+        return set()
+    rows = (await db.execute(
+        select(Sku.spu_id).where(
+            Sku.spu_id.in_(spu_ids), Sku.status == "ACTIVE", Sku.deleted_at.is_(None)
+        ).distinct())).scalars().all()
+    return set(rows)
+
+
 async def get_sku(db: AsyncSession, sku_id: int) -> Sku:
     sku = (await db.execute(select(Sku).where(Sku.id == sku_id))).scalar_one_or_none()
     if sku is None:
