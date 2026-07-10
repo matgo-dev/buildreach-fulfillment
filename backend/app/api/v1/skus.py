@@ -15,6 +15,19 @@ from app.services import sku_service
 router = APIRouter(prefix="/skus", tags=["skus"])
 
 
+@router.get("", summary="搜 SKU(pg_trgm 模糊:名/规格/编码)")
+async def search_skus(
+    q: str = "",
+    limit: int = 50,
+    _current: CurrentUser = Depends(require_permission(Permissions.SKU_MANAGE)),
+    db: AsyncSession = Depends(get_db),
+):
+    rows = await sku_service.search_skus(db, q, limit)
+    return success([
+        SkuOut.model_validate(r, from_attributes=True).model_dump() for r in rows
+    ])
+
+
 @router.post("", summary="加 SKU")
 async def create_sku(
     body: SkuCreateIn,

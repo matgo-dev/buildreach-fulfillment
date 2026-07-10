@@ -49,6 +49,16 @@ async def get_sku(db: AsyncSession, sku_id: int) -> Sku:
     return sku
 
 
+async def search_skus(db: AsyncSession, q: str, limit: int = 50) -> list[Sku]:
+    """pg_trgm 模糊匹配 search_text(gin_trgm_ops 加速 ILIKE)。空 q 返回空。"""
+    if not q or not q.strip():
+        return []
+    pattern = f"%{q.strip()}%"
+    rows = (await db.execute(
+        select(Sku).where(Sku.search_text.ilike(pattern)).limit(limit))).scalars().all()
+    return list(rows)
+
+
 async def create_sku(db: AsyncSession, *, spu_id, unit, reference_price, name_i18n,
                      spec_items, actor_user_id, actor_user_email,
                      request: Request | None = None) -> Sku:
