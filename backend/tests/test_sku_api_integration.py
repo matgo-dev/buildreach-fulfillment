@@ -40,6 +40,25 @@ async def test_sku_flow_and_cost_redaction(client, catalog_operator_headers, sup
 
 
 @pytest.mark.asyncio
+async def test_update_sku_after_soft_delete_404s(client, catalog_operator_headers, db_session):
+    """CT7 修了 update_sku 绕过 deleted_at 的隐患:逻辑删后 PUT 应 404 而非改到已删记录。"""
+    h = catalog_operator_headers
+    await _seed_category(db_session, "10")
+    spu = (await client.post("/api/v1/spus", headers=h,
+        json={"category_code": "10", "name_i18n": {"zh": "钢管"}})).json()["data"]
+    r = await client.post("/api/v1/skus", headers=h, json={
+        "spu_id": spu["id"], "unit": "PCS", "reference_price": "12.50",
+        "name_i18n": {"zh": "钢管DN50"}, "spec_items": []})
+    rid = r.json()["data"]["id"]
+
+    assert (await client.delete(f"/api/v1/skus/{rid}", headers=h)).status_code in (200, 204)
+
+    r2 = await client.put(f"/api/v1/skus/{rid}", headers=h,
+        json={"name_i18n": {"zh": "改名"}})
+    assert r2.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_admin_cannot_create_sku(client, superadmin_headers):
     r = await client.post("/api/v1/skus", headers=superadmin_headers, json={
         "spu_id": 1, "unit": "PCS", "name_i18n": {"zh": "x"}, "spec_items": []})
