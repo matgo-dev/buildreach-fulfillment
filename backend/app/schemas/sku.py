@@ -1,10 +1,13 @@
 """SKU schemas + spec_jsonb Pydantic 契约(防漂移,来自 i18n 方案 §4.2b)。"""
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from datetime import datetime
+from decimal import Decimal
+
+from pydantic import BaseModel, Field, ValidationError, condecimal, field_validator
 
 from app.core.exceptions import SpecContractError
-from app.schemas.customer import _require_zh
+from app.schemas.common import validate_i18n
 
 
 class SpecItem(BaseModel):
@@ -52,24 +55,24 @@ class SkuSpecItemIn(BaseModel):
 class SkuCreateIn(BaseModel):
     spu_id: int
     unit: str = Field(..., max_length=20)
-    reference_price: float | None = Field(default=None, ge=0)
+    reference_price: condecimal(ge=0, max_digits=18, decimal_places=2) | None = None
     name_i18n: dict
     spec_items: list[SkuSpecItemIn] = []
 
-    _v = field_validator("name_i18n")(_require_zh)
+    _v = field_validator("name_i18n")(validate_i18n)
 
 
 class SkuUpdateIn(BaseModel):
     name_i18n: dict | None = None
     unit: str | None = None
-    reference_price: float | None = Field(default=None, ge=0)
+    reference_price: condecimal(ge=0, max_digits=18, decimal_places=2) | None = None
     spec_items: list[SkuSpecItemIn] | None = None
 
     @field_validator("name_i18n")
     @classmethod
     def _v_name(cls, v):
         # 部分更新:仅当提供 name_i18n 时才校验 zh 必填/禁空串(与 create 一致)
-        return _require_zh(v) if v is not None else v
+        return validate_i18n(v) if v is not None else v
 
 
 class SkuOut(BaseModel):
@@ -77,8 +80,21 @@ class SkuOut(BaseModel):
     spu_id: int
     sku_code: str
     unit: str
-    reference_price: float | None
+    reference_price: Decimal | None
     spec_jsonb: list
     name_i18n: dict
     search_text: str
     status: str
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+def sku_out(sku, *, include_cost: bool) -> dict:
+    """序列化 SKU;include_cost=False 时脱敏 reference_price(置 None)。"""
+    data = SkuOut.model_validate(sku).model_dump()
+    if not include_cost:
+        data["reference_price"] = None
+    return data
