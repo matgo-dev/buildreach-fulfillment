@@ -30,11 +30,13 @@ def upgrade() -> None:
             {"code": f"SPU{i:08d}", "id": spu_id},
         )
     # 对齐编号服务号段,避免后续 allocate 与回填冲突
+    # next_seq 语义:已发出的最大序号(allocate() 先 +1 再返回)。
+    # 回填后已用到 SPU{len(rows):08d},故 seed = len(rows),而非 len(rows)+1。
     if rows:
         conn.execute(sa.text(
             "INSERT INTO number_sequences (scope, period, next_seq) VALUES ('SPU', '', :n) "
             "ON CONFLICT (scope, period) DO UPDATE SET next_seq = EXCLUDED.next_seq"
-        ), {"n": len(rows) + 1})
+        ), {"n": len(rows)})
 
     op.alter_column("spus", "spu_code", nullable=False)
     op.create_index("ix_spus_spu_code", "spus", ["spu_code"], unique=True)
