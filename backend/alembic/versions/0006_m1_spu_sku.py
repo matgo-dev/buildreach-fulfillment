@@ -1,7 +1,7 @@
 """m1 spu sku
 
 Revision ID: 14e188130cf8
-Revises: 103eb408942b
+Revises: b2f4a1c8d9e0
 Create Date: 2026-07-09 22:36:38.825259
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = '14e188130cf8'
-down_revision: Union[str, None] = '103eb408942b'
+down_revision: Union[str, None] = 'b2f4a1c8d9e0'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -43,7 +43,9 @@ def upgrade() -> None:
     sa.Column('updated_at', sa.DateTime(), nullable=False),
     sa.Column('created_at', sa.DateTime(), nullable=False),
     sa.ForeignKeyConstraint(['spu_id'], ['spus.id'], ),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('id'),
+    # 采购参考价非负兜底(可空;autogenerate 不比对 CHECK,手工内联)
+    sa.CheckConstraint('reference_price IS NULL OR reference_price >= 0', name='ck_skus_ref_price_nn')
     )
     op.create_index('ix_skus_search_text_trgm', 'skus', ['search_text'], unique=False, postgresql_using='gin', postgresql_ops={'search_text': 'gin_trgm_ops'})
     op.create_index(op.f('ix_skus_sku_code'), 'skus', ['sku_code'], unique=True)

@@ -35,7 +35,10 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(), nullable=False),
     sa.ForeignKeyConstraint(['parent_code'], ['categories.code'], ),
     sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('code')
+    sa.UniqueConstraint('code'),
+    # 范围兜底(autogenerate 不比对 CHECK,手工内联)
+    sa.CheckConstraint('level >= 1', name='ck_categories_level'),
+    sa.CheckConstraint('sort_order >= 0', name='ck_categories_sort_nn')
     )
     op.create_index(op.f('ix_categories_parent_code'), 'categories', ['parent_code'], unique=False)
     # ### end Alembic commands ###
