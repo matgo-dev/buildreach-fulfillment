@@ -29,5 +29,10 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         Permissions.PERMISSION_MANAGE,
         Permissions.SYSTEM_CONFIG,
         Permissions.SYSTEM_AUDIT,
+        # M1 履约:customer/spu/sku/quote 管理(暂由 ADMIN 兼管,后续可拆专职角色)
+        Permissions.CUSTOMER_MANAGE,
+        Permissions.SPU_MANAGE,
+        Permissions.SKU_MANAGE,
+        Permissions.QUOTE_MANAGE,
     ],
 }

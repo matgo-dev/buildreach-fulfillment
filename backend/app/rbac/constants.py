@@ -25,6 +25,12 @@ class Permissions:
     SYSTEM_CONFIG = "system:config"
     SYSTEM_AUDIT = "system:audit"
 
+    # ----- 履约:customer / spu / sku / quote -----
+    CUSTOMER_MANAGE = "customer:manage"
+    SPU_MANAGE = "spu:manage"
+    SKU_MANAGE = "sku:manage"
+    QUOTE_MANAGE = "quote:manage"
+
 
 # auth:* 是系统底层会话权限,不归任何资源域(供启动同步识别,不进矩阵)
 SYSTEM_RESERVED_CODES = frozenset({
@@ -38,6 +44,7 @@ class ModuleLabel:
     """资源域 module 标签(用于侧边栏分组)。"""
     SYSTEM = "系统"
     AUTH = "auth"
+    FULFILLMENT = "履约"
 
 
 # 权限点元数据(用于启动同步:name / module)
@@ -51,6 +58,11 @@ PERMISSION_META: dict[str, dict[str, str]] = {
     Permissions.PERMISSION_MANAGE: {"name": "权限管理", "module": ModuleLabel.SYSTEM},
     Permissions.SYSTEM_CONFIG: {"name": "系统配置", "module": ModuleLabel.SYSTEM},
     Permissions.SYSTEM_AUDIT: {"name": "审计日志", "module": ModuleLabel.SYSTEM},
+
+    Permissions.CUSTOMER_MANAGE: {"name": "客户管理", "module": ModuleLabel.FULFILLMENT},
+    Permissions.SPU_MANAGE: {"name": "SPU 管理", "module": ModuleLabel.FULFILLMENT},
+    Permissions.SKU_MANAGE: {"name": "SKU 管理", "module": ModuleLabel.FULFILLMENT},
+    Permissions.QUOTE_MANAGE: {"name": "报价管理", "module": ModuleLabel.FULFILLMENT},
 }
 
 

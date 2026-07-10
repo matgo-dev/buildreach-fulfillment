@@ -26,4 +26,5 @@ async def test_sync_seeds_only_admin_role_and_base_perms():
     assert roles == {"ADMIN"}
     assert "auth:login" in perms
     assert "user:manage" in perms
-    assert not any(p.startswith(("product:", "rfq:", "quote:")) for p in perms)
+    assert not any(p.startswith(("product:", "rfq:")) for p in perms)
+    assert {"customer:manage", "spu:manage", "sku:manage", "quote:manage"} <= perms

@@ -7,9 +7,11 @@ from app.db.models.role_permission import RolePermission
 from app.db.models.audit_log import AuditLog
 from app.db.models.category import Category  # noqa: F401
 from app.db.models.category_spec_suggestion import CategorySpecSuggestion  # noqa: F401
+from app.db.models.customer import Customer  # noqa: F401
+from app.db.models.number_sequence import NumberSequence  # noqa: F401
 
 __all__ = [
     "User", "Role", "RoleCode", "Permission",
     "UserRole", "RolePermission", "AuditLog", "Category",
-    "CategorySpecSuggestion",
+    "CategorySpecSuggestion", "Customer", "NumberSequence",
 ]
