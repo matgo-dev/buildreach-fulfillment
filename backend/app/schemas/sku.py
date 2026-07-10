@@ -1,9 +1,10 @@
 """SKU schemas + spec_jsonb Pydantic 契约(防漂移,来自 i18n 方案 §4.2b)。"""
 from __future__ import annotations
 
-from pydantic import BaseModel, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from app.core.exceptions import SpecContractError
+from app.schemas.customer import _require_zh
 
 
 class SpecItem(BaseModel):
@@ -39,3 +40,39 @@ def validate_spec_items(items: list[dict]) -> list[SpecItem]:
     if len(keys) != len(set(keys)):
         raise SpecContractError("同一 SKU 内 key 必须唯一")
     return parsed
+
+
+class SkuSpecItemIn(BaseModel):
+    key: str
+    value: str | float | int | dict[str, str]
+    unit: str | None = None
+    label_i18n: dict | None = None  # 手输新 key 时带,回写模板用
+
+
+class SkuCreateIn(BaseModel):
+    spu_id: int
+    unit: str = Field(..., max_length=20)
+    reference_price: float | None = None
+    name_i18n: dict
+    spec_items: list[SkuSpecItemIn] = []
+
+    _v = field_validator("name_i18n")(_require_zh)
+
+
+class SkuUpdateIn(BaseModel):
+    name_i18n: dict | None = None
+    unit: str | None = None
+    reference_price: float | None = None
+    spec_items: list[SkuSpecItemIn] | None = None
+
+
+class SkuOut(BaseModel):
+    id: int
+    spu_id: int
+    sku_code: str
+    unit: str
+    reference_price: float | None
+    spec_jsonb: list
+    name_i18n: dict
+    search_text: str
+    status: str
