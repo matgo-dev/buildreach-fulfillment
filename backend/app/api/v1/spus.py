@@ -19,7 +19,7 @@ router = APIRouter(prefix="/spus", tags=["spus"])
 async def create_spu(
     body: SpuCreateIn,
     request: Request,
-    current: CurrentUser = Depends(require_permission(Permissions.SPU_MANAGE)),
+    current: CurrentUser = Depends(require_permission(Permissions.CATALOG_MANAGE)),
     db: AsyncSession = Depends(get_db),
 ):
     spu = await spu_service.create_spu(

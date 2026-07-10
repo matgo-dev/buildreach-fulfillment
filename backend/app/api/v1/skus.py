@@ -19,7 +19,7 @@ router = APIRouter(prefix="/skus", tags=["skus"])
 async def search_skus(
     q: str = "",
     limit: int = 50,
-    _current: CurrentUser = Depends(require_permission(Permissions.SKU_MANAGE)),
+    _current: CurrentUser = Depends(require_permission(Permissions.CATALOG_READ)),
     db: AsyncSession = Depends(get_db),
 ):
     rows = await sku_service.search_skus(db, q, limit)
@@ -32,7 +32,7 @@ async def search_skus(
 async def create_sku(
     body: SkuCreateIn,
     request: Request,
-    current: CurrentUser = Depends(require_permission(Permissions.SKU_MANAGE)),
+    current: CurrentUser = Depends(require_permission(Permissions.CATALOG_MANAGE)),
     db: AsyncSession = Depends(get_db),
 ):
     sku = await sku_service.create_sku(
@@ -47,7 +47,7 @@ async def update_sku(
     sku_id: int,
     body: SkuUpdateIn,
     request: Request,
-    current: CurrentUser = Depends(require_permission(Permissions.SKU_MANAGE)),
+    current: CurrentUser = Depends(require_permission(Permissions.CATALOG_MANAGE)),
     db: AsyncSession = Depends(get_db),
 ):
     spec_items = ([i.model_dump() for i in body.spec_items]
@@ -62,7 +62,7 @@ async def update_sku(
 @router.get("/{sku_id}", summary="取 SKU")
 async def get_sku(
     sku_id: int,
-    _current: CurrentUser = Depends(require_permission(Permissions.SKU_MANAGE)),
+    _current: CurrentUser = Depends(require_permission(Permissions.CATALOG_READ)),
     db: AsyncSession = Depends(get_db),
 ):
     sku = await sku_service.get_sku(db, sku_id)

@@ -1,9 +1,12 @@
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
+from app.rbac.permissions_config import ROLE_PERMISSIONS
+from app.rbac.constants import Permissions
+
 
 @pytest.mark.asyncio
-async def test_sync_seeds_only_admin_role_and_base_perms():
+async def test_sync_seeds_admin_and_catalog_operator_roles_and_base_perms():
     import os
     dsn = os.environ.get("TEST_DATABASE_URL",
         "postgresql+psycopg://liujingjing@localhost:5433/fulfillment_test")
@@ -24,11 +27,12 @@ async def test_sync_seeds_only_admin_role_and_base_perms():
             await sync_rbac(db)
             roles = {r.code for r in (await db.execute(select(Role))).scalars()}
             perms = {p.code for p in (await db.execute(select(Permission))).scalars()}
-        assert roles == {"ADMIN"}
+        assert roles == {"ADMIN", "CATALOG_OPERATOR"}
         assert "auth:login" in perms
         assert "user:manage" in perms
         assert not any(p.startswith(("product:", "rfq:")) for p in perms)
-        assert {"customer:manage", "spu:manage", "sku:manage", "quote:manage"} <= perms
+        assert not any(p in perms for p in ("spu:manage", "sku:manage"))
+        assert {"customer:manage", "catalog:read", "catalog:manage", "quote:manage"} <= perms
     finally:
         # 本测试对共享 fulfillment_test 做了 drop_all/create_all,会冲掉 session 级 fixture
         # 种下的引导管理员(sync_rbac 只建角色/权限,不建 admin 用户)。恢复基线:重跑
@@ -36,3 +40,15 @@ async def test_sync_seeds_only_admin_role_and_base_perms():
         async with Session() as db:
             await run_all_seeds(db)
         await engine.dispose()
+
+
+def test_catalog_operator_has_read_and_manage():
+    perms = ROLE_PERMISSIONS["CATALOG_OPERATOR"]
+    assert Permissions.CATALOG_READ in perms
+    assert Permissions.CATALOG_MANAGE in perms
+
+
+def test_admin_has_catalog_read_but_not_manage():
+    perms = ROLE_PERMISSIONS["ADMIN"]
+    assert Permissions.CATALOG_READ in perms
+    assert Permissions.CATALOG_MANAGE not in perms
