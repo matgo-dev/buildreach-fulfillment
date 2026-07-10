@@ -125,9 +125,8 @@ docker compose build backend
 
 ## 待接
 
-- GitHub remote 尚未建立(仓库落点待定:公司组织 or 个人账号),定下来后:
-  - `git remote add origin <url>` + 推送
-  - 远端 CI(当前 `.github/workflows/ci.yml` 只在本地/未来 remote 的 Actions 上跑,尚未在真实
-    GitHub Actions 环境验证过)
+- GitHub remote 已建:`origin` → `github.com/matgo-dev/buildreach-fulfillment`;仍待接:
+  - 远端 CI(`.github/workflows/ci.yml` 尚未在真实 GitHub Actions 环境验证过)
   - 远端部署编排(参考 `buildreach` 主仓库 `deploy/` 的模式,目前本仓库无对应目录)
 - `frontend/Dockerfile`:生产构建镜像待补(见上「容器部署」一节)。
+- 前端界面:M1 未做(仅 M0 最小登录壳),随各模块后端稳定后逐步补(内部界面,中文)。
