@@ -36,7 +36,7 @@ def compose_spec_text(
         label = display(tmpl.get("label_i18n"), lang, fallback) or item["key"]
         value = item["value"]
         value_str = display(value, lang, fallback) if isinstance(value, dict) else str(value)
-        unit = item.get("unit") or tmpl.get("unit") or ""
+        unit = tmpl.get("unit") or ""  # 计量单位只住模板(Part B 归位:SKU 值不带 unit)
         seg = f"{label}: {value_str}" + (f" {unit}" if unit else "")
         parts.append(seg)
     return ", ".join(parts)

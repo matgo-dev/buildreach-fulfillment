@@ -33,11 +33,11 @@ def test_compose_spec_text_orders_by_template_and_formats():
     assert got == "材质: 不锈钢 304, 公称通径: DN50, 压力等级: 1.6 MPa"
 
 
-def test_compose_spec_text_sku_unit_overrides_template_and_value_fallback():
+def test_compose_spec_text_uses_template_unit_and_value_fallback():
     suggestions = {"dn": {"label_i18n": {"zh": "通径", "en": "DN"}, "unit": "mm", "sort_order": 10}}
-    spec = [{"key": "dn", "value": {"zh": "五十"}, "unit": "inch"}]
-    # en 报价:label 取 en;value 缺 en → 回落 zh;unit 用 SKU 级 inch 覆盖模板 mm
-    assert compose_spec_text(spec, suggestions, "en") == "DN: 五十 inch"
+    spec = [{"key": "dn", "value": {"zh": "五十"}}]  # Part B:SKU 值不带 unit
+    # en 报价:label 取 en;value 缺 en → 回落 zh;unit 取模板 mm(计量单位只住模板)
+    assert compose_spec_text(spec, suggestions, "en") == "DN: 五十 mm"
 
 
 def test_compose_spec_text_unknown_key_uses_key_as_label():
