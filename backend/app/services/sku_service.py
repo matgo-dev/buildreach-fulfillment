@@ -1,4 +1,4 @@
-"""SKU 写服务:模板引导录规格 + 手输 key 回写模板 + search_text 写路径重算。"""
+"""SKU 写服务:模板引导录规格 + 新属性生成稳定键回写模板 + search_text 写路径重算。"""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -10,7 +10,7 @@ from starlette.requests import Request
 from app.audit.constants import AuditAction, AuditResourceType
 from app.audit.logger import write_audit
 from app.core.codegen import format_code
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, SpecContractError
 from app.core.search_text import build_search_text
 from app.db.models.sku import Sku
 from app.db.models.spu import Spu
@@ -20,20 +20,40 @@ from app.services.numbering import NumberScope, allocate
 
 
 async def _resolve_spec(db: AsyncSession, category_code: str, spec_items: list[dict]) -> list[dict]:
-    """校验 + 手输 key 即时回写模板;返回落库用的 spec_jsonb(key/value/unit)。"""
+    """校验 + 新属性生成稳定键回写模板;返回落库用的 spec_jsonb(key/value/unit)。
+
+    身份≠展示铁律:key 在模板里 → 直接用该 key;不在模板 → 绝不拿用户提交的 key
+    (可能是中文原文)直接当 key,而是后端生成独立随机稳定键 `a_<8位 base62>`
+    (见 tmpl.create_new_attribute),把用户提交的 label_i18n(zh 必填)落回模板,
+    SKU 引用生成键。未知 key 又没带 label_i18n → SpecContractError(新增属性必须带 label_i18n)。
+    enum 属性额外校验:填的 value 必须是模板 options 里的 code。
+    """
     known = await tmpl.suggestions_by_key(db, category_code)
+    resolved: list[dict] = []
     for item in spec_items:
-        key = item["key"]
-        if key not in known:
-            # 手输新 key → 即时 upsert 回模板(source=运营手加),不游离 custom
-            await tmpl.upsert_suggestion_key(
-                db, category_code, key=key,
-                label_i18n=item.get("label_i18n") or {"zh": key},
-                value_type="string")
-    # 形状/唯一校验(去掉 label_i18n 这个仅回写用的字段)
-    stripped = [{k: v for k, v in it.items() if k in ("key", "value", "unit")}
-                for it in spec_items]
-    parsed = validate_spec_items(stripped)
+        key = item.get("key")
+        tmpl_row = known.get(key) if key else None
+        if tmpl_row is None:
+            label_i18n = item.get("label_i18n")
+            if not label_i18n or not label_i18n.get("zh"):
+                raise SpecContractError(
+                    f"未知属性 key={key!r}:模板中不存在,新增属性须带 label_i18n(zh 必填)")
+            tmpl_row = await tmpl.create_new_attribute(
+                db, category_code, label_i18n=label_i18n, value_type="string")
+            key = tmpl_row["key"]
+            known[key] = tmpl_row
+        elif tmpl_row.get("value_type") == "enum":
+            codes = {opt["code"] for opt in (tmpl_row.get("options") or [])}
+            value = item.get("value")
+            if not isinstance(value, str) or value not in codes:
+                raise SpecContractError(
+                    f"属性 '{key}' 的值 {value!r} 不在允许的 enum code 集 {sorted(codes)} 内")
+        resolved.append({
+            "key": key,
+            "value": item.get("value"),
+            **({"unit": item["unit"]} if item.get("unit") is not None else {}),
+        })
+    parsed = validate_spec_items(resolved)
     return [p.model_dump(exclude_none=True) for p in parsed]
 
 

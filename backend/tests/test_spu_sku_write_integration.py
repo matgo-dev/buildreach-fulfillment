@@ -10,6 +10,10 @@ async def _seed_category(db_session, code="10"):
     db_session.add(Category(code=code, parent_code=None, name_i18n={"zh": "阀门"},
                             level=1, is_leaf=True, sort_order=0))
     await db_session.commit()
+    # 预置一个已知属性(dn):其余用例走"key 已在模板 → 直接用"分支,
+    # 单独测新属性生成键的分支放在 test_create_spu_then_sku_builds_search_text。
+    await tmpl.upsert_attribute(db_session, code, key="dn", label_i18n={"zh": "公称通径"})
+    await db_session.commit()
 
 
 @pytest.mark.asyncio
@@ -26,7 +30,9 @@ async def test_create_spu_then_sku_builds_search_text(client, catalog_operator_h
         "name_i18n": {"zh": "不锈钢球阀 DN50"},
         "spec_items": [
             {"key": "dn", "value": "DN50"},
-            {"key": "coating", "value": {"zh": "喷塑"}, "label_i18n": {"zh": "涂层"}},
+            # 新属性:无 key(或未知 key)+ label_i18n → 后端生成稳定键,绝不拿"coating"
+            # 这类用户原文直接当 key(身份≠展示铁律)。
+            {"value": {"zh": "喷塑"}, "label_i18n": {"zh": "涂层"}},
         ],
     })
     assert r_sku.status_code == 200, r_sku.text
@@ -37,9 +43,14 @@ async def test_create_spu_then_sku_builds_search_text(client, catalog_operator_h
     for token in ["不锈钢球阀 DN50", "DN50", "喷塑"]:
         assert token in row.search_text
 
-    # 手输 key 'coating' 已即时回写模板(source=运营手加)
+    # 新属性由后端生成独立随机稳定键(a_ + 8 位 base62),绝非用户原文/中文,已即时回写模板(source=operator)
+    spec_jsonb = r_sku.json()["data"]["spec_jsonb"]
+    new_key = next(i["key"] for i in spec_jsonb if i["key"] != "dn")
+    new_key_suffix = new_key.removeprefix("a_")
+    assert new_key.startswith("a_") and len(new_key_suffix) == 8 and new_key_suffix.isalnum()
     by_key = await tmpl.suggestions_by_key(db_session, "10")
-    assert by_key["coating"]["source"] == "运营手加"
+    assert by_key[new_key]["source"] == "operator"
+    assert by_key[new_key]["label_i18n"] == {"zh": "涂层"}
 
 
 @pytest.mark.asyncio

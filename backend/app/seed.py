@@ -11,20 +11,30 @@ from app.audit.logger import write_audit
 from app.core.config import settings
 from app.core.security import hash_password
 from app.db.models.category import Category
-from app.db.models.category_spec_suggestion import CategorySpecSuggestion, SuggestionSource
+from app.db.models.category_spec_attribute import SuggestionSource
 from app.db.models.role import Role, RoleCode
 from app.db.models.user import User, UserStatus
 from app.db.models.user_role import UserRole
+from app.services import spec_template_service as tmpl
 
 logger = logging.getLogger(__name__)
 
 _SPEC_TEMPLATE_SEEDS: dict[str, list[dict]] = {
-    # category_code: suggestions(种子;仅 zh,英/斯按需后补)
+    # category_code: 属性列表(种子;仅 zh,英/斯按需后补)。sort_order 由 upsert_attribute
+    # 按列表顺序自动递增分配,此处无需手写。
     "10": [
-        {"key": "material", "label_i18n": {"zh": "材质"}, "value_type": "enum", "unit": "", "sort_order": 10, "source": SuggestionSource.SEED},
-        {"key": "dn", "label_i18n": {"zh": "公称通径"}, "value_type": "string", "unit": "", "sort_order": 20, "source": SuggestionSource.SEED},
-        {"key": "pressure", "label_i18n": {"zh": "压力等级"}, "value_type": "number", "unit": "MPa", "sort_order": 30, "source": SuggestionSource.SEED},
-        {"key": "conn", "label_i18n": {"zh": "连接方式"}, "value_type": "enum", "unit": "", "sort_order": 40, "source": SuggestionSource.SEED},
+        {"key": "material", "label_i18n": {"zh": "材质"}, "value_type": "enum", "options": [
+            {"code": "carbon_steel", "label_i18n": {"zh": "碳钢"}},
+            {"code": "stainless_steel", "label_i18n": {"zh": "不锈钢"}},
+            {"code": "galvanized", "label_i18n": {"zh": "镀锌"}},
+        ]},
+        {"key": "dn", "label_i18n": {"zh": "公称通径"}, "value_type": "string"},
+        {"key": "pressure", "label_i18n": {"zh": "压力等级"}, "value_type": "number", "unit": "MPa"},
+        {"key": "conn", "label_i18n": {"zh": "连接方式"}, "value_type": "enum", "options": [
+            {"code": "flange", "label_i18n": {"zh": "法兰"}},
+            {"code": "thread", "label_i18n": {"zh": "螺纹"}},
+            {"code": "weld", "label_i18n": {"zh": "焊接"}},
+        ]},
     ],
 }
 
@@ -76,24 +86,25 @@ async def seed_bootstrap_admin(db: AsyncSession) -> None:
 
 
 async def seed_spec_templates(db: AsyncSession) -> None:
-    """种入分类规格建议模板(source=种子)。
+    """批量 upsert 分类规格属性模板(source=seed)。
 
-    幂等:分类不存在或该分类建议已存在则跳过。
+    幂等:分类不存在则跳过该分类;upsert_attribute 内部 ON CONFLICT(category_code,key)
+    DO NOTHING,已存在的 key 原样保留不覆盖。
     注:种子挂在 category_code="10"——需与真实导入的分类 code 对齐;若导入数据
     无 "10",种子会跳过(幂等安全),运营导入真实分类后可调整种子 code 或改用
     upsert 服务补。
     """
-    for category_code, suggestions in _SPEC_TEMPLATE_SEEDS.items():
+    for category_code, attrs in _SPEC_TEMPLATE_SEEDS.items():
         cat = (await db.execute(
             select(Category).where(Category.code == category_code))).scalar_one_or_none()
         if cat is None:
             logger.info("Seed: category %s 不存在,跳过模板种子", category_code)
             continue
-        exists = (await db.execute(select(CategorySpecSuggestion).where(
-            CategorySpecSuggestion.category_code == category_code))).scalar_one_or_none()
-        if exists is not None:
-            continue
-        db.add(CategorySpecSuggestion(category_code=category_code, suggestions=suggestions))
+        for attr in attrs:
+            await tmpl.upsert_attribute(
+                db, category_code, key=attr["key"], label_i18n=attr["label_i18n"],
+                value_type=attr.get("value_type", "string"), unit=attr.get("unit"),
+                options=attr.get("options"), source=SuggestionSource.SEED)
     await db.commit()
 
 

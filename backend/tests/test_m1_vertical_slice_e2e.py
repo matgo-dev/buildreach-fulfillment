@@ -19,7 +19,7 @@ async def test_end_to_end_build_search_quote(
     sku = (await client.post("/api/v1/skus", headers=catalog_operator_headers, json={
         "spu_id": spu_id, "unit": "PCS", "reference_price": 128.0,
         "name_i18n": {"zh": "不锈钢法兰球阀 DN50"},
-        "spec_items": [{"key": "dn", "value": "DN50"},
+        "spec_items": [{"key": "dn", "value": "DN50", "label_i18n": {"zh": "公称通径"}},
                        {"key": "material", "value": {"zh": "不锈钢 304"}, "label_i18n": {"zh": "材质"}}]
     })).json()["data"]
 

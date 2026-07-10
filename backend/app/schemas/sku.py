@@ -46,10 +46,12 @@ def validate_spec_items(items: list[dict]) -> list[SpecItem]:
 
 
 class SkuSpecItemIn(BaseModel):
-    key: str
+    # key 可缺省:新属性(带 label_i18n)由后端生成稳定键,不接受调用方直接指定
+    # 中文/任意原文当 key —— 身份≠展示铁律(_resolve_spec 强制)。
+    key: str | None = None
     value: str | float | int | dict[str, str]
     unit: str | None = None
-    label_i18n: dict | None = None  # 手输新 key 时带,回写模板用
+    label_i18n: dict | None = None  # 新属性时带(zh 必填),回写模板用
 
 
 class SkuCreateIn(BaseModel):

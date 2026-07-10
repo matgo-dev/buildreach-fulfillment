@@ -22,7 +22,7 @@ async def _prep(client, headers, catalog_headers, db_session, cust_lang=None):
                     "main_image": "img/test.jpg"})).json()["data"]["id"]
     sku = (await client.post("/api/v1/skus", headers=catalog_headers, json={
         "spu_id": spu_id, "unit": "PCS", "name_i18n": {"zh": "不锈钢球阀 DN50"},
-        "spec_items": [{"key": "dn", "value": "DN50"}]})).json()["data"]
+        "spec_items": [{"key": "dn", "value": "DN50", "label_i18n": {"zh": "公称通径"}}]})).json()["data"]
     return cust, sku
 
 
