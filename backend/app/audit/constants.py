@@ -14,6 +14,7 @@ class AuditResourceType(str, Enum):
     CUSTOMER = "customer"
     SPU = "spu"
     SKU = "sku"
+    QUOTATION = "quotation"
 
 
 class AuditAction(str, Enum):
