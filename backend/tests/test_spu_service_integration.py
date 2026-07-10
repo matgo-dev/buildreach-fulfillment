@@ -44,7 +44,7 @@ async def test_soft_delete_spu_blocked_by_active_skus(db_session):
         name_i18n={"zh": "x"}, main_image="img/test.jpg",
         actor_user_id=1, actor_user_email="a@b.c")
     from app.services import sku_service
-    await sku_service.create_sku(db_session, spu_id=spu.id, unit="PCS",
+    await sku_service.create_sku(db_session, spu_id=spu.id, unit="piece",
         reference_price=None, name_i18n={"zh": "sku"}, spec_items=[],
         actor_user_id=1, actor_user_email="a@b.c")
     with pytest.raises(ConflictError):

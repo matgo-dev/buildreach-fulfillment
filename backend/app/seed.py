@@ -13,11 +13,29 @@ from app.core.security import hash_password
 from app.db.models.category import Category
 from app.db.models.category_spec_attribute import SuggestionSource
 from app.db.models.role import Role, RoleCode
+from app.db.models.unit import Unit
 from app.db.models.user import User, UserStatus
 from app.db.models.user_role import UserRole
 from app.services import spec_template_service as tmpl
 
 logger = logging.getLogger(__name__)
+
+# 与 alembic/versions/0012_units_sku_fk.py 的 _UNIT_SEEDS 保持同一份数据(migration 是
+# 独立自包含的 data-op,不 import 会演进的 app 代码;这里是 create_all 测试路径的等价
+# seed,两处口径手动保持一致)。
+_UNIT_SEEDS: list[tuple[str, dict, int]] = [
+    ("piece", {"zh": "件", "en": "pc"}, 10),
+    ("meter", {"zh": "米", "en": "m"}, 20),
+    ("sqm", {"zh": "平方米", "en": "sqm"}, 30),
+    ("cbm", {"zh": "立方米", "en": "cbm"}, 40),
+    ("kg", {"zh": "千克", "en": "kg"}, 50),
+    ("ton", {"zh": "吨", "en": "ton"}, 60),
+    ("roll", {"zh": "卷", "en": "roll"}, 70),
+    ("bag", {"zh": "包", "en": "bag"}, 80),
+    ("box", {"zh": "箱", "en": "box"}, 90),
+    ("set", {"zh": "套", "en": "set"}, 100),
+    ("pair", {"zh": "双", "en": "pair"}, 110),
+]
 
 _SPEC_TEMPLATE_SEEDS: dict[str, list[dict]] = {
     # category_code: 属性列表(种子;仅 zh,英/斯按需后补)。sort_order 由 upsert_attribute
@@ -108,7 +126,23 @@ async def seed_spec_templates(db: AsyncSession) -> None:
     await db.commit()
 
 
+async def seed_units(db: AsyncSession) -> None:
+    """种入常用售卖单位(spec §11 Part A)。幂等:code 已存在则跳过,不覆盖。
+
+    生产路径由 alembic 迁移 0012 内 data-op 幂等 seed 负责;这里是 create_all 测试
+    路径(不跑迁移)的等价补齐,ripple 要求测试环境 units 表必须有数据,否则任何
+    建 SKU 的测试都会 FK 违约。
+    """
+    for code, label_i18n, sort_order in _UNIT_SEEDS:
+        existing = (await db.execute(select(Unit).where(Unit.code == code))).scalar_one_or_none()
+        if existing is not None:
+            continue
+        db.add(Unit(code=code, label_i18n=label_i18n, sort_order=sort_order, is_active=True))
+    await db.commit()
+
+
 async def run_all_seeds(db: AsyncSession) -> None:
     """启动种子总入口。M0 基座仅保留引导管理员。"""
     await seed_bootstrap_admin(db)
+    await seed_units(db)
     await seed_spec_templates(db)

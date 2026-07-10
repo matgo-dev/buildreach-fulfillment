@@ -14,19 +14,40 @@ from app.core.exceptions import NotFoundError, SpecContractError
 from app.core.search_text import build_search_text
 from app.db.models.sku import Sku
 from app.db.models.spu import Spu
+from app.db.models.unit import Unit
 from app.schemas.sku import validate_spec_items
 from app.services import spec_template_service as tmpl
 from app.services.numbering import NumberScope, allocate
 
 
+async def _validate_unit(db: AsyncSession, code: str) -> None:
+    """SKU 售卖单位必须 ∈ 现有 units.code 且 is_active(spec §11 Part A)。
+
+    应用层先查后插:干净 404 而非让 FK 违反在 DB 层炸出裸 IntegrityError(镜像
+    spu_service._get_leaf_category 对 category_code 的校验写法)。停用单位(仍供
+    历史 SKU 引用、FK RESTRICT 保着)不再是新 SKU 的合法选择。
+    """
+    unit = (await db.execute(
+        select(Unit).where(Unit.code == code, Unit.is_active.is_(True))
+    )).scalar_one_or_none()
+    if unit is None:
+        raise NotFoundError(f"售卖单位不存在或已停用: {code}")
+
+
 async def _resolve_spec(db: AsyncSession, category_code: str, spec_items: list[dict]) -> list[dict]:
-    """校验 + 新属性生成稳定键回写模板;返回落库用的 spec_jsonb(key/value/unit)。
+    """校验 + 新属性生成稳定键回写模板;返回落库用的 spec_jsonb(仅 key/value)。
 
     身份≠展示铁律:key 在模板里 → 直接用该 key;不在模板 → 绝不拿用户提交的 key
     (可能是中文原文)直接当 key,而是后端生成独立随机稳定键 `a_<8位 base62>`
     (见 tmpl.create_new_attribute),把用户提交的 label_i18n(zh 必填)落回模板,
     SKU 引用生成键。未知 key 又没带 label_i18n → SpecContractError(新增属性必须带 label_i18n)。
     enum 属性额外校验:填的 value 必须是模板 options 里的 code。
+
+    计量单位归位(spec §11 Part B):单位是属性的固有元数据,只住模板
+    category_spec_attributes.unit,spec_jsonb 永不落 unit。用户提交的 `item["unit"]`
+    仅在"新增属性"分支被消费,作为该新属性模板行的计量单位录一次(如新增"长度"
+    顺手给 unit=mm);对已存在的 key,提交的 unit 一律忽略——不接受某个 SKU 单独
+    覆盖模板单位。
     """
     known = await tmpl.suggestions_by_key(db, category_code)
     resolved: list[dict] = []
@@ -39,7 +60,8 @@ async def _resolve_spec(db: AsyncSession, category_code: str, spec_items: list[d
                 raise SpecContractError(
                     f"未知属性 key={key!r}:模板中不存在,新增属性须带 label_i18n(zh 必填)")
             tmpl_row = await tmpl.create_new_attribute(
-                db, category_code, label_i18n=label_i18n, value_type="string")
+                db, category_code, label_i18n=label_i18n, value_type="string",
+                unit=item.get("unit") or None)
             key = tmpl_row["key"]
             known[key] = tmpl_row
         elif tmpl_row.get("value_type") == "enum":
@@ -48,11 +70,7 @@ async def _resolve_spec(db: AsyncSession, category_code: str, spec_items: list[d
             if not isinstance(value, str) or value not in codes:
                 raise SpecContractError(
                     f"属性 '{key}' 的值 {value!r} 不在允许的 enum code 集 {sorted(codes)} 内")
-        resolved.append({
-            "key": key,
-            "value": item.get("value"),
-            **({"unit": item["unit"]} if item.get("unit") is not None else {}),
-        })
+        resolved.append({"key": key, "value": item.get("value")})
     parsed = validate_spec_items(resolved)
     return [p.model_dump(exclude_none=True) for p in parsed]
 
@@ -155,6 +173,7 @@ async def create_sku(db: AsyncSession, *, spu_id, unit, reference_price, name_i1
                      spec_items, actor_user_id, actor_user_email,
                      image=None, request: Request | None = None) -> Sku:
     _, category_code = await _spu_category(db, spu_id)
+    await _validate_unit(db, unit)
     spec_jsonb = await _resolve_spec(db, category_code, [i for i in spec_items])
     sku_code = format_code(NumberScope.SKU, await allocate(db, NumberScope.SKU))
     sku = Sku(spu_id=spu_id, sku_code=sku_code, unit=unit, reference_price=reference_price,
@@ -177,6 +196,7 @@ async def update_sku(db: AsyncSession, *, sku_id, name_i18n=None, unit=None,
     if name_i18n is not None:
         sku.name_i18n = name_i18n
     if unit is not None:
+        await _validate_unit(db, unit)
         sku.unit = unit
     if reference_price is not None:
         sku.reference_price = reference_price

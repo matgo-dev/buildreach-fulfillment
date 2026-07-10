@@ -86,7 +86,7 @@ async def test_sku_out_has_image_field_and_falls_back_to_spu_main_image(
 
     # SKU 不带图 → SkuOut.image=None,spu_main_image 回退可用
     r_sku = await client.post("/api/v1/skus", headers=catalog_operator_headers, json={
-        "spu_id": spu["id"], "unit": "PCS", "name_i18n": {"zh": "钢管A"}, "spec_items": []})
+        "spu_id": spu["id"], "unit": "piece", "name_i18n": {"zh": "钢管A"}, "spec_items": []})
     assert r_sku.status_code in (200, 201), r_sku.text
     assert r_sku.json()["data"]["image"] is None
 
@@ -98,7 +98,7 @@ async def test_sku_out_has_image_field_and_falls_back_to_spu_main_image(
 
     # SKU 自带图 → 搜索行 image 生效(前端 sku.image ?? spu_main_image 取到 SKU 自己的)
     r_sku2 = await client.post("/api/v1/skus", headers=catalog_operator_headers, json={
-        "spu_id": spu["id"], "unit": "PCS", "name_i18n": {"zh": "钢管B"}, "spec_items": [],
+        "spu_id": spu["id"], "unit": "piece", "name_i18n": {"zh": "钢管B"}, "spec_items": [],
         "image": "img/sku-b.jpg"})
     assert r_sku2.json()["data"]["image"] == "img/sku-b.jpg"
 
@@ -117,7 +117,7 @@ async def test_update_sku_image(client, catalog_operator_headers, db_session):
         json={"category_code": "10", "name_i18n": {"zh": "钢管"},
              "main_image": "img/spu-main.jpg"})).json()["data"]
     sku = (await client.post("/api/v1/skus", headers=catalog_operator_headers, json={
-        "spu_id": spu["id"], "unit": "PCS", "name_i18n": {"zh": "钢管A"},
+        "spu_id": spu["id"], "unit": "piece", "name_i18n": {"zh": "钢管A"},
         "spec_items": []})).json()["data"]
 
     r = await client.put(f"/api/v1/skus/{sku['id']}", headers=catalog_operator_headers,

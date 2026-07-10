@@ -14,7 +14,7 @@ async def test_spu_sku_persist_with_jsonb(db_session):
     spu = Spu(spu_code="SPUTEST0001", category_code="10", name_i18n={"zh": "球阀"})
     db_session.add(spu)
     await db_session.flush()
-    db_session.add(Sku(spu_id=spu.id, sku_code="SKUTEST00001", unit="PCS",
+    db_session.add(Sku(spu_id=spu.id, sku_code="SKUTEST00001", unit="piece",
                        reference_price=128.00, spec_jsonb=[{"key": "dn", "value": "DN50"}],
                        search_text="球阀 DN50 SKUTEST00001", name_i18n={"zh": "球阀 DN50"}))
     await db_session.flush()

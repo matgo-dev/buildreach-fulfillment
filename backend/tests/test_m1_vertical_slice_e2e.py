@@ -17,7 +17,7 @@ async def test_end_to_end_build_search_quote(
               json={"category_code": "10", "name_i18n": {"zh": "球阀"},
                     "main_image": "img/test.jpg"})).json()["data"]["id"]
     sku = (await client.post("/api/v1/skus", headers=catalog_operator_headers, json={
-        "spu_id": spu_id, "unit": "PCS", "reference_price": 128.0,
+        "spu_id": spu_id, "unit": "piece", "reference_price": 128.0,
         "name_i18n": {"zh": "不锈钢法兰球阀 DN50"},
         "spec_items": [{"key": "dn", "value": "DN50", "label_i18n": {"zh": "公称通径"}},
                        {"key": "material", "value": {"zh": "不锈钢 304"}, "label_i18n": {"zh": "材质"}}]
@@ -33,5 +33,7 @@ async def test_end_to_end_build_search_quote(
     line = (await client.post(f"/api/v1/quotations/{order['id']}/lines", headers=superadmin_headers,
             json={"sku_id": sku["id"], "unit_price": 150.0, "qty": 2})).json()["data"]
     assert Decimal(str(line["line_total"])) == Decimal("300.00")
-    assert line["unit_snapshot"] == "PCS"
+    # unit_snapshot 冻结展示 label:order.language=en → units.label_i18n.en("pc"),
+    # 而非 sku.unit 的 code("piece")
+    assert line["unit_snapshot"] == "pc"
     assert line["name_snapshot"]  # 非空快照

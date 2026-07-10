@@ -11,9 +11,9 @@ from app.schemas.common import validate_i18n
 
 
 class SpecItem(BaseModel):
+    """spec_jsonb 落库形状(spec §11 Part B:计量单位归位,只住模板,永不落这里)。"""
     key: str
     value: str | float | int | dict[str, str]
-    unit: str | None = None
 
     @field_validator("key")
     @classmethod
@@ -50,6 +50,9 @@ class SkuSpecItemIn(BaseModel):
     # 中文/任意原文当 key —— 身份≠展示铁律(_resolve_spec 强制)。
     key: str | None = None
     value: str | float | int | dict[str, str]
+    # 仅在"新增属性"分支生效:落进该新属性模板行的计量单位(如新增"长度"顺手给
+    # unit=mm)。对已存在的 key 一律忽略——计量单位以模板 category_spec_attributes.unit
+    # 为准,不接受某个 SKU 单独覆盖(spec §11 Part B:单位归位,spec_jsonb 永不存 unit)。
     unit: str | None = None
     label_i18n: dict | None = None  # 新属性时带(zh 必填),回写模板用
 

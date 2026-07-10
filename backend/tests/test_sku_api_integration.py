@@ -20,7 +20,7 @@ async def test_sku_flow_and_cost_redaction(client, catalog_operator_headers, sup
     spu = (await client.post("/api/v1/spus", headers=h,
         json={"category_code": "10", "name_i18n": {"zh": "钢管"}, "main_image": "img/test.jpg"})).json()["data"]
     r = await client.post("/api/v1/skus", headers=h, json={
-        "spu_id": spu["id"], "unit": "PCS", "reference_price": "12.50",
+        "spu_id": spu["id"], "unit": "piece", "reference_price": "12.50",
         "name_i18n": {"zh": "钢管DN50"}, "spec_items": []})
     assert r.status_code in (200, 201), r.text
     sku = r.json()["data"]
@@ -47,7 +47,7 @@ async def test_update_sku_after_soft_delete_404s(client, catalog_operator_header
     spu = (await client.post("/api/v1/spus", headers=h,
         json={"category_code": "10", "name_i18n": {"zh": "钢管"}, "main_image": "img/test.jpg"})).json()["data"]
     r = await client.post("/api/v1/skus", headers=h, json={
-        "spu_id": spu["id"], "unit": "PCS", "reference_price": "12.50",
+        "spu_id": spu["id"], "unit": "piece", "reference_price": "12.50",
         "name_i18n": {"zh": "钢管DN50"}, "spec_items": []})
     rid = r.json()["data"]["id"]
 
@@ -61,7 +61,7 @@ async def test_update_sku_after_soft_delete_404s(client, catalog_operator_header
 @pytest.mark.asyncio
 async def test_admin_cannot_create_sku(client, superadmin_headers):
     r = await client.post("/api/v1/skus", headers=superadmin_headers, json={
-        "spu_id": 1, "unit": "PCS", "name_i18n": {"zh": "x"}, "spec_items": []})
+        "spu_id": 1, "unit": "piece", "name_i18n": {"zh": "x"}, "spec_items": []})
     assert r.status_code == 403
 
 
@@ -73,7 +73,7 @@ async def test_search_cost_redaction_and_pagination(client, catalog_operator_hea
     spu = (await client.post("/api/v1/spus", headers=h,
         json={"category_code": "10", "name_i18n": {"zh": "阀门XYZ"}, "main_image": "img/test.jpg"})).json()["data"]
     await client.post("/api/v1/skus", headers=h, json={
-        "spu_id": spu["id"], "unit": "PCS", "reference_price": "9.99",
+        "spu_id": spu["id"], "unit": "piece", "reference_price": "9.99",
         "name_i18n": {"zh": "阀门XYZ-A"}, "spec_items": []})
 
     r_op = await client.get("/api/v1/skus?q=阀门XYZ", headers=h)
@@ -101,9 +101,9 @@ async def test_search_spu_id_filter(client, catalog_operator_headers, db_session
     spu2 = (await client.post("/api/v1/spus", headers=h,
         json={"category_code": "10", "name_i18n": {"zh": "SPU乙"}, "main_image": "img/test.jpg"})).json()["data"]
     await client.post("/api/v1/skus", headers=h, json={
-        "spu_id": spu1["id"], "unit": "PCS", "name_i18n": {"zh": "甲SKU"}, "spec_items": []})
+        "spu_id": spu1["id"], "unit": "piece", "name_i18n": {"zh": "甲SKU"}, "spec_items": []})
     await client.post("/api/v1/skus", headers=h, json={
-        "spu_id": spu2["id"], "unit": "PCS", "name_i18n": {"zh": "乙SKU"}, "spec_items": []})
+        "spu_id": spu2["id"], "unit": "piece", "name_i18n": {"zh": "乙SKU"}, "spec_items": []})
 
     r = await client.get(f"/api/v1/skus?spu_id={spu1['id']}", headers=h)
     assert r.status_code == 200
@@ -122,7 +122,7 @@ async def test_search_available_filter_cascades_on_spu_status(client, catalog_op
     spu = (await client.post("/api/v1/spus", headers=h,
         json={"category_code": "10", "name_i18n": {"zh": "钢丝网"}, "main_image": "img/test.jpg"})).json()["data"]
     await client.post("/api/v1/skus", headers=h, json={
-        "spu_id": spu["id"], "unit": "PCS", "name_i18n": {"zh": "钢丝网A"}, "spec_items": []})
+        "spu_id": spu["id"], "unit": "piece", "name_i18n": {"zh": "钢丝网A"}, "spec_items": []})
 
     r1 = await client.get("/api/v1/skus?q=钢丝&available=1", headers=h)
     assert r1.status_code == 200

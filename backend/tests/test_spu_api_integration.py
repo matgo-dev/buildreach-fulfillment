@@ -75,7 +75,7 @@ async def test_spu_detail_cost_masked_for_read_only_role(client, superadmin_head
                                "main_image": "img/test.jpg"})
     sid = r.json()["data"]["id"]
     r_sku = await client.post("/api/v1/skus", headers=catalog_operator_headers,
-                              json={"spu_id": sid, "unit": "米", "reference_price": "12.50",
+                              json={"spu_id": sid, "unit": "piece", "reference_price": "12.50",
                                     "name_i18n": {"zh": "钢管A"}, "spec_items": []})
     assert r_sku.status_code in (200, 201), r_sku.text
 
@@ -98,7 +98,7 @@ async def test_spu_derived_availability(client, catalog_operator_headers, db_ses
                                "main_image": "img/test.jpg"})
     sid = r.json()["data"]["id"]
     r_sku = await client.post("/api/v1/skus", headers=h,
-                              json={"spu_id": sid, "unit": "米", "reference_price": "1.00",
+                              json={"spu_id": sid, "unit": "piece", "reference_price": "1.00",
                                     "name_i18n": {"zh": "钢管A"}, "spec_items": []})
     skid = r_sku.json()["data"]["id"]
 

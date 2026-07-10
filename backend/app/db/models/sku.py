@@ -26,7 +26,10 @@ class Sku(Base, TimestampUpdateMixin, SoftDeleteMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     spu_id: Mapped[int] = mapped_column(Integer, ForeignKey("spus.id"), nullable=False, index=True)
     sku_code: Mapped[str] = mapped_column(String(30), unique=True, nullable=False, index=True)
-    unit: Mapped[str] = mapped_column(String(20), nullable=False)
+    # FK units.code(两侧显式同 String(20)),ON DELETE RESTRICT(在用单位删不掉);
+    # index=True → SQLAlchemy 默认命名 ix_skus_unit(RESTRICT 删检查 + 按单位筛选吃索引)。
+    unit: Mapped[str] = mapped_column(
+        String(20), ForeignKey("units.code", ondelete="RESTRICT"), nullable=False, index=True)
     reference_price: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
     spec_jsonb: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     search_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
