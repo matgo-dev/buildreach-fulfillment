@@ -11,7 +11,7 @@ async def test_spu_sku_persist_with_jsonb(db_session):
     db_session.add(Category(code="10", parent_code=None, name_i18n={"zh": "阀门"},
                             level=1, is_leaf=True, sort_order=0))
     await db_session.flush()
-    spu = Spu(category_code="10", name_i18n={"zh": "球阀"})
+    spu = Spu(spu_code="SPUTEST0001", category_code="10", name_i18n={"zh": "球阀"})
     db_session.add(spu)
     await db_session.flush()
     db_session.add(Sku(spu_id=spu.id, sku_code="SKUTEST00001", unit="PCS",

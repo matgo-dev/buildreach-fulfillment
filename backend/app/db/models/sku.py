@@ -4,7 +4,7 @@ from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, Numeric, Str
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base, TimestampUpdateMixin
+from app.db.base import Base, TimestampUpdateMixin, SoftDeleteMixin
 
 
 class SkuStatus:
@@ -12,7 +12,7 @@ class SkuStatus:
     INACTIVE = "INACTIVE"
 
 
-class Sku(Base, TimestampUpdateMixin):
+class Sku(Base, TimestampUpdateMixin, SoftDeleteMixin):
     __tablename__ = "skus"
     __table_args__ = (
         # pg_trgm GIN 加速 search_text ILIKE 模糊匹配(扩展由 base.py before_create 建)

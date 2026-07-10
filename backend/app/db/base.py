@@ -35,6 +35,13 @@ class TimestampUpdateMixin(TimestampMixin):
     )
 
 
+class SoftDeleteMixin:
+    """逻辑删:deleted_at 非空即已删。读默认过滤 deleted_at IS NULL。"""
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+
+
 # pg_trgm:SKU search_text GIN 索引依赖此扩展。
 # create_all(测试)与 alembic(生产)两条建表路径都要保证扩展就绪。
 # before_create 在任何 CREATE TABLE 前触发,幂等。
