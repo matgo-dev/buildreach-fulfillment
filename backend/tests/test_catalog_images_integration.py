@@ -171,3 +171,81 @@ async def test_put_upload_requires_manage_permission(client, superadmin_headers)
     r = await client.put("/api/v1/uploads/img/whatever.jpg", headers=superadmin_headers,
                          content=b"x")
     assert r.status_code == 403
+
+
+# ── 安全加固:key 形状校验 + content-type 白名单(防越权覆盖/存储型 XSS) ──
+
+from app.api.v1.uploads import _KEY_RE  # noqa: E402
+
+
+@pytest.mark.asyncio
+async def test_create_upload_rejects_svg_content_type(client, catalog_operator_headers):
+    r = await client.post("/api/v1/uploads", headers=catalog_operator_headers,
+                          json={"filename": "evil.svg", "content_type": "image/svg+xml"})
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_create_upload_rejects_non_image_content_type(client, catalog_operator_headers):
+    r = await client.post("/api/v1/uploads", headers=catalog_operator_headers,
+                          json={"filename": "evil.html", "content_type": "text/html"})
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_create_upload_accepts_png_and_key_matches_shape(client, catalog_operator_headers):
+    r = await client.post("/api/v1/uploads", headers=catalog_operator_headers,
+                          json={"filename": "photo.png", "content_type": "image/png"})
+    assert r.status_code == 200, r.text
+    key = r.json()["data"]["key"]
+    assert _KEY_RE.fullmatch(key)
+
+
+@pytest.mark.asyncio
+async def test_create_upload_sanitizes_chinese_and_space_filename(client, catalog_operator_headers):
+    r = await client.post("/api/v1/uploads", headers=catalog_operator_headers,
+                          json={"filename": "商品 图片 中文名.png", "content_type": "image/png"})
+    assert r.status_code == 200, r.text
+    key = r.json()["data"]["key"]
+    assert _KEY_RE.fullmatch(key), key
+
+
+@pytest.mark.asyncio
+async def test_put_upload_rejects_path_traversal_key(client, catalog_operator_headers):
+    r = await client.put("/api/v1/uploads/../../etc/passwd", headers=catalog_operator_headers,
+                         content=b"x")
+    # httpx 在构造请求 URL 时会先按 RFC3986 折叠 ".." 段(落到 /api/etc/passwd,不再匹配
+    # /api/v1/uploads 前缀)→ 404;若某客户端不折叠而是原样送达,则落进 _KEY_RE 校验 → 400。
+    # 两种结果都意味着 200/写入未发生 —— 穿越不可达。
+    assert r.status_code in (400, 404)
+
+
+@pytest.mark.asyncio
+async def test_put_upload_rejects_encoded_path_traversal_key(client, catalog_operator_headers):
+    r = await client.put("/api/v1/uploads/..%2F..%2Fx", headers=catalog_operator_headers,
+                         content=b"x")
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_put_upload_rejects_arbitrary_preexisting_key(client, catalog_operator_headers):
+    # 非 create_upload 生成形状的 key(如覆盖既有商品图)一律拒绝
+    r = await client.put("/api/v1/uploads/img/main.jpg", headers=catalog_operator_headers,
+                         content=b"x")
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_put_upload_accepts_valid_generated_key(client, catalog_operator_headers):
+    created = (await client.post("/api/v1/uploads", headers=catalog_operator_headers,
+               json={"filename": "photo.png", "content_type": "image/png"})).json()["data"]
+    key = created["key"]
+
+    r = await client.put(f"/api/v1/uploads/{key}", headers=catalog_operator_headers,
+                         content=b"fake-image-bytes")
+    assert r.status_code == 200, r.text
+
+    from app.services.storage import get_attachment_storage
+    storage = get_attachment_storage()
+    assert storage.exists(key)
+    storage.delete(key)

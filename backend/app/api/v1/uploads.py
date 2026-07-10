@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import re
 import uuid
 from io import BytesIO
 from pathlib import Path
@@ -24,6 +25,11 @@ from app.services.storage import get_attachment_storage
 
 router = APIRouter(prefix="/uploads", tags=["uploads"])
 
+# key 形状必须与 create_upload 生成的完全一致,PUT 端点据此拒绝穿越/越权覆盖。
+_KEY_RE = re.compile(r"img/[0-9a-f]{32}_[A-Za-z0-9._-]{1,80}")
+# 仅允许光栅图片;显式排除 image/svg+xml(可执行脚本 → 存储型 XSS)。
+_ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+
 
 class CreateUploadIn(BaseModel):
     filename: str = Field(..., min_length=1)
@@ -35,9 +41,15 @@ async def create_upload(
     body: CreateUploadIn,
     _current: CurrentUser = Depends(require_permission(Permissions.CATALOG_MANAGE)),
 ):
-    # 净化文件名:只取 basename,剥除路径段,避免注入对象存储 key 命名空间。
-    safe_name = Path(body.filename).name or "file"
+    if body.content_type not in _ALLOWED_CONTENT_TYPES:
+        raise HTTPException(status_code=400, detail="仅支持 jpeg/png/webp/gif 图片")
+
+    # 净化文件名:只取 basename,剥除路径段,再收窄到白名单字符集 —
+    # 保证生成的 key 必然匹配 PUT 端点的 _KEY_RE 校验(含中文/空格等文件名)。
+    basename = Path(body.filename).name or "file"
+    safe_name = (re.sub(r"[^A-Za-z0-9._-]", "_", basename) or "file")[:80]
     key = f"img/{uuid.uuid4().hex}_{safe_name}"
+    assert _KEY_RE.fullmatch(key), f"generated upload key failed shape check: {key}"
     result = get_attachment_storage().create_upload(key, body.content_type)
     return success(result)
 
@@ -51,6 +63,8 @@ async def receive_upload(
     if settings.STORAGE_BACKEND != "local":
         raise HTTPException(
             status_code=405, detail="该后端走对象存储直传,不经本端点")
+    if not _KEY_RE.fullmatch(key):
+        raise HTTPException(status_code=400, detail="非法上传 key")
     body = await request.body()
     get_attachment_storage().save(key, BytesIO(body))
     return success({"key": key})
