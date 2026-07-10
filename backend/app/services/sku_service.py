@@ -80,12 +80,15 @@ async def get_sku(db: AsyncSession, sku_id: int) -> Sku:
 
 async def search_skus(db: AsyncSession, q: str = "", limit: int = 50, *,
                       spu_id: int | None = None, page: int = 1, size: int | None = None,
-                      available: bool = False) -> tuple[list[Sku], int]:
+                      available: bool = False) -> tuple[list[tuple[Sku, str]], int]:
     """pg_trgm 模糊匹配 search_text(gin_trgm_ops 加速 ILIKE)。
 
     分页:size 未传时退回 limit(向后兼容旧调用形态)。
-    available=True 时 join spus,派生过滤消费侧「可选货」语义:
+    available=True 时派生过滤消费侧「可选货」语义:
     Sku.status=ACTIVE ∧ Sku.deleted_at IS NULL ∧ Spu.status=ACTIVE ∧ Spu.deleted_at IS NULL。
+    始终 join spus 带出 main_image,供前端跨 SPU 场景 `sku.image ?? spu.main_image` 回退
+    (搜索结果行不像 SPU 详情那样天然带着父 SPU 上下文)。
+    返回:list[(Sku, spu_main_image)] + total。
     """
     size = size if size is not None else limit
     conds = [Sku.deleted_at.is_(None)]
@@ -93,20 +96,16 @@ async def search_skus(db: AsyncSession, q: str = "", limit: int = 50, *,
         conds.append(Sku.search_text.ilike(f"%{q.strip()}%"))
     if spu_id is not None:
         conds.append(Sku.spu_id == spu_id)
-
     if available:
-        base_from = select(Sku).join(Spu, Spu.id == Sku.spu_id).where(
-            *conds, Sku.status == "ACTIVE", Spu.status == "ACTIVE", Spu.deleted_at.is_(None))
-        count_from = select(func.count()).select_from(Sku).join(Spu, Spu.id == Sku.spu_id).where(
-            *conds, Sku.status == "ACTIVE", Spu.status == "ACTIVE", Spu.deleted_at.is_(None))
-    else:
-        base_from = select(Sku).where(*conds)
-        count_from = select(func.count()).select_from(Sku).where(*conds)
+        conds += [Sku.status == "ACTIVE", Spu.status == "ACTIVE", Spu.deleted_at.is_(None)]
+
+    base_from = select(Sku, Spu.main_image).join(Spu, Spu.id == Sku.spu_id).where(*conds)
+    count_from = select(func.count()).select_from(Sku).join(Spu, Spu.id == Sku.spu_id).where(*conds)
 
     total = (await db.execute(count_from)).scalar_one()
     rows = (await db.execute(base_from.order_by(Sku.created_at.desc())
-            .offset((page - 1) * size).limit(size))).scalars().all()
-    return list(rows), total
+            .offset((page - 1) * size).limit(size))).all()
+    return [(r[0], r[1]) for r in rows], total
 
 
 async def set_sku_status(db: AsyncSession, *, sku_id, status, actor_user_id,
@@ -134,12 +133,12 @@ async def soft_delete_sku(db: AsyncSession, *, sku_id, actor_user_id, actor_user
 
 async def create_sku(db: AsyncSession, *, spu_id, unit, reference_price, name_i18n,
                      spec_items, actor_user_id, actor_user_email,
-                     request: Request | None = None) -> Sku:
+                     image=None, request: Request | None = None) -> Sku:
     _, category_code = await _spu_category(db, spu_id)
     spec_jsonb = await _resolve_spec(db, category_code, [i for i in spec_items])
     sku_code = format_code(NumberScope.SKU, await allocate(db, NumberScope.SKU))
     sku = Sku(spu_id=spu_id, sku_code=sku_code, unit=unit, reference_price=reference_price,
-              spec_jsonb=spec_jsonb, name_i18n=name_i18n,
+              spec_jsonb=spec_jsonb, name_i18n=name_i18n, image=image,
               search_text=build_search_text(name_i18n, spec_jsonb, sku_code))
     db.add(sku)
     await db.flush()
@@ -152,7 +151,7 @@ async def create_sku(db: AsyncSession, *, spu_id, unit, reference_price, name_i1
 
 async def update_sku(db: AsyncSession, *, sku_id, name_i18n=None, unit=None,
                      reference_price=None, spec_items=None, actor_user_id,
-                     actor_user_email, request: Request | None = None) -> Sku:
+                     actor_user_email, image=None, request: Request | None = None) -> Sku:
     sku = await get_sku(db, sku_id)
     _, category_code = await _spu_category(db, sku.spu_id)
     if name_i18n is not None:
@@ -161,6 +160,8 @@ async def update_sku(db: AsyncSession, *, sku_id, name_i18n=None, unit=None,
         sku.unit = unit
     if reference_price is not None:
         sku.reference_price = reference_price
+    if image is not None:
+        sku.image = image
     if spec_items is not None:
         sku.spec_jsonb = await _resolve_spec(db, category_code, [i for i in spec_items])
     # 写路径单一入口:任何影响面重算 search_text

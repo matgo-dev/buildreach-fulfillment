@@ -18,7 +18,8 @@ async def _prep(client, headers, catalog_headers, db_session, cust_lang=None):
     cust = (await client.post("/api/v1/customers", headers=headers,
             json={"name_i18n": {"zh": "客户A"}, "preferred_language": cust_lang})).json()["data"]
     spu_id = (await client.post("/api/v1/spus", headers=catalog_headers,
-              json={"category_code": "10", "name_i18n": {"zh": "球阀"}})).json()["data"]["id"]
+              json={"category_code": "10", "name_i18n": {"zh": "球阀"},
+                    "main_image": "img/test.jpg"})).json()["data"]["id"]
     sku = (await client.post("/api/v1/skus", headers=catalog_headers, json={
         "spu_id": spu_id, "unit": "PCS", "name_i18n": {"zh": "不锈钢球阀 DN50"},
         "spec_items": [{"key": "dn", "value": "DN50"}]})).json()["data"]

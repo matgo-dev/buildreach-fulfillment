@@ -32,3 +32,4 @@ class Sku(Base, TimestampUpdateMixin, SoftDeleteMixin):
     search_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
     name_i18n: Mapped[dict] = mapped_column(JSONB, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=SkuStatus.ACTIVE)
+    image: Mapped[str | None] = mapped_column(String(255), nullable=True)

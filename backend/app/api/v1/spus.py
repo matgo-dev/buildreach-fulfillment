@@ -69,6 +69,7 @@ async def create_spu(
 ):
     spu = await spu_service.create_spu(
         db, category_code=body.category_code, name_i18n=body.name_i18n,
+        main_image=body.main_image, images=body.images,
         actor_user_id=current.id, actor_user_email=current.email, request=request)
     return success(SpuOut.model_validate(spu, from_attributes=True).model_dump())
 
@@ -83,6 +84,7 @@ async def update_spu(
 ):
     spu = await spu_service.update_spu(
         db, spu_id=spu_id, name_i18n=body.name_i18n, category_code=body.category_code,
+        main_image=body.main_image, images=body.images,
         actor_user_id=current.id, actor_user_email=current.email, request=request)
     return success(SpuOut.model_validate(spu, from_attributes=True).model_dump())
 

@@ -58,6 +58,7 @@ class SkuCreateIn(BaseModel):
     reference_price: condecimal(ge=0, max_digits=18, decimal_places=2) | None = None
     name_i18n: dict
     spec_items: list[SkuSpecItemIn] = []
+    image: str | None = Field(default=None, max_length=255)
 
     _v = field_validator("name_i18n")(validate_i18n)
 
@@ -67,6 +68,7 @@ class SkuUpdateIn(BaseModel):
     unit: str | None = None
     reference_price: condecimal(ge=0, max_digits=18, decimal_places=2) | None = None
     spec_items: list[SkuSpecItemIn] | None = None
+    image: str | None = Field(default=None, max_length=255)
 
     @field_validator("name_i18n")
     @classmethod
@@ -85,6 +87,7 @@ class SkuOut(BaseModel):
     name_i18n: dict
     search_text: str
     status: str
+    image: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -92,9 +95,15 @@ class SkuOut(BaseModel):
         from_attributes = True
 
 
-def sku_out(sku, *, include_cost: bool) -> dict:
-    """序列化 SKU;include_cost=False 时脱敏 reference_price(置 None)。"""
+def sku_out(sku, *, include_cost: bool, spu_main_image: str | None = None) -> dict:
+    """序列化 SKU;include_cost=False 时脱敏 reference_price(置 None)。
+
+    spu_main_image 给定时附加同名字段,供前端跨 SPU 场景(搜索行/单取)做
+    `sku.image ?? spu_main_image` 回退——本模型不存 SPU 全量信息,只搭一个字段。
+    """
     data = SkuOut.model_validate(sku).model_dump()
     if not include_cost:
         data["reference_price"] = None
+    if spu_main_image is not None:
+        data["spu_main_image"] = spu_main_image
     return data

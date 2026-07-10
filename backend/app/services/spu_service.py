@@ -34,11 +34,12 @@ async def get_spu(db: AsyncSession, spu_id: int) -> Spu:
     return spu
 
 
-async def create_spu(db: AsyncSession, *, category_code, name_i18n, actor_user_id,
-                     actor_user_email, request: Request | None = None) -> Spu:
+async def create_spu(db: AsyncSession, *, category_code, name_i18n, main_image, images=None,
+                     actor_user_id, actor_user_email, request: Request | None = None) -> Spu:
     await _get_leaf_category(db, category_code)
     spu_code = format_code(NumberScope.SPU, await allocate(db, NumberScope.SPU))
-    spu = Spu(spu_code=spu_code, category_code=category_code, name_i18n=name_i18n)
+    spu = Spu(spu_code=spu_code, category_code=category_code, name_i18n=name_i18n,
+              main_image=main_image, images=images if images is not None else [])
     db.add(spu)
     await db.flush()
     await write_audit(db, resource_type=AuditResourceType.SPU, action=AuditAction.CREATE,
@@ -49,6 +50,7 @@ async def create_spu(db: AsyncSession, *, category_code, name_i18n, actor_user_i
 
 
 async def update_spu(db: AsyncSession, *, spu_id, name_i18n=None, category_code=None,
+                     main_image=None, images=None,
                      actor_user_id, actor_user_email, request: Request | None = None) -> Spu:
     spu = await get_spu(db, spu_id)
     if category_code is not None:
@@ -56,6 +58,10 @@ async def update_spu(db: AsyncSession, *, spu_id, name_i18n=None, category_code=
         spu.category_code = category_code
     if name_i18n is not None:
         spu.name_i18n = name_i18n
+    if main_image is not None:
+        spu.main_image = main_image
+    if images is not None:
+        spu.images = images
     await write_audit(db, resource_type=AuditResourceType.SPU, action=AuditAction.UPDATE,
                       user_id=actor_user_id, user_email=actor_user_email,
                       resource_id=spu.id, request=request, commit=False)

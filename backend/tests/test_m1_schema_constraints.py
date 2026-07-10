@@ -18,7 +18,7 @@ async def _prep_order_and_sku(client, headers, catalog_headers, db_session):
     cust = (await client.post("/api/v1/customers", headers=headers,
             json={"name_i18n": {"zh": "客户A"}})).json()["data"]
     spu_id = (await client.post("/api/v1/spus", headers=catalog_headers,
-              json={"category_code": "10", "name_i18n": {"zh": "球阀"}})).json()["data"]["id"]
+              json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "main_image": "img/test.jpg"})).json()["data"]["id"]
     sku = (await client.post("/api/v1/skus", headers=catalog_headers, json={
         "spu_id": spu_id, "unit": "PCS", "name_i18n": {"zh": "阀"},
         "spec_items": [{"key": "dn", "value": "DN50"}]})).json()["data"]
@@ -61,7 +61,7 @@ async def test_sku_rejects_negative_reference_price(
                                 level=1, is_leaf=True, sort_order=0))
         await db_session.commit()
     spu_id = (await client.post("/api/v1/spus", headers=catalog_operator_headers,
-              json={"category_code": "10", "name_i18n": {"zh": "球阀"}})).json()["data"]["id"]
+              json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "main_image": "img/test.jpg"})).json()["data"]["id"]
     r = await client.post("/api/v1/skus", headers=catalog_operator_headers, json={
         "spu_id": spu_id, "unit": "PCS", "reference_price": -5, "name_i18n": {"zh": "阀"},
         "spec_items": []})

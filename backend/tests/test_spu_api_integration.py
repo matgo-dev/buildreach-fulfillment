@@ -17,7 +17,8 @@ async def test_spu_crud_flow(client, catalog_operator_headers, db_session):
     h = catalog_operator_headers
     await _seed_category(db_session, "10")
     r = await client.post("/api/v1/spus", headers=h,
-                          json={"category_code": "10", "name_i18n": {"zh": "钢管"}})
+                          json={"category_code": "10", "name_i18n": {"zh": "钢管"},
+                               "main_image": "img/test.jpg"})
     assert r.status_code in (200, 201), r.text
     spu = r.json()["data"]
     assert spu["spu_code"].startswith("SPU")
@@ -70,7 +71,8 @@ async def test_spu_detail_cost_masked_for_read_only_role(client, superadmin_head
     """详情内嵌 SKU 的 reference_price:CATALOG_MANAGE 可见,仅 CATALOG_READ 脱敏。"""
     await _seed_category(db_session, "10")
     r = await client.post("/api/v1/spus", headers=catalog_operator_headers,
-                          json={"category_code": "10", "name_i18n": {"zh": "钢管"}})
+                          json={"category_code": "10", "name_i18n": {"zh": "钢管"},
+                               "main_image": "img/test.jpg"})
     sid = r.json()["data"]["id"]
     r_sku = await client.post("/api/v1/skus", headers=catalog_operator_headers,
                               json={"spu_id": sid, "unit": "米", "reference_price": "12.50",
@@ -92,7 +94,8 @@ async def test_spu_derived_availability(client, catalog_operator_headers, db_ses
     h = catalog_operator_headers
     await _seed_category(db_session, "10")
     r = await client.post("/api/v1/spus", headers=h,
-                          json={"category_code": "10", "name_i18n": {"zh": "钢管"}})
+                          json={"category_code": "10", "name_i18n": {"zh": "钢管"},
+                               "main_image": "img/test.jpg"})
     sid = r.json()["data"]["id"]
     r_sku = await client.post("/api/v1/skus", headers=h,
                               json={"spu_id": sid, "unit": "米", "reference_price": "1.00",

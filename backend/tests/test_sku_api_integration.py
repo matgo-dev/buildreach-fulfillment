@@ -18,7 +18,7 @@ async def test_sku_flow_and_cost_redaction(client, catalog_operator_headers, sup
     h = catalog_operator_headers
     await _seed_category(db_session, "10")
     spu = (await client.post("/api/v1/spus", headers=h,
-        json={"category_code": "10", "name_i18n": {"zh": "钢管"}})).json()["data"]
+        json={"category_code": "10", "name_i18n": {"zh": "钢管"}, "main_image": "img/test.jpg"})).json()["data"]
     r = await client.post("/api/v1/skus", headers=h, json={
         "spu_id": spu["id"], "unit": "PCS", "reference_price": "12.50",
         "name_i18n": {"zh": "钢管DN50"}, "spec_items": []})
@@ -45,7 +45,7 @@ async def test_update_sku_after_soft_delete_404s(client, catalog_operator_header
     h = catalog_operator_headers
     await _seed_category(db_session, "10")
     spu = (await client.post("/api/v1/spus", headers=h,
-        json={"category_code": "10", "name_i18n": {"zh": "钢管"}})).json()["data"]
+        json={"category_code": "10", "name_i18n": {"zh": "钢管"}, "main_image": "img/test.jpg"})).json()["data"]
     r = await client.post("/api/v1/skus", headers=h, json={
         "spu_id": spu["id"], "unit": "PCS", "reference_price": "12.50",
         "name_i18n": {"zh": "钢管DN50"}, "spec_items": []})
@@ -71,7 +71,7 @@ async def test_search_cost_redaction_and_pagination(client, catalog_operator_hea
     h = catalog_operator_headers
     await _seed_category(db_session, "10")
     spu = (await client.post("/api/v1/spus", headers=h,
-        json={"category_code": "10", "name_i18n": {"zh": "阀门XYZ"}})).json()["data"]
+        json={"category_code": "10", "name_i18n": {"zh": "阀门XYZ"}, "main_image": "img/test.jpg"})).json()["data"]
     await client.post("/api/v1/skus", headers=h, json={
         "spu_id": spu["id"], "unit": "PCS", "reference_price": "9.99",
         "name_i18n": {"zh": "阀门XYZ-A"}, "spec_items": []})
@@ -97,9 +97,9 @@ async def test_search_spu_id_filter(client, catalog_operator_headers, db_session
     h = catalog_operator_headers
     await _seed_category(db_session, "10")
     spu1 = (await client.post("/api/v1/spus", headers=h,
-        json={"category_code": "10", "name_i18n": {"zh": "SPU甲"}})).json()["data"]
+        json={"category_code": "10", "name_i18n": {"zh": "SPU甲"}, "main_image": "img/test.jpg"})).json()["data"]
     spu2 = (await client.post("/api/v1/spus", headers=h,
-        json={"category_code": "10", "name_i18n": {"zh": "SPU乙"}})).json()["data"]
+        json={"category_code": "10", "name_i18n": {"zh": "SPU乙"}, "main_image": "img/test.jpg"})).json()["data"]
     await client.post("/api/v1/skus", headers=h, json={
         "spu_id": spu1["id"], "unit": "PCS", "name_i18n": {"zh": "甲SKU"}, "spec_items": []})
     await client.post("/api/v1/skus", headers=h, json={
@@ -120,7 +120,7 @@ async def test_search_available_filter_cascades_on_spu_status(client, catalog_op
     h = catalog_operator_headers
     await _seed_category(db_session, "10")
     spu = (await client.post("/api/v1/spus", headers=h,
-        json={"category_code": "10", "name_i18n": {"zh": "钢丝网"}})).json()["data"]
+        json={"category_code": "10", "name_i18n": {"zh": "钢丝网"}, "main_image": "img/test.jpg"})).json()["data"]
     await client.post("/api/v1/skus", headers=h, json={
         "spu_id": spu["id"], "unit": "PCS", "name_i18n": {"zh": "钢丝网A"}, "spec_items": []})
 

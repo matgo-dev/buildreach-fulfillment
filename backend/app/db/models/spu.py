@@ -21,3 +21,5 @@ class Spu(Base, TimestampUpdateMixin, SoftDeleteMixin):
         String(50), ForeignKey("categories.code"), nullable=False, index=True)
     name_i18n: Mapped[dict] = mapped_column(JSONB, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=SpuStatus.ACTIVE)
+    main_image: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    images: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)

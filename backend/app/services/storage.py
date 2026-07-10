@@ -44,6 +44,14 @@ class Storage(Protocol):
         """公开资产 URL(商品图,走 CDN);敏感件不用。"""
         ...
 
+    def build_url(self, key: str, size: int | None = None) -> str:
+        """展示用 URL,size 给定时请求缩略(OSS 走 x-oss-process;本地存储层不做变换)。"""
+        ...
+
+    def create_upload(self, key: str, content_type: str) -> dict:
+        """生成前端直传描述:{key, upload_url, method}。"""
+        ...
+
 
 class LocalDiskStorage:
     """本地磁盘存储 — 附件私有目录,不经 /static 公开。"""
@@ -87,6 +95,14 @@ class LocalDiskStorage:
     def public_url(self, key: str) -> str:
         return f"{settings.IMAGE_PATH_PREFIX}/{key}"
 
+    def build_url(self, key: str, size: int | None = None) -> str:
+        # 本地存储零图像处理:忽略 size,浏览器降采样兜底。
+        return f"/media/{key}"
+
+    def create_upload(self, key: str, content_type: str) -> dict:
+        # 本地后端无对象存储直传能力:指回本服务的 PUT 接收端点。
+        return {"key": key, "upload_url": f"/api/v1/uploads/{key}", "method": "PUT"}
+
 
 class S3Storage:
     """S3 兼容对象存储 —— 本地 MinIO / 生产阿里云 OSS(S3 兼容端点)。"""
@@ -120,6 +136,22 @@ class S3Storage:
 
     def public_url(self, key: str) -> str:
         return f"{self._public_base}/{key}" if self._public_base else key
+
+    def build_url(self, key: str, size: int | None = None) -> str:
+        # 存储层实时改尺寸:OSS x-oss-process 拼参数,不落地多份。
+        base = self.public_url(key)
+        if size:
+            return f"{base}?x-oss-process=image/resize,w_{size}"
+        return base
+
+    def create_upload(self, key: str, content_type: str) -> dict:
+        # 前端直传:PUT 预签名 URL,免经后端中转。
+        upload_url = self._client.generate_presigned_url(
+            "put_object",
+            Params={"Bucket": self._bucket, "Key": key, "ContentType": content_type},
+            ExpiresIn=300,
+        )
+        return {"key": key, "upload_url": upload_url, "method": "PUT"}
 
 
 # ── 单例(启动时初始化,按 settings.STORAGE_BACKEND 选择实现) ──

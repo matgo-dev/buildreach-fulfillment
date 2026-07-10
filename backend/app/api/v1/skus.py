@@ -29,7 +29,8 @@ async def search_skus(
     rows, total = await sku_service.search_skus(
         db, q, spu_id=spu_id, page=page, size=size, available=available)
     include_cost = Permissions.CATALOG_MANAGE in current.permissions
-    items = [sku_out(r, include_cost=include_cost) for r in rows]
+    items = [sku_out(sku, include_cost=include_cost, spu_main_image=spu_main_image)
+             for sku, spu_main_image in rows]
     return success({"items": items, "total": total, "page": page, "size": size})
 
 
@@ -43,6 +44,7 @@ async def create_sku(
     sku = await sku_service.create_sku(
         db, spu_id=body.spu_id, unit=body.unit, reference_price=body.reference_price,
         name_i18n=body.name_i18n, spec_items=[i.model_dump() for i in body.spec_items],
+        image=body.image,
         actor_user_id=current.id, actor_user_email=current.email, request=request)
     return success(sku_out(sku, include_cost=True))
 
@@ -59,7 +61,7 @@ async def update_sku(
                   if body.spec_items is not None else None)
     sku = await sku_service.update_sku(
         db, sku_id=sku_id, name_i18n=body.name_i18n, unit=body.unit,
-        reference_price=body.reference_price, spec_items=spec_items,
+        reference_price=body.reference_price, spec_items=spec_items, image=body.image,
         actor_user_id=current.id, actor_user_email=current.email, request=request)
     return success(sku_out(sku, include_cost=True))
 
