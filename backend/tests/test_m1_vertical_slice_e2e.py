@@ -24,7 +24,7 @@ async def test_end_to_end_build_search_quote(
 
     # 搜索是读:ADMIN 有 catalog:read
     found = (await client.get("/api/v1/skus?q=法兰球阀", headers=superadmin_headers)).json()["data"]
-    assert any(s["id"] == sku["id"] for s in found)
+    assert any(s["id"] == sku["id"] for s in found["items"])
 
     order = (await client.post("/api/v1/quotations", headers=superadmin_headers,
              json={"customer_id": cust["id"], "currency": "USD"})).json()["data"]

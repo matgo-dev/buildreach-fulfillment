@@ -27,7 +27,7 @@ async def test_search_hits_by_name_and_spec_and_code(
         # 搜索是读:ADMIN 有 catalog:read,仍可用 superadmin_headers
         r = await client.get(f"/api/v1/skus?q={q}", headers=superadmin_headers)
         assert r.status_code == 200
-        assert any(s["id"] == made["id"] for s in r.json()["data"]), q
+        assert any(s["id"] == made["id"] for s in r.json()["data"]["items"]), q
 
 
 @pytest.mark.asyncio
@@ -37,4 +37,6 @@ async def test_search_miss_returns_empty(
     await _seed_sku(client, catalog_operator_headers, db_session,
                     "球阀", [{"key": "dn", "value": "DN50"}])
     r = await client.get("/api/v1/skus?q=完全不相关的词XYZ", headers=superadmin_headers)
-    assert r.json()["data"] == []
+    body = r.json()["data"]
+    assert body["items"] == []
+    assert body["total"] == 0

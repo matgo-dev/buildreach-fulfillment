@@ -1,7 +1,9 @@
 """SKU 写服务:模板引导录规格 + 手输 key 回写模板 + search_text 写路径重算。"""
 from __future__ import annotations
 
-from sqlalchemy import select
+from datetime import datetime, timezone
+
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
@@ -69,20 +71,65 @@ async def spu_ids_with_active_sku(db: AsyncSession, spu_ids: list[int]) -> set[i
 
 
 async def get_sku(db: AsyncSession, sku_id: int) -> Sku:
-    sku = (await db.execute(select(Sku).where(Sku.id == sku_id))).scalar_one_or_none()
+    sku = (await db.execute(select(Sku).where(
+        Sku.id == sku_id, Sku.deleted_at.is_(None)))).scalar_one_or_none()
     if sku is None:
         raise NotFoundError(f"SKU 不存在: {sku_id}")
     return sku
 
 
-async def search_skus(db: AsyncSession, q: str, limit: int = 50) -> list[Sku]:
-    """pg_trgm 模糊匹配 search_text(gin_trgm_ops 加速 ILIKE)。空 q 返回空。"""
-    if not q or not q.strip():
-        return []
-    pattern = f"%{q.strip()}%"
-    rows = (await db.execute(
-        select(Sku).where(Sku.search_text.ilike(pattern)).limit(limit))).scalars().all()
-    return list(rows)
+async def search_skus(db: AsyncSession, q: str = "", limit: int = 50, *,
+                      spu_id: int | None = None, page: int = 1, size: int | None = None,
+                      available: bool = False) -> tuple[list[Sku], int]:
+    """pg_trgm 模糊匹配 search_text(gin_trgm_ops 加速 ILIKE)。
+
+    分页:size 未传时退回 limit(向后兼容旧调用形态)。
+    available=True 时 join spus,派生过滤消费侧「可选货」语义:
+    Sku.status=ACTIVE ∧ Sku.deleted_at IS NULL ∧ Spu.status=ACTIVE ∧ Spu.deleted_at IS NULL。
+    """
+    size = size if size is not None else limit
+    conds = [Sku.deleted_at.is_(None)]
+    if q and q.strip():
+        conds.append(Sku.search_text.ilike(f"%{q.strip()}%"))
+    if spu_id is not None:
+        conds.append(Sku.spu_id == spu_id)
+
+    if available:
+        base_from = select(Sku).join(Spu, Spu.id == Sku.spu_id).where(
+            *conds, Sku.status == "ACTIVE", Spu.status == "ACTIVE", Spu.deleted_at.is_(None))
+        count_from = select(func.count()).select_from(Sku).join(Spu, Spu.id == Sku.spu_id).where(
+            *conds, Sku.status == "ACTIVE", Spu.status == "ACTIVE", Spu.deleted_at.is_(None))
+    else:
+        base_from = select(Sku).where(*conds)
+        count_from = select(func.count()).select_from(Sku).where(*conds)
+
+    total = (await db.execute(count_from)).scalar_one()
+    rows = (await db.execute(base_from.order_by(Sku.created_at.desc())
+            .offset((page - 1) * size).limit(size))).scalars().all()
+    return list(rows), total
+
+
+async def set_sku_status(db: AsyncSession, *, sku_id, status, actor_user_id,
+                         actor_user_email, request: Request | None = None) -> Sku:
+    sku = await get_sku(db, sku_id)
+    sku.status = status
+    await write_audit(db, resource_type=AuditResourceType.SKU, action=AuditAction.UPDATE,
+                      user_id=actor_user_id, user_email=actor_user_email,
+                      resource_id=sku.id, request=request, commit=False)
+    await db.commit()
+    return sku
+
+
+async def soft_delete_sku(db: AsyncSession, *, sku_id, actor_user_id, actor_user_email,
+                          request: Request | None = None) -> None:
+    sku = await get_sku(db, sku_id)
+    # deleted_at 是 tz-aware DateTime(timezone=True)(SoftDeleteMixin);项目无公共 utcnow
+    # 助手(见 spu_service.soft_delete_spu 的同款注释),对齐直取写法。
+    sku.deleted_at = datetime.now(timezone.utc)
+    await write_audit(db, resource_type=AuditResourceType.SKU, action=AuditAction.DELETE,
+                      user_id=actor_user_id, user_email=actor_user_email,
+                      resource_id=sku.id, request=request, commit=False)
+    await db.commit()
 
 
 async def create_sku(db: AsyncSession, *, spu_id, unit, reference_price, name_i18n,
@@ -106,9 +153,7 @@ async def create_sku(db: AsyncSession, *, spu_id, unit, reference_price, name_i1
 async def update_sku(db: AsyncSession, *, sku_id, name_i18n=None, unit=None,
                      reference_price=None, spec_items=None, actor_user_id,
                      actor_user_email, request: Request | None = None) -> Sku:
-    sku = (await db.execute(select(Sku).where(Sku.id == sku_id))).scalar_one_or_none()
-    if sku is None:
-        raise NotFoundError(f"SKU 不存在: {sku_id}")
+    sku = await get_sku(db, sku_id)
     _, category_code = await _spu_category(db, sku.spu_id)
     if name_i18n is not None:
         sku.name_i18n = name_i18n

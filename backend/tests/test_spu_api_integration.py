@@ -124,12 +124,9 @@ async def test_spu_derived_availability(client, catalog_operator_headers, db_ses
     row2 = next(x for x in lst2.json()["data"]["items"] if x["id"] == sid)
     assert row2["has_available_sku"] is False
 
-    # SPU 恢复上架 + SKU 自身下架(暂无 SKU 状态端点,直接改库)→ available=False(SKU 侧原因)
+    # SPU 恢复上架 + SKU 自身下架(走 PATCH /skus/{id}/status 端点)→ available=False(SKU 侧原因)
     await client.patch(f"/api/v1/spus/{sid}/status", headers=h, json={"status": "ACTIVE"})
-    from app.db.models.sku import Sku
-    sku_row = await db_session.get(Sku, skid)
-    sku_row.status = "INACTIVE"
-    await db_session.commit()
+    await client.patch(f"/api/v1/skus/{skid}/status", headers=h, json={"status": "INACTIVE"})
 
     d3 = await client.get(f"/api/v1/spus/{sid}", headers=h)
     b3 = d3.json()["data"]
