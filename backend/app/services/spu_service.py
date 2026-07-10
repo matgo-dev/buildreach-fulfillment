@@ -1,25 +1,42 @@
 """SPU service。"""
 from __future__ import annotations
 
-from sqlalchemy import select
+from datetime import datetime, timezone
+
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
 from app.audit.constants import AuditAction, AuditResourceType
 from app.audit.logger import write_audit
 from app.core.codegen import format_code
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import ConflictError, NotFoundError
 from app.db.models.category import Category
+from app.db.models.sku import Sku
 from app.db.models.spu import Spu
 from app.services.numbering import NumberScope, allocate
 
 
+async def _get_leaf_category(db: AsyncSession, code: str) -> Category:
+    cat = (await db.execute(select(Category).where(Category.code == code))).scalar_one_or_none()
+    if cat is None:
+        raise NotFoundError(f"分类不存在: {code}")
+    if not cat.is_leaf:
+        raise ConflictError(f"商品只能挂叶子分类: {code}")
+    return cat
+
+
+async def get_spu(db: AsyncSession, spu_id: int) -> Spu:
+    spu = (await db.execute(
+        select(Spu).where(Spu.id == spu_id, Spu.deleted_at.is_(None)))).scalar_one_or_none()
+    if spu is None:
+        raise NotFoundError(f"SPU 不存在: {spu_id}")
+    return spu
+
+
 async def create_spu(db: AsyncSession, *, category_code, name_i18n, actor_user_id,
                      actor_user_email, request: Request | None = None) -> Spu:
-    cat = (await db.execute(
-        select(Category).where(Category.code == category_code))).scalar_one_or_none()
-    if cat is None:
-        raise NotFoundError(f"分类不存在: {category_code}")
+    await _get_leaf_category(db, category_code)
     spu_code = format_code(NumberScope.SPU, await allocate(db, NumberScope.SPU))
     spu = Spu(spu_code=spu_code, category_code=category_code, name_i18n=name_i18n)
     db.add(spu)
@@ -29,3 +46,62 @@ async def create_spu(db: AsyncSession, *, category_code, name_i18n, actor_user_i
                       resource_id=spu.id, request=request, commit=False)
     await db.commit()
     return spu
+
+
+async def update_spu(db: AsyncSession, *, spu_id, name_i18n=None, category_code=None,
+                     actor_user_id, actor_user_email, request: Request | None = None) -> Spu:
+    spu = await get_spu(db, spu_id)
+    if category_code is not None:
+        await _get_leaf_category(db, category_code)
+        spu.category_code = category_code
+    if name_i18n is not None:
+        spu.name_i18n = name_i18n
+    await write_audit(db, resource_type=AuditResourceType.SPU, action=AuditAction.UPDATE,
+                      user_id=actor_user_id, user_email=actor_user_email,
+                      resource_id=spu.id, request=request, commit=False)
+    await db.commit()
+    return spu
+
+
+async def set_spu_status(db: AsyncSession, *, spu_id, status, actor_user_id,
+                         actor_user_email, request: Request | None = None) -> Spu:
+    spu = await get_spu(db, spu_id)
+    spu.status = status
+    await write_audit(db, resource_type=AuditResourceType.SPU, action=AuditAction.UPDATE,
+                      user_id=actor_user_id, user_email=actor_user_email,
+                      resource_id=spu.id, request=request, commit=False)
+    await db.commit()
+    return spu
+
+
+async def soft_delete_spu(db: AsyncSession, *, spu_id, actor_user_id, actor_user_email,
+                          request: Request | None = None) -> None:
+    spu = await get_spu(db, spu_id)
+    n = (await db.execute(select(func.count()).select_from(Sku).where(
+        Sku.spu_id == spu_id, Sku.deleted_at.is_(None)))).scalar_one()
+    if n > 0:
+        raise ConflictError(f"该 SPU 下还有 {n} 个未删 SKU,请先处理")
+    # deleted_at 列为 DateTime(timezone=True)(SoftDeleteMixin),需 tz-aware UTC。
+    # 项目未提供公共 utcnow() 助手(app/core/datetime.py 仅有 to_naive_utc,
+    # app/db/base.py 的 _utcnow() 是私有且返回 naive,服务于非 tz 列),故此处直取。
+    spu.deleted_at = datetime.now(timezone.utc)
+    await write_audit(db, resource_type=AuditResourceType.SPU, action=AuditAction.DELETE,
+                      user_id=actor_user_id, user_email=actor_user_email,
+                      resource_id=spu.id, request=request, commit=False)
+    await db.commit()
+
+
+async def list_spus(db: AsyncSession, *, category_code=None, status=None, keyword=None,
+                    page: int = 1, size: int = 20) -> tuple[list[Spu], int]:
+    conds = [Spu.deleted_at.is_(None)]
+    if category_code:
+        conds.append(Spu.category_code == category_code)
+    if status:
+        conds.append(Spu.status == status)
+    if keyword:
+        like = f"%{keyword}%"
+        conds.append((Spu.name_i18n["zh"].astext.ilike(like)) | (Spu.spu_code.ilike(like)))
+    total = (await db.execute(select(func.count()).select_from(Spu).where(*conds))).scalar_one()
+    rows = (await db.execute(select(Spu).where(*conds)
+            .order_by(Spu.created_at.desc()).offset((page - 1) * size).limit(size))).scalars().all()
+    return list(rows), total
