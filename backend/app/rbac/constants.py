@@ -41,10 +41,10 @@ SYSTEM_RESERVED_CODES = frozenset({
 
 
 class ModuleLabel:
-    """资源域 module 标签(用于侧边栏分组)。"""
-    SYSTEM = "系统"
+    """资源域 module 分组码(稳定机器码,身份非展示;中文侧边栏标签走前端 i18n 映射)。"""
+    SYSTEM = "system"
     AUTH = "auth"
-    FULFILLMENT = "履约"
+    FULFILLMENT = "fulfillment"
 
 
 # 权限点元数据(用于启动同步:name / module)
