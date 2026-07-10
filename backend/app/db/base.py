@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime
+from sqlalchemy import DDL, DateTime, event
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -33,3 +33,13 @@ class TimestampUpdateMixin(TimestampMixin):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=_utcnow, onupdate=_utcnow
     )
+
+
+# pg_trgm:SKU search_text GIN 索引依赖此扩展。
+# create_all(测试)与 alembic(生产)两条建表路径都要保证扩展就绪。
+# before_create 在任何 CREATE TABLE 前触发,幂等。
+event.listen(
+    Base.metadata,
+    "before_create",
+    DDL("CREATE EXTENSION IF NOT EXISTS pg_trgm"),
+)

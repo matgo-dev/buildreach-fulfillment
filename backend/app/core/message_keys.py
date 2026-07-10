@@ -24,3 +24,6 @@ class MessageKey:
 
     # general — 兜底处理器
     CLIENT_ERROR = "error.general.client_error"
+
+    # sku
+    SPEC_CONTRACT = "error.sku.spec_contract"
