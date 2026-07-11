@@ -13,9 +13,9 @@ async def _seed_category(db_session, code="10"):
 
 
 @pytest.mark.asyncio
-async def test_sku_flow_and_cost_redaction(client, catalog_operator_headers, superadmin_headers,
+async def test_sku_flow_and_cost_redaction(client, product_operator_headers, superadmin_headers,
                                            db_session):
-    h = catalog_operator_headers
+    h = product_operator_headers
     await _seed_category(db_session, "10")
     spu = (await client.post("/api/v1/spus", headers=h,
         json={"category_code": "10", "name_i18n": {"zh": "钢管"}, "main_image": "img/test.jpg"})).json()["data"]
@@ -40,9 +40,9 @@ async def test_sku_flow_and_cost_redaction(client, catalog_operator_headers, sup
 
 
 @pytest.mark.asyncio
-async def test_update_sku_after_soft_delete_404s(client, catalog_operator_headers, db_session):
+async def test_update_sku_after_soft_delete_404s(client, product_operator_headers, db_session):
     """CT7 修了 update_sku 绕过 deleted_at 的隐患:逻辑删后 PUT 应 404 而非改到已删记录。"""
-    h = catalog_operator_headers
+    h = product_operator_headers
     await _seed_category(db_session, "10")
     spu = (await client.post("/api/v1/spus", headers=h,
         json={"category_code": "10", "name_i18n": {"zh": "钢管"}, "main_image": "img/test.jpg"})).json()["data"]
@@ -66,9 +66,9 @@ async def test_admin_cannot_create_sku(client, superadmin_headers):
 
 
 @pytest.mark.asyncio
-async def test_search_cost_redaction_and_pagination(client, catalog_operator_headers,
+async def test_search_cost_redaction_and_pagination(client, product_operator_headers,
                                                      superadmin_headers, db_session):
-    h = catalog_operator_headers
+    h = product_operator_headers
     await _seed_category(db_session, "10")
     spu = (await client.post("/api/v1/spus", headers=h,
         json={"category_code": "10", "name_i18n": {"zh": "阀门XYZ"}, "main_image": "img/test.jpg"})).json()["data"]
@@ -93,8 +93,8 @@ async def test_search_cost_redaction_and_pagination(client, catalog_operator_hea
 
 
 @pytest.mark.asyncio
-async def test_search_spu_id_filter(client, catalog_operator_headers, db_session):
-    h = catalog_operator_headers
+async def test_search_spu_id_filter(client, product_operator_headers, db_session):
+    h = product_operator_headers
     await _seed_category(db_session, "10")
     spu1 = (await client.post("/api/v1/spus", headers=h,
         json={"category_code": "10", "name_i18n": {"zh": "SPU甲"}, "main_image": "img/test.jpg"})).json()["data"]
@@ -114,10 +114,10 @@ async def test_search_spu_id_filter(client, catalog_operator_headers, db_session
 
 
 @pytest.mark.asyncio
-async def test_search_available_filter_cascades_on_spu_status(client, catalog_operator_headers,
+async def test_search_available_filter_cascades_on_spu_status(client, product_operator_headers,
                                                                db_session):
     """available=1:SPU/SKU 均 ACTIVE 才命中;SPU 下架后不再命中;available=0(默认)仍命中。"""
-    h = catalog_operator_headers
+    h = product_operator_headers
     await _seed_category(db_session, "10")
     spu = (await client.post("/api/v1/spus", headers=h,
         json={"category_code": "10", "name_i18n": {"zh": "钢丝网"}, "main_image": "img/test.jpg"})).json()["data"]

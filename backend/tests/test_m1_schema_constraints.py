@@ -8,7 +8,7 @@ from app.db.models.category import Category
 
 async def _prep_order_and_sku(client, headers, catalog_headers, db_session):
     """headers：customer/quotation 用（ADMIN 保留 read；customer:manage/quote:manage 不变）。
-    catalog_headers：spu/sku 用（catalog:manage，ADMIN 已摘除，须 CATALOG_OPERATOR）。
+    catalog_headers：spu/sku 用（product:manage，ADMIN 已摘除，须 PRODUCT_OPERATOR）。
     """
     if not (await db_session.execute(
             select(Category).where(Category.code == "10"))).scalar_one_or_none():
@@ -31,10 +31,10 @@ async def _prep_order_and_sku(client, headers, catalog_headers, db_session):
 
 @pytest.mark.asyncio
 async def test_line_rejects_zero_qty(
-    client, superadmin_headers, catalog_operator_headers, db_session
+    client, superadmin_headers, product_operator_headers, db_session
 ):
     order, sku = await _prep_order_and_sku(
-        client, superadmin_headers, catalog_operator_headers, db_session)
+        client, superadmin_headers, product_operator_headers, db_session)
     r = await client.post(f"/api/v1/quotations/{order['id']}/lines", headers=superadmin_headers,
                           json={"sku_id": sku["id"], "unit_price": 100.0, "qty": 0})
     assert r.status_code == 422
@@ -42,10 +42,10 @@ async def test_line_rejects_zero_qty(
 
 @pytest.mark.asyncio
 async def test_line_rejects_negative_price(
-    client, superadmin_headers, catalog_operator_headers, db_session
+    client, superadmin_headers, product_operator_headers, db_session
 ):
     order, sku = await _prep_order_and_sku(
-        client, superadmin_headers, catalog_operator_headers, db_session)
+        client, superadmin_headers, product_operator_headers, db_session)
     r = await client.post(f"/api/v1/quotations/{order['id']}/lines", headers=superadmin_headers,
                           json={"sku_id": sku["id"], "unit_price": -1.0, "qty": 2})
     assert r.status_code == 422
@@ -53,16 +53,16 @@ async def test_line_rejects_negative_price(
 
 @pytest.mark.asyncio
 async def test_sku_rejects_negative_reference_price(
-    client, catalog_operator_headers, db_session
+    client, product_operator_headers, db_session
 ):
     if not (await db_session.execute(
             select(Category).where(Category.code == "10"))).scalar_one_or_none():
         db_session.add(Category(code="10", parent_code=None, name_i18n={"zh": "阀门"},
                                 level=1, is_leaf=True, sort_order=0))
         await db_session.commit()
-    spu_id = (await client.post("/api/v1/spus", headers=catalog_operator_headers,
+    spu_id = (await client.post("/api/v1/spus", headers=product_operator_headers,
               json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "main_image": "img/test.jpg"})).json()["data"]["id"]
-    r = await client.post("/api/v1/skus", headers=catalog_operator_headers, json={
+    r = await client.post("/api/v1/skus", headers=product_operator_headers, json={
         "spu_id": spu_id, "unit": "piece", "reference_price": -5, "name_i18n": {"zh": "阀"},
         "spec_items": []})
     assert r.status_code == 422

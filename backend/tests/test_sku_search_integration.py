@@ -20,12 +20,12 @@ async def _seed_sku(client, headers, db_session, name_zh, spec):
 
 @pytest.mark.asyncio
 async def test_search_hits_by_name_and_spec_and_code(
-    client, superadmin_headers, catalog_operator_headers, db_session
+    client, superadmin_headers, product_operator_headers, db_session
 ):
-    made = await _seed_sku(client, catalog_operator_headers, db_session,
+    made = await _seed_sku(client, product_operator_headers, db_session,
                            "不锈钢法兰球阀 DN50", [{"key": "dn", "value": "DN50", "label_i18n": {"zh": "公称通径"}}])
     for q in ["法兰球阀", "DN50", made["sku_code"]]:
-        # 搜索是读:ADMIN 有 catalog:read,仍可用 superadmin_headers
+        # 搜索是读:ADMIN 有 product:read,仍可用 superadmin_headers
         r = await client.get(f"/api/v1/skus?q={q}", headers=superadmin_headers)
         assert r.status_code == 200
         assert any(s["id"] == made["id"] for s in r.json()["data"]["items"]), q
@@ -33,9 +33,9 @@ async def test_search_hits_by_name_and_spec_and_code(
 
 @pytest.mark.asyncio
 async def test_search_miss_returns_empty(
-    client, superadmin_headers, catalog_operator_headers, db_session
+    client, superadmin_headers, product_operator_headers, db_session
 ):
-    await _seed_sku(client, catalog_operator_headers, db_session,
+    await _seed_sku(client, product_operator_headers, db_session,
                     "球阀", [{"key": "dn", "value": "DN50", "label_i18n": {"zh": "公称通径"}}])
     r = await client.get("/api/v1/skus?q=完全不相关的词XYZ", headers=superadmin_headers)
     body = r.json()["data"]

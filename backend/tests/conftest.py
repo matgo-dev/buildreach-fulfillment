@@ -184,8 +184,8 @@ async def superadmin_headers(client) -> dict[str, str]:
 
 
 @pytest_asyncio.fixture
-async def catalog_operator_headers(client, db_session) -> dict[str, str]:
-    """建一个 CATALOG_OPERATOR 账号并返回可用 headers（must_change_password=False）。
+async def product_operator_headers(client, db_session) -> dict[str, str]:
+    """建一个 PRODUCT_OPERATOR 账号并返回可用 headers（must_change_password=False）。
 
     注：本仓库当前没有 /api/v1/users 创建用户的 HTTP 端点（`grep -rn 'api/v1/users'
     backend/app/api` 无匹配，`app/services/user_service.create_internal_user` 尚未接
@@ -193,14 +193,14 @@ async def catalog_operator_headers(client, db_session) -> dict[str, str]:
     """
     from app.services.user_service import create_internal_user
 
-    email = "catalog_op@fulfillment.local"
+    email = "product_op@fulfillment.local"
     pw = "CatalogOp12345"
     await create_internal_user(
         db_session,
         email=email,
         name="商品运营",
         password=pw,
-        role="CATALOG_OPERATOR",
+        role="PRODUCT_OPERATOR",
         must_change_password=False,
         actor_user_id=0,
         actor_user_email="system@test",

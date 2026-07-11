@@ -34,7 +34,7 @@ async def test_units_list_excludes_inactive(client, superadmin_headers, db_sessi
 
 @pytest.mark.asyncio
 async def test_sku_unit_fk_restrict_blocks_delete(
-    client, catalog_operator_headers, db_session
+    client, product_operator_headers, db_session
 ):
     """在用单位(有 SKU 引用)FK ON DELETE RESTRICT 挡住物理删除。"""
     from app.db.models.category import Category
@@ -44,10 +44,10 @@ async def test_sku_unit_fk_restrict_blocks_delete(
         db_session.add(Category(code="10", parent_code=None, name_i18n={"zh": "阀门"},
                                 level=1, is_leaf=True, sort_order=0))
         await db_session.commit()
-    spu = (await client.post("/api/v1/spus", headers=catalog_operator_headers,
+    spu = (await client.post("/api/v1/spus", headers=product_operator_headers,
         json={"category_code": "10", "name_i18n": {"zh": "钢管"},
              "main_image": "img/test.jpg"})).json()["data"]
-    r_sku = await client.post("/api/v1/skus", headers=catalog_operator_headers, json={
+    r_sku = await client.post("/api/v1/skus", headers=product_operator_headers, json={
         "spu_id": spu["id"], "unit": "piece", "name_i18n": {"zh": "钢管A"}, "spec_items": []})
     assert r_sku.status_code in (200, 201), r_sku.text
 
@@ -59,7 +59,7 @@ async def test_sku_unit_fk_restrict_blocks_delete(
 
 @pytest.mark.asyncio
 async def test_create_sku_rejects_unknown_unit_code(
-    client, catalog_operator_headers, db_session
+    client, product_operator_headers, db_session
 ):
     from app.db.models.category import Category
 
@@ -68,10 +68,10 @@ async def test_create_sku_rejects_unknown_unit_code(
         db_session.add(Category(code="10", parent_code=None, name_i18n={"zh": "阀门"},
                                 level=1, is_leaf=True, sort_order=0))
         await db_session.commit()
-    spu = (await client.post("/api/v1/spus", headers=catalog_operator_headers,
+    spu = (await client.post("/api/v1/spus", headers=product_operator_headers,
         json={"category_code": "10", "name_i18n": {"zh": "钢管"},
              "main_image": "img/test.jpg"})).json()["data"]
-    r = await client.post("/api/v1/skus", headers=catalog_operator_headers, json={
+    r = await client.post("/api/v1/skus", headers=product_operator_headers, json={
         "spu_id": spu["id"], "unit": "not_a_real_unit", "name_i18n": {"zh": "钢管A"},
         "spec_items": []})
     assert r.status_code == 404, r.text

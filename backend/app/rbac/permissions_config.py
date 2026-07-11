@@ -29,15 +29,15 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         Permissions.PERMISSION_MANAGE,
         Permissions.SYSTEM_CONFIG,
         Permissions.SYSTEM_AUDIT,
-        # M1 履约:customer/quote 管理(暂由 ADMIN 兼管);catalog 只留 read 过渡桥,
-        # manage 已拆给 CATALOG_OPERATOR 专职角色(职责分离)
+        # M1 履约:customer/quote 管理(暂由 ADMIN 兼管);product 只留 read 过渡桥,
+        # manage 已拆给 PRODUCT_OPERATOR 专职角色(职责分离)
         Permissions.CUSTOMER_MANAGE,
-        Permissions.CATALOG_READ,
+        Permissions.PRODUCT_READ,
         Permissions.QUOTE_MANAGE,
     ],
-    "CATALOG_OPERATOR": [
+    "PRODUCT_OPERATOR": [
         *_AUTH_BASE,
-        Permissions.CATALOG_READ,
-        Permissions.CATALOG_MANAGE,
+        Permissions.PRODUCT_READ,
+        Permissions.PRODUCT_MANAGE,
     ],
 }

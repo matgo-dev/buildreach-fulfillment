@@ -1,4 +1,4 @@
-"""图片直传路由 /api/v1/uploads(商品图,非红线,守 catalog:manage —— 能改商品才能传图)。
+"""图片直传路由 /api/v1/uploads(商品图,非红线,守 product:manage —— 能改商品才能传图)。
 
 两步走(前端一套代码,local/s3 通用):
 1. POST ""  body {filename, content_type} → 生成 key → Storage.create_upload → {key, upload_url, method}
@@ -39,7 +39,7 @@ class CreateUploadIn(BaseModel):
 @router.post("", summary="生成上传直传描述(商品图)")
 async def create_upload(
     body: CreateUploadIn,
-    _current: CurrentUser = Depends(require_permission(Permissions.CATALOG_MANAGE)),
+    _current: CurrentUser = Depends(require_permission(Permissions.PRODUCT_MANAGE)),
 ):
     if body.content_type not in _ALLOWED_CONTENT_TYPES:
         raise HTTPException(status_code=400, detail="仅支持 jpeg/png/webp/gif 图片")
@@ -58,7 +58,7 @@ async def create_upload(
 async def receive_upload(
     key: str,
     request: Request,
-    _current: CurrentUser = Depends(require_permission(Permissions.CATALOG_MANAGE)),
+    _current: CurrentUser = Depends(require_permission(Permissions.PRODUCT_MANAGE)),
 ):
     if settings.STORAGE_BACKEND != "local":
         raise HTTPException(

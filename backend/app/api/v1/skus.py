@@ -23,12 +23,12 @@ async def search_skus(
     available: bool = Query(False, description="True: 仅返回 SKU/SPU 均 ACTIVE 未删的可选货"),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
-    current: CurrentUser = Depends(require_permission(Permissions.CATALOG_READ)),
+    current: CurrentUser = Depends(require_permission(Permissions.PRODUCT_READ)),
     db: AsyncSession = Depends(get_db),
 ):
     rows, total = await sku_service.search_skus(
         db, q, spu_id=spu_id, page=page, size=size, available=available)
-    include_cost = Permissions.CATALOG_MANAGE in current.permissions
+    include_cost = Permissions.PRODUCT_MANAGE in current.permissions
     items = [sku_out(sku, include_cost=include_cost, spu_main_image=spu_main_image)
              for sku, spu_main_image in rows]
     return success({"items": items, "total": total, "page": page, "size": size})
@@ -38,7 +38,7 @@ async def search_skus(
 async def create_sku(
     body: SkuCreateIn,
     request: Request,
-    current: CurrentUser = Depends(require_permission(Permissions.CATALOG_MANAGE)),
+    current: CurrentUser = Depends(require_permission(Permissions.PRODUCT_MANAGE)),
     db: AsyncSession = Depends(get_db),
 ):
     sku = await sku_service.create_sku(
@@ -54,7 +54,7 @@ async def update_sku(
     sku_id: int,
     body: SkuUpdateIn,
     request: Request,
-    current: CurrentUser = Depends(require_permission(Permissions.CATALOG_MANAGE)),
+    current: CurrentUser = Depends(require_permission(Permissions.PRODUCT_MANAGE)),
     db: AsyncSession = Depends(get_db),
 ):
     spec_items = ([i.model_dump() for i in body.spec_items]
@@ -69,11 +69,11 @@ async def update_sku(
 @router.get("/{sku_id}", summary="取 SKU")
 async def get_sku(
     sku_id: int,
-    current: CurrentUser = Depends(require_permission(Permissions.CATALOG_READ)),
+    current: CurrentUser = Depends(require_permission(Permissions.PRODUCT_READ)),
     db: AsyncSession = Depends(get_db),
 ):
     sku = await sku_service.get_sku(db, sku_id)
-    include_cost = Permissions.CATALOG_MANAGE in current.permissions
+    include_cost = Permissions.PRODUCT_MANAGE in current.permissions
     return success(sku_out(sku, include_cost=include_cost))
 
 
@@ -82,7 +82,7 @@ async def patch_sku_status(
     sku_id: int,
     body: StatusPatchIn,
     request: Request,
-    current: CurrentUser = Depends(require_permission(Permissions.CATALOG_MANAGE)),
+    current: CurrentUser = Depends(require_permission(Permissions.PRODUCT_MANAGE)),
     db: AsyncSession = Depends(get_db),
 ):
     sku = await sku_service.set_sku_status(
@@ -95,7 +95,7 @@ async def patch_sku_status(
 async def delete_sku(
     sku_id: int,
     request: Request,
-    current: CurrentUser = Depends(require_permission(Permissions.CATALOG_MANAGE)),
+    current: CurrentUser = Depends(require_permission(Permissions.PRODUCT_MANAGE)),
     db: AsyncSession = Depends(get_db),
 ):
     await sku_service.soft_delete_sku(

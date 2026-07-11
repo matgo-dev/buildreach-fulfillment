@@ -4,7 +4,7 @@ from decimal import Decimal
 
 @pytest.mark.asyncio
 async def test_end_to_end_build_search_quote(
-    client, superadmin_headers, catalog_operator_headers, db_session
+    client, superadmin_headers, product_operator_headers, db_session
 ):
     from scripts.import_categories import import_categories
     await import_categories(
@@ -13,17 +13,17 @@ async def test_end_to_end_build_search_quote(
 
     cust = (await client.post("/api/v1/customers", headers=superadmin_headers,
             json={"name_i18n": {"zh": "东非客户"}, "preferred_language": "en"})).json()["data"]
-    spu_id = (await client.post("/api/v1/spus", headers=catalog_operator_headers,
+    spu_id = (await client.post("/api/v1/spus", headers=product_operator_headers,
               json={"category_code": "10", "name_i18n": {"zh": "球阀"},
                     "main_image": "img/test.jpg"})).json()["data"]["id"]
-    sku = (await client.post("/api/v1/skus", headers=catalog_operator_headers, json={
+    sku = (await client.post("/api/v1/skus", headers=product_operator_headers, json={
         "spu_id": spu_id, "unit": "piece", "reference_price": 128.0,
         "name_i18n": {"zh": "不锈钢法兰球阀 DN50"},
         "spec_items": [{"key": "dn", "value": "DN50", "label_i18n": {"zh": "公称通径"}},
                        {"key": "material", "value": {"zh": "不锈钢 304"}, "label_i18n": {"zh": "材质"}}]
     })).json()["data"]
 
-    # 搜索是读:ADMIN 有 catalog:read
+    # 搜索是读:ADMIN 有 product:read
     found = (await client.get("/api/v1/skus?q=法兰球阀", headers=superadmin_headers)).json()["data"]
     assert any(s["id"] == sku["id"] for s in found["items"])
 

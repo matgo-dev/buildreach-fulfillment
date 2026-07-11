@@ -17,7 +17,7 @@ router = APIRouter(prefix="/units", tags=["units"])
 
 @router.get("", summary="激活售卖单位列表(供 SKU 创建下拉)")
 async def list_units(
-    _current: CurrentUser = Depends(require_permission(Permissions.CATALOG_READ)),
+    _current: CurrentUser = Depends(require_permission(Permissions.PRODUCT_READ)),
     db: AsyncSession = Depends(get_db),
 ):
     rows = (await db.execute(

@@ -13,8 +13,8 @@ async def _seed_category(db_session, code="10"):
 
 
 @pytest.mark.asyncio
-async def test_spu_crud_flow(client, catalog_operator_headers, db_session):
-    h = catalog_operator_headers
+async def test_spu_crud_flow(client, product_operator_headers, db_session):
+    h = product_operator_headers
     await _seed_category(db_session, "10")
     r = await client.post("/api/v1/spus", headers=h,
                           json={"category_code": "10", "name_i18n": {"zh": "钢管"},
@@ -62,36 +62,36 @@ async def test_spu_crud_flow(client, catalog_operator_headers, db_session):
 @pytest.mark.asyncio
 async def test_spu_list_read_allowed_for_admin(client, superadmin_headers):
     r = await client.get("/api/v1/spus", headers=superadmin_headers)
-    assert r.status_code == 200  # ADMIN 有 catalog:read
+    assert r.status_code == 200  # ADMIN 有 product:read
 
 
 @pytest.mark.asyncio
 async def test_spu_detail_cost_masked_for_read_only_role(client, superadmin_headers,
-                                                          catalog_operator_headers, db_session):
-    """详情内嵌 SKU 的 reference_price:CATALOG_MANAGE 可见,仅 CATALOG_READ 脱敏。"""
+                                                          product_operator_headers, db_session):
+    """详情内嵌 SKU 的 reference_price:PRODUCT_MANAGE 可见,仅 PRODUCT_READ 脱敏。"""
     await _seed_category(db_session, "10")
-    r = await client.post("/api/v1/spus", headers=catalog_operator_headers,
+    r = await client.post("/api/v1/spus", headers=product_operator_headers,
                           json={"category_code": "10", "name_i18n": {"zh": "钢管"},
                                "main_image": "img/test.jpg"})
     sid = r.json()["data"]["id"]
-    r_sku = await client.post("/api/v1/skus", headers=catalog_operator_headers,
+    r_sku = await client.post("/api/v1/skus", headers=product_operator_headers,
                               json={"spu_id": sid, "unit": "piece", "reference_price": "12.50",
                                     "name_i18n": {"zh": "钢管A"}, "spec_items": []})
     assert r_sku.status_code in (200, 201), r_sku.text
 
-    # CATALOG_MANAGE(operator)可见成本
-    d_op = await client.get(f"/api/v1/spus/{sid}", headers=catalog_operator_headers)
+    # PRODUCT_MANAGE(operator)可见成本
+    d_op = await client.get(f"/api/v1/spus/{sid}", headers=product_operator_headers)
     assert float(d_op.json()["data"]["skus"][0]["reference_price"]) == 12.50
 
-    # 仅 CATALOG_READ(admin)看不到成本(脱敏为 None)
+    # 仅 PRODUCT_READ(admin)看不到成本(脱敏为 None)
     d_admin = await client.get(f"/api/v1/spus/{sid}", headers=superadmin_headers)
     assert d_admin.json()["data"]["skus"][0]["reference_price"] is None
 
 
 @pytest.mark.asyncio
-async def test_spu_derived_availability(client, catalog_operator_headers, db_session):
+async def test_spu_derived_availability(client, product_operator_headers, db_session):
     """派生可用性:ACTIVE SKU → 可用;SPU 下架 → 不可用但 SKU.status 不级联变化。"""
-    h = catalog_operator_headers
+    h = product_operator_headers
     await _seed_category(db_session, "10")
     r = await client.post("/api/v1/spus", headers=h,
                           json={"category_code": "10", "name_i18n": {"zh": "钢管"},
@@ -140,9 +140,9 @@ async def test_spu_derived_availability(client, catalog_operator_headers, db_ses
 
 
 @pytest.mark.asyncio
-async def test_spus_category_subtree_filter(client, catalog_operator_headers, db_session):
+async def test_spus_category_subtree_filter(client, product_operator_headers, db_session):
     """品类子树前缀过滤:选父类含子孙 SPU;include_descendants=false 仅本级;前缀不误匹配兄弟。"""
-    h = catalog_operator_headers
+    h = product_operator_headers
     # 建材(01) → 水泥(01.001) → 硅酸盐水泥(01.001.001,叶子);另建五金(02,叶子),前缀边界用。
     db_session.add_all([
         Category(code="01", parent_code=None, name_i18n={"zh": "建材"},
@@ -196,10 +196,10 @@ async def test_spus_category_subtree_filter(client, catalog_operator_headers, db
 
 
 @pytest.mark.asyncio
-async def test_spus_category_subtree_filter_escapes_like_wildcards(client, catalog_operator_headers,
+async def test_spus_category_subtree_filter_escapes_like_wildcards(client, product_operator_headers,
                                                                      db_session):
     """category_code 含 LIKE 元字符(%)时不当通配符解释:转义前会把 01.001 误吸进 '0%' 的结果。"""
-    h = catalog_operator_headers
+    h = product_operator_headers
     db_session.add_all([
         Category(code="01", parent_code=None, name_i18n={"zh": "建材"},
                  level=1, is_leaf=False, sort_order=0),
@@ -224,9 +224,9 @@ async def test_spus_category_subtree_filter_escapes_like_wildcards(client, catal
 
 @pytest.mark.asyncio
 async def test_spus_category_subtree_filter_variable_length_prefix_boundary(
-        client, catalog_operator_headers, db_session):
+        client, product_operator_headers, db_session):
     """变长同前缀边界:01 与 010 是两个独立顶级分类,查 01 不应吸入挂在 010 下的 SPU。"""
-    h = catalog_operator_headers
+    h = product_operator_headers
     db_session.add_all([
         Category(code="01", parent_code=None, name_i18n={"zh": "建材"},
                  level=1, is_leaf=True, sort_order=0),

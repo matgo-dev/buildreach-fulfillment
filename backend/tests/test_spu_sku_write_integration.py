@@ -17,15 +17,15 @@ async def _seed_category(db_session, code="10"):
 
 
 @pytest.mark.asyncio
-async def test_create_spu_then_sku_builds_search_text(client, catalog_operator_headers, db_session):
+async def test_create_spu_then_sku_builds_search_text(client, product_operator_headers, db_session):
     await _seed_category(db_session)
 
-    r_spu = await client.post("/api/v1/spus", headers=catalog_operator_headers,
+    r_spu = await client.post("/api/v1/spus", headers=product_operator_headers,
                               json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "main_image": "img/test.jpg"})
     assert r_spu.status_code == 200, r_spu.text
     spu_id = r_spu.json()["data"]["id"]
 
-    r_sku = await client.post("/api/v1/skus", headers=catalog_operator_headers, json={
+    r_sku = await client.post("/api/v1/skus", headers=product_operator_headers, json={
         "spu_id": spu_id, "unit": "piece", "reference_price": 128.0,
         "name_i18n": {"zh": "不锈钢球阀 DN50"},
         "spec_items": [
@@ -54,15 +54,15 @@ async def test_create_spu_then_sku_builds_search_text(client, catalog_operator_h
 
 
 @pytest.mark.asyncio
-async def test_update_sku_recomputes_search_text(client, catalog_operator_headers, db_session):
+async def test_update_sku_recomputes_search_text(client, product_operator_headers, db_session):
     await _seed_category(db_session)
-    spu_id = (await client.post("/api/v1/spus", headers=catalog_operator_headers,
+    spu_id = (await client.post("/api/v1/spus", headers=product_operator_headers,
               json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "main_image": "img/test.jpg"})).json()["data"]["id"]
-    sku_id = (await client.post("/api/v1/skus", headers=catalog_operator_headers, json={
+    sku_id = (await client.post("/api/v1/skus", headers=product_operator_headers, json={
         "spu_id": spu_id, "unit": "piece", "name_i18n": {"zh": "阀"},
         "spec_items": [{"key": "dn", "value": "DN50"}]})).json()["data"]["id"]
 
-    r = await client.put(f"/api/v1/skus/{sku_id}", headers=catalog_operator_headers, json={
+    r = await client.put(f"/api/v1/skus/{sku_id}", headers=product_operator_headers, json={
         "name_i18n": {"zh": "阀", "en": "Ball Valve XYZ"},
         "spec_items": [{"key": "dn", "value": "DN80"}]})
     assert r.status_code == 200, r.text
@@ -72,32 +72,32 @@ async def test_update_sku_recomputes_search_text(client, catalog_operator_header
 
 
 @pytest.mark.asyncio
-async def test_create_sku_rejects_duplicate_spec_key(client, catalog_operator_headers, db_session):
+async def test_create_sku_rejects_duplicate_spec_key(client, product_operator_headers, db_session):
     await _seed_category(db_session)
-    spu_id = (await client.post("/api/v1/spus", headers=catalog_operator_headers,
+    spu_id = (await client.post("/api/v1/spus", headers=product_operator_headers,
               json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "main_image": "img/test.jpg"})).json()["data"]["id"]
-    r = await client.post("/api/v1/skus", headers=catalog_operator_headers, json={
+    r = await client.post("/api/v1/skus", headers=product_operator_headers, json={
         "spu_id": spu_id, "unit": "piece", "name_i18n": {"zh": "阀"},
         "spec_items": [{"key": "dn", "value": "1"}, {"key": "dn", "value": "2"}]})
     assert r.status_code == 400  # SpecContractError
 
 
 @pytest.mark.asyncio
-async def test_update_sku_rejects_name_without_zh(client, catalog_operator_headers, db_session):
+async def test_update_sku_rejects_name_without_zh(client, product_operator_headers, db_session):
     await _seed_category(db_session)
-    spu_id = (await client.post("/api/v1/spus", headers=catalog_operator_headers,
+    spu_id = (await client.post("/api/v1/spus", headers=product_operator_headers,
               json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "main_image": "img/test.jpg"})).json()["data"]["id"]
-    sku_id = (await client.post("/api/v1/skus", headers=catalog_operator_headers, json={
+    sku_id = (await client.post("/api/v1/skus", headers=product_operator_headers, json={
         "spu_id": spu_id, "unit": "piece", "name_i18n": {"zh": "阀"},
         "spec_items": [{"key": "dn", "value": "DN50"}]})).json()["data"]["id"]
     # 改 SKU 名成无 zh → 422(zh 必填铁律,更新路径也守)
-    r = await client.put(f"/api/v1/skus/{sku_id}", headers=catalog_operator_headers,
+    r = await client.put(f"/api/v1/skus/{sku_id}", headers=product_operator_headers,
                          json={"name_i18n": {"en": "no zh"}})
     assert r.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_create_sku_rejects_enum_value_not_in_options(client, catalog_operator_headers, db_session):
+async def test_create_sku_rejects_enum_value_not_in_options(client, product_operator_headers, db_session):
     """enum 属性运行期守卫:SKU 填的 value 必须 ∈ 模板 options 的 code 集,否则 400(SpecContractError)。"""
     await _seed_category(db_session)
     options = [{"code": "carbon_steel", "label_i18n": {"zh": "碳钢"}}]
@@ -105,29 +105,29 @@ async def test_create_sku_rejects_enum_value_not_in_options(client, catalog_oper
                                 value_type="enum", options=options)
     await db_session.commit()
 
-    spu_id = (await client.post("/api/v1/spus", headers=catalog_operator_headers,
+    spu_id = (await client.post("/api/v1/spus", headers=product_operator_headers,
               json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "main_image": "img/test.jpg"})).json()["data"]["id"]
 
     # 负例:value 不在 options code 集内 → 400
-    r_bad = await client.post("/api/v1/skus", headers=catalog_operator_headers, json={
+    r_bad = await client.post("/api/v1/skus", headers=product_operator_headers, json={
         "spu_id": spu_id, "unit": "piece", "name_i18n": {"zh": "阀"},
         "spec_items": [{"key": "material", "value": "titanium"}]})
     assert r_bad.status_code == 400, r_bad.text
 
     # 正例对照:value 在 options code 集内 → 成功
-    r_ok = await client.post("/api/v1/skus", headers=catalog_operator_headers, json={
+    r_ok = await client.post("/api/v1/skus", headers=product_operator_headers, json={
         "spu_id": spu_id, "unit": "piece", "name_i18n": {"zh": "阀"},
         "spec_items": [{"key": "material", "value": "carbon_steel"}]})
     assert r_ok.status_code == 200, r_ok.text
 
 
 @pytest.mark.asyncio
-async def test_handwritten_key_label_without_zh_rejected(client, catalog_operator_headers, db_session):
+async def test_handwritten_key_label_without_zh_rejected(client, product_operator_headers, db_session):
     await _seed_category(db_session)
-    spu_id = (await client.post("/api/v1/spus", headers=catalog_operator_headers,
+    spu_id = (await client.post("/api/v1/spus", headers=product_operator_headers,
               json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "main_image": "img/test.jpg"})).json()["data"]["id"]
     # 手输新 key 但 label_i18n 无 zh → 400,不得污染模板(模板 label 也守 zh 必填)
-    r = await client.post("/api/v1/skus", headers=catalog_operator_headers, json={
+    r = await client.post("/api/v1/skus", headers=product_operator_headers, json={
         "spu_id": spu_id, "unit": "piece", "name_i18n": {"zh": "阀"},
         "spec_items": [{"key": "coating", "value": "x", "label_i18n": {"en": "Coating"}}]})
     assert r.status_code == 400
@@ -137,15 +137,15 @@ async def test_handwritten_key_label_without_zh_rejected(client, catalog_operato
 
 @pytest.mark.asyncio
 async def test_inline_new_attribute_unit_lands_in_template_not_spec_jsonb(
-    client, catalog_operator_headers, db_session
+    client, product_operator_headers, db_session
 ):
     """新增属性(inline,带 label_i18n)顺手给的 unit 是模板元数据:落进该属性模板行的
     unit 列(如新增"长度"给 unit=mm),但 SKU 自己的 spec_jsonb 只存 {key, value},
     永不落 unit(spec §11 Part B:计量单位只住模板)。"""
     await _seed_category(db_session)
-    spu_id = (await client.post("/api/v1/spus", headers=catalog_operator_headers,
+    spu_id = (await client.post("/api/v1/spus", headers=product_operator_headers,
               json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "main_image": "img/test.jpg"})).json()["data"]["id"]
-    r = await client.post("/api/v1/skus", headers=catalog_operator_headers, json={
+    r = await client.post("/api/v1/skus", headers=product_operator_headers, json={
         "spu_id": spu_id, "unit": "piece", "name_i18n": {"zh": "阀"},
         "spec_items": [
             {"value": "50", "label_i18n": {"zh": "长度"}, "unit": "mm"},
@@ -162,13 +162,13 @@ async def test_inline_new_attribute_unit_lands_in_template_not_spec_jsonb(
 
 
 @pytest.mark.asyncio
-async def test_existing_key_submitted_unit_is_ignored(client, catalog_operator_headers, db_session):
+async def test_existing_key_submitted_unit_is_ignored(client, product_operator_headers, db_session):
     """已存在的 key(dn,模板 unit 本为空串)提交 unit 一律忽略——不接受某个 SKU 单独
     覆盖模板计量单位;spec_jsonb 不落 unit,模板行 unit 也不被 SKU 提交值污染。"""
     await _seed_category(db_session)
-    spu_id = (await client.post("/api/v1/spus", headers=catalog_operator_headers,
+    spu_id = (await client.post("/api/v1/spus", headers=product_operator_headers,
               json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "main_image": "img/test.jpg"})).json()["data"]["id"]
-    r = await client.post("/api/v1/skus", headers=catalog_operator_headers, json={
+    r = await client.post("/api/v1/skus", headers=product_operator_headers, json={
         "spu_id": spu_id, "unit": "piece", "name_i18n": {"zh": "阀"},
         "spec_items": [{"key": "dn", "value": "DN50", "unit": "inch"}],
     })
@@ -184,7 +184,7 @@ async def test_existing_key_submitted_unit_is_ignored(client, catalog_operator_h
 
 @pytest.mark.asyncio
 async def test_create_sku_with_new_enum_option_appends_and_uses_new_code(
-    client, catalog_operator_headers, db_session
+    client, product_operator_headers, db_session
 ):
     """enum 属性 value 的 code 不在模板 options 内、但带 label_i18n → 视为 inline
     新增选项:后端生成 v_ 前缀新 code、追加进模板 options,SKU spec_jsonb 落库用该
@@ -195,10 +195,10 @@ async def test_create_sku_with_new_enum_option_appends_and_uses_new_code(
                                 value_type="enum", options=options)
     await db_session.commit()
 
-    spu_id = (await client.post("/api/v1/spus", headers=catalog_operator_headers,
+    spu_id = (await client.post("/api/v1/spus", headers=product_operator_headers,
               json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "main_image": "img/test.jpg"})).json()["data"]["id"]
 
-    r = await client.post("/api/v1/skus", headers=catalog_operator_headers, json={
+    r = await client.post("/api/v1/skus", headers=product_operator_headers, json={
         "spu_id": spu_id, "unit": "piece", "name_i18n": {"zh": "阀"},
         "spec_items": [{"key": "material", "label_i18n": {"zh": "铝合金"}}]})
     assert r.status_code == 200, r.text

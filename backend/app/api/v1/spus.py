@@ -25,7 +25,7 @@ async def list_spus(
     include_descendants: bool = True,
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
-    _current: CurrentUser = Depends(require_permission(Permissions.CATALOG_READ)),
+    _current: CurrentUser = Depends(require_permission(Permissions.PRODUCT_READ)),
     db: AsyncSession = Depends(get_db),
 ):
     rows, total = await spu_service.list_spus(
@@ -44,12 +44,12 @@ async def list_spus(
 @router.get("/{spu_id}", summary="SPU 详情(含内嵌 SKU + 派生可用性)")
 async def get_spu(
     spu_id: int,
-    current: CurrentUser = Depends(require_permission(Permissions.CATALOG_READ)),
+    current: CurrentUser = Depends(require_permission(Permissions.PRODUCT_READ)),
     db: AsyncSession = Depends(get_db),
 ):
     spu = await spu_service.get_spu(db, spu_id)
     skus = await sku_service.list_skus_by_spu(db, spu_id)
-    include_cost = Permissions.CATALOG_MANAGE in current.permissions
+    include_cost = Permissions.PRODUCT_MANAGE in current.permissions
     sku_dicts = []
     for s in skus:
         d = sku_out(s, include_cost=include_cost)
@@ -66,7 +66,7 @@ async def get_spu(
 async def create_spu(
     body: SpuCreateIn,
     request: Request,
-    current: CurrentUser = Depends(require_permission(Permissions.CATALOG_MANAGE)),
+    current: CurrentUser = Depends(require_permission(Permissions.PRODUCT_MANAGE)),
     db: AsyncSession = Depends(get_db),
 ):
     spu = await spu_service.create_spu(
@@ -81,7 +81,7 @@ async def update_spu(
     spu_id: int,
     body: SpuUpdateIn,
     request: Request,
-    current: CurrentUser = Depends(require_permission(Permissions.CATALOG_MANAGE)),
+    current: CurrentUser = Depends(require_permission(Permissions.PRODUCT_MANAGE)),
     db: AsyncSession = Depends(get_db),
 ):
     spu = await spu_service.update_spu(
@@ -96,7 +96,7 @@ async def patch_spu_status(
     spu_id: int,
     body: StatusPatchIn,
     request: Request,
-    current: CurrentUser = Depends(require_permission(Permissions.CATALOG_MANAGE)),
+    current: CurrentUser = Depends(require_permission(Permissions.PRODUCT_MANAGE)),
     db: AsyncSession = Depends(get_db),
 ):
     spu = await spu_service.set_spu_status(
@@ -109,7 +109,7 @@ async def patch_spu_status(
 async def delete_spu(
     spu_id: int,
     request: Request,
-    current: CurrentUser = Depends(require_permission(Permissions.CATALOG_MANAGE)),
+    current: CurrentUser = Depends(require_permission(Permissions.PRODUCT_MANAGE)),
     db: AsyncSession = Depends(get_db),
 ):
     await spu_service.soft_delete_spu(
