@@ -1,8 +1,8 @@
 """分类规格属性模板服务:一属性一行(category_spec_attributes),按行 upsert 幂等。
 
-取代旧一分类一行 + JSONB 数组模型(read-modify-write 整个数组丢更新)。
-DB 层 UNIQUE(category_code,key) 保证唯一;两个不同 key 的 upsert 各自独立插自己的行,
-互不覆盖,从根上消除旧模型的丢更新问题。
+一属性一行(而非分类挂一个 JSONB 数组):DB 层 UNIQUE(category_code,key) 保证唯一;
+两个不同 key 的 upsert 各自独立插自己的行,互不覆盖,天然无整包数组读改写(read-
+modify-write)的丢更新问题。
 """
 from __future__ import annotations
 
@@ -89,9 +89,8 @@ async def upsert_attribute(
     重复提交漂移)。调用方须已确定这个 key(种子的人工键,或已在模板中的既有 key)
     ——生成全新随机 key 走 create_new_attribute,不要在这里传一个刚现造的 key。
 
-    单行 INSERT ... ON CONFLICT(category_code,key) DO NOTHING + 回读,取代旧模型
-    "整包数组读出来改一条再整包写回去"的 read-modify-write —— 不同 key 各自一行,
-    并发 upsert 不同 key 永远不会互相踩踏丢更新。
+    单行 INSERT ... ON CONFLICT(category_code,key) DO NOTHING + 回读:不同 key 各自一行,
+    并发 upsert 不同 key 永远不会互相踩踏丢更新(无需整包数组读改写)。
     """
     _validate_label_and_options(label_i18n, value_type, options)
 

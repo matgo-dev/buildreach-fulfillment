@@ -8,9 +8,8 @@ Revises: b2f4a1c8d9e0
 2 个 CHECK:code 格式自证 + sort_order 非负。不加 created_by:主数据操作者追溯走
 audit_log,对齐 category_spec_attributes 口径。
 
-种子单位数据由 app 层 seed(seed_units)单一源头负责,不在迁移内 seed —— 开发初期
-无历史数据、无回填需求;FK 引用的 units 行由部署时 run_all_seeds 填入,skus 空表不会
-FK 违约。
+种子单位数据由 app 层 seed(seed_units)单一源头负责,迁移只建空表:部署时 run_all_seeds
+填入 units 行,skus 空表不会 FK 违约。
 """
 from __future__ import annotations
 

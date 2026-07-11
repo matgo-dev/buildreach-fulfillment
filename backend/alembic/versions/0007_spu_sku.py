@@ -1,9 +1,9 @@
-"""spu / sku: 商品目录核心表(SPU + SKU,一次建成终态)
+"""spu / sku: 商品目录核心表(SPU + SKU)
 
 Revision ID: 14e188130cf8
 Revises: 0006_units
 
-SPU(商品)+ SKU(单品/规格)。开发初期净片:一次建成终态,不再补丁叠加。
+SPU(商品)+ SKU(单品/规格):
 - spus: spu_code 唯一、软删 deleted_at、图片列(main_image/images)、category_code
   双索引(等值 btree ix_spus_category_code + 前缀 text_pattern_ops ix_spus_category_code_prefix)。
 - skus: 软删 deleted_at、image、unit 为 FK→units.code(ON DELETE RESTRICT,在用单位删不掉)、

@@ -14,13 +14,13 @@ class SuggestionSource:
 
 
 class CategorySpecAttribute(Base, TimestampUpdateMixin):
-    """分类规格属性模板 —— 一属性一行(正规化,取代旧 category_spec_suggestions)。
+    """分类规格属性模板 —— 一属性一行(正规化)。
 
     key 为稳定 ASCII 键(身份,SKU spec_jsonb 引用它):
     种子属性给有意义键(material/diameter);运营手输新属性由后端生成独立随机稳定键
     `a_<8位 base62>`(见 spec_template_service.create_new_attribute)——绝不取中文
-    原文当键、绝不翻译。UNIQUE(category_code, key) 由 DB 硬保证,消除旧模型
-    read-modify-write 整个 JSONB 数组导致的丢更新。
+    原文当键、绝不翻译。一属性一行(而非分类挂一个 JSONB 数组):不同属性各自一行、
+    并发编辑互不覆盖,UNIQUE(category_code, key) 由 DB 硬保唯一。
 
     audit 列沿用 TimestampUpdateMixin(不加 created_by)——主数据操作者追溯走 audit_log,
     对齐全仓口径(唯 quotation 交易域带 created_by)。
