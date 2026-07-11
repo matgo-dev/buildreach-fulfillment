@@ -1,5 +1,4 @@
-from app.core.codegen import format_code
-from app.services.numbering import NumberScope
+from app.core.codegen import NumberScope, format_code
 
 
 def test_sku_code_format_is_neutral_prefixed_zero_padded():
@@ -30,5 +29,5 @@ def test_format_code_matches_legacy_shapes():
 
 def test_format_code_unknown_scope_raises():
     import pytest
-    with pytest.raises(KeyError):
+    with pytest.raises(ValueError):
         format_code("NOPE", 1)

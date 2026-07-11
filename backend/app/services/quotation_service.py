@@ -10,7 +10,7 @@ from starlette.requests import Request
 
 from app.audit.constants import AuditAction, AuditResourceType
 from app.audit.logger import write_audit
-from app.core.codegen import format_code
+from app.core.codegen import NumberScope, format_code
 from app.core.exceptions import NotFoundError
 from app.core.i18n import compose_spec_text, display
 from app.core.languages import resolve_quote_language
@@ -19,7 +19,7 @@ from app.db.models.sku import Sku
 from app.db.models.spu import Spu
 from app.db.models.unit import Unit
 from app.services import customer_service, spec_template_service as tmpl
-from app.services.numbering import NumberScope, allocate
+from app.services.numbering import allocate
 
 
 async def _next_quote_no(db: AsyncSession) -> str:

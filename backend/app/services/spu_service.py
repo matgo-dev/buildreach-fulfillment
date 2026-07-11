@@ -9,12 +9,12 @@ from starlette.requests import Request
 
 from app.audit.constants import AuditAction, AuditResourceType
 from app.audit.logger import write_audit
-from app.core.codegen import format_code
+from app.core.codegen import NumberScope, format_code
 from app.core.exceptions import ConflictError, NotFoundError
 from app.db.models.category import Category
 from app.db.models.sku import Sku
 from app.db.models.spu import Spu
-from app.services.numbering import NumberScope, allocate
+from app.services.numbering import allocate
 
 
 async def _get_leaf_category(db: AsyncSession, code: str) -> Category:

@@ -7,10 +7,10 @@ from starlette.requests import Request
 
 from app.audit.constants import AuditAction, AuditResourceType
 from app.audit.logger import write_audit
-from app.core.codegen import format_code
+from app.core.codegen import NumberScope, format_code
 from app.core.exceptions import NotFoundError
 from app.db.models.customer import Customer
-from app.services.numbering import NumberScope, allocate
+from app.services.numbering import allocate
 
 
 async def create_customer(db: AsyncSession, *, name_i18n, preferred_language=None,
