@@ -72,6 +72,22 @@ async def test_update_sku_recomputes_search_text(client, product_operator_header
 
 
 @pytest.mark.asyncio
+async def test_create_sku_under_deleted_spu_rejected(client, product_operator_headers, db_session):
+    """已软删 SPU 不能再挂新 SKU(否则孤儿:SKU 可搜可读而父 SPU 404)。
+    删空 SPU(无 SKU 可删)后再 POST /skus → 404,守住"活 SKU 必属活 SPU"不变式。"""
+    await _seed_category(db_session)
+    spu_id = (await client.post("/api/v1/spus", headers=product_operator_headers,
+              json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "main_image": "img/test.jpg"})).json()["data"]["id"]
+    r_del = await client.delete(f"/api/v1/spus/{spu_id}", headers=product_operator_headers)
+    assert r_del.status_code == 200, r_del.text
+
+    r = await client.post("/api/v1/skus", headers=product_operator_headers, json={
+        "spu_id": spu_id, "unit": "piece", "name_i18n": {"zh": "阀"},
+        "spec_items": [{"key": "dn", "value": "DN50"}]})
+    assert r.status_code == 404, r.text
+
+
+@pytest.mark.asyncio
 async def test_create_sku_rejects_duplicate_spec_key(client, product_operator_headers, db_session):
     await _seed_category(db_session)
     spu_id = (await client.post("/api/v1/spus", headers=product_operator_headers,

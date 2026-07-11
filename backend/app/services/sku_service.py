@@ -88,7 +88,10 @@ async def _resolve_spec(db: AsyncSession, category_code: str, spec_items: list[d
 
 
 async def _spu_category(db: AsyncSession, spu_id: int) -> tuple[Spu, str]:
-    spu = (await db.execute(select(Spu).where(Spu.id == spu_id))).scalar_one_or_none()
+    # 必须滤软删:否则可对已删 SPU 挂新 SKU(孤儿——SKU 可搜可读而父 SPU 404),
+    # 与 get_spu 同款不变式(活 SKU 必属活 SPU)。
+    spu = (await db.execute(
+        select(Spu).where(Spu.id == spu_id, Spu.deleted_at.is_(None)))).scalar_one_or_none()
     if spu is None:
         raise NotFoundError(f"SPU 不存在: {spu_id}")
     return spu, spu.category_code
