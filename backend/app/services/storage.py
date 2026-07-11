@@ -97,6 +97,10 @@ class LocalDiskStorage:
 
     def build_url(self, key: str, size: int | None = None) -> str:
         # 本地存储零图像处理:忽略 size,浏览器降采样兜底。
+        # 已知限制(仅本地 dev):save() 把 key 打平成 basename(_path 用 Path(key).name),
+        # 此处却返回带 'img/' 前缀的 /media/{key},且 /media 未挂静态路由 —— 本地传的图当前
+        # 预览不出来。生产走 S3Storage(public_url 前缀一致),无此问题。待商品图上传前端
+        # 落地时一并修(挂 /media 静态路由或 save 保留 key 路径),不留在私有 ledger。
         return f"/media/{key}"
 
     def create_upload(self, key: str, content_type: str) -> dict:

@@ -11,25 +11,36 @@
   - 新模块:分类(只读导入)、分类规格建议模板、客户(最小档)、SPU/SKU、SKU 搜索、报价草稿。
   - 统一编号服务(`number_sequences` 表 + `allocate`):主数据全局号段 `SKU00000042`/`C000042`/`SPU00000042`,单据按年月号段 `Q2026070001`。
   - **不在 M1**:报价锁档/转销售/导出、采购/入库/库存/发货、各模块管理后台、翻译内容(内容纯中文,i18n 仅形状先行)。
-- **商品目录做完整(已完成,分支 `feat/product-catalog`)**:M1 遗留的目录能力补齐。
-  - **RBAC 细分**:新增权限点 `catalog:read`/`catalog:manage`(替代原粗粒度 `spu:manage`/`sku:manage`),
-    新增角色 `CATALOG_OPERATOR`(商品运营,持 read+manage);`ADMIN` 只保留 `catalog:read` 作职责分离过渡桥,
-    不再持 `catalog:manage`(商品增改上下架收口给 `CATALOG_OPERATOR`)。
+- **商品管理做完整(已完成,分支 `feat/product-management`)**:M1 遗留的目录能力补齐。
+  - **RBAC 细分**:权限点 `product:read`/`product:manage`(商品 SPU/SKU;`category:*`/`unit:*` 预留给将来
+    品类树/单位维护写端点,职责分离),新增角色 `PRODUCT_OPERATOR`(商品运营,持 read+manage);`ADMIN`
+    只保留 `product:read` 作职责分离过渡桥,不再持 `product:manage`(商品增改上下架收口给 `PRODUCT_OPERATOR`)。
   - **SPU 中性编码**:`spus.spu_code`(`SPU00000042`,复用统一编号服务)。
   - **逻辑删**:`spus`/`skus` 都加 `deleted_at`,物理行永不删,读路径默认过滤已删;`DELETE` 端点即置
     `deleted_at`。
   - **上下架 + 派生可用性**:`status`(`ACTIVE`/`INACTIVE`)是自身字段;“可用”是派生语义,不落表——
     `SKU 可用 ⟺ 自身 ACTIVE ∧ 未删 ∧ 所属 SPU ACTIVE ∧ 未删`(`app/services/sku_service.py::sku_available`)。
     `GET /api/v1/skus?available=1` 按此语义过滤,供消费侧(报价选货等)只看真正能卖的货。
-  - **成本脱敏**:`skus.reference_price`(内部采购参考价)只有持 `catalog:manage` 的调用方能看到,否则序列化时
+  - **成本脱敏**:`skus.reference_price`(内部采购参考价)只有持 `product:manage` 的调用方能看到,否则序列化时
     置 `None`(`sku_out(..., include_cost=...)`)。
   - **商品图片**:`spus.main_image`(必填,创建校验 trim 后非空)/ `spus.images`(相册),`skus.image`
     (可选,回退 `spu.main_image`)。存储复用扩展后的 `Storage` 协议新增 `build_url`(展示 URL,OSS 可带
     `size` 走 `x-oss-process` 缩略)/ `create_upload`(前端直传描述);上传端点 `POST /api/v1/uploads`
     生成 `{key, upload_url, method}`,`STORAGE_BACKEND=local` 时另有 `PUT /api/v1/uploads/{key}` 本地接收
     ——key 形状强校验(`img/<uuid32>_<安全文件名>`)防路径穿越/越权覆盖,`content_type` 收窄到
-    `jpeg/png/webp/gif`(显式排除 `image/svg+xml`,防存储型 XSS)。两个上传端点均守 `catalog:manage`。
-  - 迁移:`0008_m1_catalog_completion`(`spu_code` + `deleted_at`)、`0009_catalog_images`(图片列)。
+    `jpeg/png/webp/gif`(显式排除 `image/svg+xml`,防存储型 XSS)。两个上传端点均守 `product:manage`。
+  - **规格属性正规化**:`category_spec_attributes`(一属性一行,`UNIQUE(category_code,key)` + 4 个 CHECK,
+    `value_type`/`options⇔enum`);运营 inline 新增属性/enum 选项由后端生成随机稳定 key(`a_`/`v_` + base62),
+    中文只进 `label_i18n`,绝不进 key 列(身份≠展示)。
+  - **售卖单位专表**:`units`(`code` 做 PK + `label_i18n`,主数据独立迁移),`skus.unit` 收编为 FK
+    `units.code`(`ON DELETE RESTRICT`);单位种子唯一源头 = `app/seed.py::seed_units`。
+  - **品类子树过滤**:`GET /api/v1/spus?category_code=...&include_descendants=1` 走 `text_pattern_ops` 前缀索引。
+  - **已知限制**:SPU 列表关键词只匹配中文名 + `spu_code`(SKU 搜索走 `search_text` 覆盖全语言);本地
+    `STORAGE_BACKEND=local` 图片预览路径待接(生产 S3 无此问题)。
+  - **迁移(开发初期净片)**:因未上线,商品目录迁移已合入终态、删除补丁链——`0003_spec_attributes`
+    (规格属性正规化)、`0006_units`(单位专表)、`0007_spu_sku`(SPU/SKU 一次建成:编码/软删/图片/单位 FK/
+    双索引/CHECK)。旧 `0008–0012` 补丁迁移已废除。**重建库**:改历史后 dev/test 库需 `dropdb && createdb`
+    重跑 `alembic upgrade head`(无历史数据,不做在线迁移)。
 
 ## 本地开发
 

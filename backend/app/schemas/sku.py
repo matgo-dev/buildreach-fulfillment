@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, Field, ValidationError, condecimal, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, condecimal, field_validator
 
 from app.core.exceptions import SpecContractError
 from app.schemas.common import validate_i18n
@@ -101,8 +101,7 @@ class SkuOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 def sku_out(sku, *, include_cost: bool, spu_main_image: str | None = None) -> dict:

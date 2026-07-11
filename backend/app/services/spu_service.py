@@ -116,6 +116,9 @@ async def list_spus(db: AsyncSession, *, category_code=None, status=None, keywor
     if status:
         conds.append(Spu.status == status)
     if keyword:
+        # 已知限制:SPU 列表关键词只匹配中文名(name_i18n['zh'])+ spu_code;缺 zh 的记录
+        # 静默不匹配。中文运营期足够;多语言上线前再扩(SKU 搜索走 search_text 已覆盖全语言,
+        # SPU 无 search_text 去规范化字段,故此处直取 zh)。
         like = f"%{keyword}%"
         conds.append((Spu.name_i18n["zh"].astext.ilike(like)) | (Spu.spu_code.ilike(like)))
     total = (await db.execute(select(func.count()).select_from(Spu).where(*conds))).scalar_one()
