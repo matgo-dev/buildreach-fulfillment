@@ -40,7 +40,7 @@ def upgrade() -> None:
         sa.Column("source", sa.String(length=20), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
         sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(["category_code"], ["categories.code"]),
+        sa.ForeignKeyConstraint(["category_code"], ["categories.code"], ondelete="RESTRICT"),
         sa.UniqueConstraint("category_code", "key", name="uq_cat_spec_attr_cat_key"),
         sa.CheckConstraint(
             "value_type IN ('string','number','enum')", name="ck_cat_spec_attr_value_type"),

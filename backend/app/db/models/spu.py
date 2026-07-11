@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import ForeignKey, Index, Integer, String
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -20,12 +20,15 @@ class Spu(Base, TimestampUpdateMixin, SoftDeleteMixin):
         # 模型在此声明 = 迁移创建 = create_all 建表,三者单一源头,不再靠迁移单方面偷偷加。
         Index("ix_spus_category_code_prefix", "category_code",
               postgresql_ops={"category_code": "text_pattern_ops"}),
+        # 状态 DB 兜底(纵深防御,与 category_spec_attributes 的 value_type/source CHECK 同纪律)
+        CheckConstraint("status IN ('ACTIVE','INACTIVE')", name="ck_spus_status"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     spu_code: Mapped[str] = mapped_column(String(30), unique=True, nullable=False, index=True)
+    # ON DELETE RESTRICT 显式:品类被引用时不可硬删(同 sku.unit 口径;categories 实际只软删)
     category_code: Mapped[str] = mapped_column(
-        String(50), ForeignKey("categories.code"), nullable=False, index=True)
+        String(50), ForeignKey("categories.code", ondelete="RESTRICT"), nullable=False, index=True)
     name_i18n: Mapped[dict] = mapped_column(JSONB, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=SpuStatus.ACTIVE)
     main_image: Mapped[str] = mapped_column(String(255), nullable=False, default="")

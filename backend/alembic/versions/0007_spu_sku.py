@@ -36,8 +36,9 @@ def upgrade() -> None:
         sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
         sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(["category_code"], ["categories.code"]),
+        sa.ForeignKeyConstraint(["category_code"], ["categories.code"], ondelete="RESTRICT"),
         sa.PrimaryKeyConstraint("id"),
+        sa.CheckConstraint("status IN ('ACTIVE','INACTIVE')", name="ck_spus_status"),
     )
     op.create_index("ix_spus_spu_code", "spus", ["spu_code"], unique=True)
     op.create_index(op.f("ix_spus_category_code"), "spus", ["category_code"], unique=False)
@@ -61,12 +62,13 @@ def upgrade() -> None:
         sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
         sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(["spu_id"], ["spus.id"]),
+        sa.ForeignKeyConstraint(["spu_id"], ["spus.id"], ondelete="RESTRICT"),
         sa.ForeignKeyConstraint(
             ["unit"], ["units.code"], name="fk_skus_unit_units", ondelete="RESTRICT"),
         sa.PrimaryKeyConstraint("id"),
         sa.CheckConstraint(
             "reference_price IS NULL OR reference_price >= 0", name="ck_skus_ref_price_nn"),
+        sa.CheckConstraint("status IN ('ACTIVE','INACTIVE')", name="ck_skus_status"),
     )
     op.create_index("ix_skus_search_text_trgm", "skus", ["search_text"], unique=False,
                     postgresql_using="gin", postgresql_ops={"search_text": "gin_trgm_ops"})

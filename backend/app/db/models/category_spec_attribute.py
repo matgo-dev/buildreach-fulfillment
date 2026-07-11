@@ -39,8 +39,9 @@ class CategorySpecAttribute(Base, TimestampUpdateMixin):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     # 不另建 INDEX(category_code):UNIQUE(category_code,key) 的最左前缀已覆盖该查询路径。
+    # ON DELETE RESTRICT 显式:品类被规格模板引用时不可硬删(同 sku.unit 口径)
     category_code: Mapped[str] = mapped_column(
-        String(50), ForeignKey("categories.code"), nullable=False
+        String(50), ForeignKey("categories.code", ondelete="RESTRICT"), nullable=False
     )
     key: Mapped[str] = mapped_column(String(64), nullable=False)
     label_i18n: Mapped[dict] = mapped_column(JSONB, nullable=False)

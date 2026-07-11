@@ -8,7 +8,7 @@ from app.db.base import Base, TimestampUpdateMixin
 
 
 class Unit(Base, TimestampUpdateMixin):
-    """SKU 售卖单位专表(spec §11 方案3,非通用字典框架;全局表,独立迁移 0012)。
+    """SKU 售卖单位专表(spec §11 方案3,非通用字典框架;全局表,独立迁移 0006_units)。
 
     code-as-PK(非 surrogate id):小查表、code 永久不变(同 categories.code 契约),
     直接 code 做 PK 更简、sku.unit 引 PK 天然省一个 id
