@@ -20,9 +20,8 @@ from app.services import spec_template_service as tmpl
 
 logger = logging.getLogger(__name__)
 
-# 与 alembic/versions/0012_units_sku_fk.py 的 _UNIT_SEEDS 保持同一份数据(migration 是
-# 独立自包含的 data-op,不 import 会演进的 app 代码;这里是 create_all 测试路径的等价
-# seed,两处口径手动保持一致)。
+# 常用售卖单位种子 —— 单位数据的**唯一源头**(单一源头约束)。迁移只建空 units 表,
+# 不写死种子;生产与测试(create_all)两条路径都靠这里 seed。code 纯 ASCII、稳定、永久不变。
 _UNIT_SEEDS: list[tuple[str, dict, int]] = [
     ("piece", {"zh": "件", "en": "pc"}, 10),
     ("meter", {"zh": "米", "en": "m"}, 20),
@@ -129,9 +128,8 @@ async def seed_spec_templates(db: AsyncSession) -> None:
 async def seed_units(db: AsyncSession) -> None:
     """种入常用售卖单位(spec §11 Part A)。幂等:code 已存在则跳过,不覆盖。
 
-    生产路径由 alembic 迁移 0012 内 data-op 幂等 seed 负责;这里是 create_all 测试
-    路径(不跑迁移)的等价补齐,ripple 要求测试环境 units 表必须有数据,否则任何
-    建 SKU 的测试都会 FK 违约。
+    单位种子的唯一源头(迁移只建空表)。部署与测试(create_all)都经 run_all_seeds
+    调用本函数填 units;skus 建行前 units 必须先有数据,否则 unit FK 违约。
     """
     for code, label_i18n, sort_order in _UNIT_SEEDS:
         existing = (await db.execute(select(Unit).where(Unit.code == code))).scalar_one_or_none()
