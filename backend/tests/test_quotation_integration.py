@@ -16,7 +16,7 @@ async def _prep(client, headers, catalog_headers, db_session, cust_lang=None):
                                 level=1, is_leaf=True, sort_order=0))
         await db_session.commit()
     cust = (await client.post("/api/v1/customers", headers=headers,
-            json={"name_i18n": {"zh": "客户A"}, "preferred_language": cust_lang})).json()["data"]
+            json={"name_i18n": {"zh": "客户A"}, "quote_language": cust_lang})).json()["data"]
     spu_id = (await client.post("/api/v1/spus", headers=catalog_headers,
               json={"category_code": "10", "name_i18n": {"zh": "球阀"},
                     "main_image": "img/test.jpg"})).json()["data"]["id"]
@@ -31,11 +31,11 @@ async def test_draft_language_defaults_from_customer_pref(
     client, superadmin_headers, product_operator_headers, db_session
 ):
     cust, _ = await _prep(client, superadmin_headers, product_operator_headers, db_session,
-                          cust_lang="sw-TZ")
+                          cust_lang="sw")
     r = await client.post("/api/v1/quotations", headers=superadmin_headers,
                           json={"customer_id": cust["id"], "currency": "USD"})
     assert r.status_code == 200, r.text
-    assert r.json()["data"]["language"] == "sw"   # sw-TZ → sw
+    assert r.json()["data"]["language"] == "sw"   # 客户选 sw → 报价单继承 sw
     assert r.json()["data"]["no"].startswith("Q")
 
 
