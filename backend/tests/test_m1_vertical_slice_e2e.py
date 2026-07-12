@@ -12,7 +12,7 @@ async def test_end_to_end_build_search_quote(
           "level": 1, "is_leaf": True, "sort_order": 0}], db_session, dry_run=False)
 
     cust = (await client.post("/api/v1/customers", headers=superadmin_headers,
-            json={"name_i18n": {"zh": "东非客户"}, "preferred_language": "en"})).json()["data"]
+            json={"name_i18n": {"zh": "东非客户"}, "quote_language": "en"})).json()["data"]
     spu_id = (await client.post("/api/v1/spus", headers=product_operator_headers,
               json={"category_code": "10", "name_i18n": {"zh": "球阀"},
                     "main_image": "img/test.jpg"})).json()["data"]["id"]

@@ -76,3 +76,40 @@ async def test_db_check_rejects_bad_category_level(db_session):
                             level=0, is_leaf=True, sort_order=0))
     with pytest.raises(IntegrityError):
         await db_session.flush()
+
+
+# ── M1 地基回补(0009):status / currency DB 兜底 ──
+
+@pytest.mark.asyncio
+async def test_db_check_rejects_bad_customer_status(db_session):
+    from app.db.models.customer import Customer
+    db_session.add(Customer(code="C999999", name_i18n={"zh": "x"}, status="PENDING"))
+    with pytest.raises(IntegrityError):
+        await db_session.flush()
+
+
+@pytest.mark.asyncio
+async def test_db_check_rejects_non_iso4217_currency(db_session, superadmin_headers):
+    from app.core.config import settings
+    from app.db.models.user import User
+    from app.db.models.customer import Customer
+    from app.db.models.quotation import QuotationOrder
+    uid = (await db_session.execute(
+        select(User.id).where(User.email == settings.SUPER_ADMIN_EMAIL))).scalar_one()
+    cust = Customer(code="C888888", name_i18n={"zh": "x"}, status="ACTIVE")
+    db_session.add(cust)
+    await db_session.flush()
+    # 中文/小写/非三字母币种被 DB 挡住(currency ~ '^[A-Z]{3}$')
+    db_session.add(QuotationOrder(no="Q-BAD-CUR", customer_id=cust.id, currency="美元",
+                                  status="DRAFT", created_by=uid))
+    with pytest.raises(IntegrityError):
+        await db_session.flush()
+
+
+@pytest.mark.asyncio
+async def test_db_check_rejects_nonpositive_next_seq(db_session):
+    from app.db.models.number_sequence import NumberSequence
+    # 号段计数器 gapless-from-1;直写 0/负数被 DB 挡(next_seq >= 1)
+    db_session.add(NumberSequence(scope="TEST", period="", next_seq=0))
+    with pytest.raises(IntegrityError):
+        await db_session.flush()

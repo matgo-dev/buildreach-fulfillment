@@ -13,7 +13,7 @@ from app.audit.logger import write_audit
 from app.core.codegen import NumberScope, format_code
 from app.core.exceptions import NotFoundError
 from app.core.i18n import compose_spec_text, display
-from app.core.languages import resolve_quote_language
+from app.core.languages import DEFAULT_QUOTE_LANGUAGE
 from app.db.models.quotation import QuotationLine, QuotationOrder, QuotationStatus
 from app.db.models.sku import Sku
 from app.db.models.spu import Spu
@@ -33,7 +33,7 @@ async def create_draft(db: AsyncSession, *, customer_id, currency, valid_until=N
                        remark=None, actor_user_id, actor_user_email,
                        request: Request | None = None) -> QuotationOrder:
     customer = await customer_service.get_customer(db, customer_id)
-    language = resolve_quote_language(customer.preferred_language)
+    language = customer.quote_language or DEFAULT_QUOTE_LANGUAGE
     order = QuotationOrder(no=await _next_quote_no(db), customer_id=customer_id,
                            language=language, currency=currency, valid_until=valid_until,
                            status=QuotationStatus.DRAFT, created_by=actor_user_id, remark=remark)

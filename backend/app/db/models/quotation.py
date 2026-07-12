@@ -14,17 +14,24 @@ class QuotationStatus:
 
 class QuotationOrder(Base, TimestampUpdateMixin):
     __tablename__ = "quotation_orders"
+    __table_args__ = (
+        # 币种存 ISO4217 三字母大写 code(USD/CNY…),不存中文/自由串;DB 锁死格式,展示走 i18n。
+        CheckConstraint("currency ~ '^[A-Z]{3}$'", name="ck_qorders_currency_iso4217"),
+        # 状态 DB 兜底,只 bound 到当前已存在的值(同 skus 纪律);M2 增 LOCKED/CONVERTED 时同步扩这里。
+        CheckConstraint("status IN ('DRAFT')", name="ck_qorders_status"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     no: Mapped[str] = mapped_column(String(30), unique=True, nullable=False, index=True)
+    # ON DELETE RESTRICT 显式:客户被报价单引用时不可硬删(同 skus.unit/spu_id 口径)。
     customer_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("customers.id"), nullable=False, index=True)
+        Integer, ForeignKey("customers.id", ondelete="RESTRICT"), nullable=False, index=True)
     language: Mapped[str] = mapped_column(String(10), nullable=False, default="zh")
     currency: Mapped[str] = mapped_column(String(10), nullable=False)
     valid_until: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=QuotationStatus.DRAFT)
     created_by: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=False)
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
     remark: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
@@ -39,10 +46,11 @@ class QuotationLine(Base, TimestampUpdateMixin):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # 报价行是报价单的组合成分:单删则行随删(CASCADE);sku 是溯源引用,不可硬删(RESTRICT)。
     quotation_order_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("quotation_orders.id"), nullable=False, index=True)
+        Integer, ForeignKey("quotation_orders.id", ondelete="CASCADE"), nullable=False, index=True)
     sku_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("skus.id"), nullable=False, index=True)  # 溯源
+        Integer, ForeignKey("skus.id", ondelete="RESTRICT"), nullable=False, index=True)  # 溯源
     name_snapshot: Mapped[str] = mapped_column(Text, nullable=False)
     spec_text_snapshot: Mapped[str] = mapped_column(Text, nullable=False, default="")
     unit_snapshot: Mapped[str] = mapped_column(String(20), nullable=False, default="")
