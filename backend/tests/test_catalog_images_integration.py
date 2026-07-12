@@ -1,129 +1,11 @@
-"""商品图片(spec §9):main_image 必填、images/sku.image 落库、
-上传端点契约(POST /uploads、PUT /uploads/{key})、权限门。
+"""图片上传端点契约(POST /uploads、PUT /uploads/{key})+ 安全加固 + /media 本地读取。
+
+商品图与 SPU/SKU 的关联(main/gallery/detail/SKU 图)已规范化到 product_images 表,
+其契约见 test_product_images_integration.py;本文件只覆盖存储直传端点本身与读取。
 """
 import pytest
-from sqlalchemy import select
 
-from app.db.models.category import Category
-
-
-async def _seed_category(db_session, code="10"):
-    if not (await db_session.execute(
-            select(Category).where(Category.code == code))).scalar_one_or_none():
-        db_session.add(Category(code=code, parent_code=None, name_i18n={"zh": "阀门"},
-                                level=1, is_leaf=True, sort_order=0))
-        await db_session.commit()
-
-
-# ── main_image 必填(SpuCreateIn 非空校验) ──
-
-@pytest.mark.asyncio
-async def test_create_spu_without_main_image_422(client, product_operator_headers, db_session):
-    await _seed_category(db_session)
-    r = await client.post("/api/v1/spus", headers=product_operator_headers,
-                          json={"category_code": "10", "name_i18n": {"zh": "钢管"}})
-    assert r.status_code == 422
-
-
-@pytest.mark.asyncio
-async def test_create_spu_with_blank_main_image_422(client, product_operator_headers, db_session):
-    await _seed_category(db_session)
-    r = await client.post("/api/v1/spus", headers=product_operator_headers,
-                          json={"category_code": "10", "name_i18n": {"zh": "钢管"},
-                               "main_image": "   "})
-    assert r.status_code == 422
-
-
-@pytest.mark.asyncio
-async def test_create_spu_with_main_image_and_images_persists(
-    client, product_operator_headers, db_session
-):
-    await _seed_category(db_session)
-    r = await client.post("/api/v1/spus", headers=product_operator_headers,
-                          json={"category_code": "10", "name_i18n": {"zh": "钢管"},
-                               "main_image": "img/main.jpg", "images": ["img/a.jpg", "img/b.jpg"]})
-    assert r.status_code in (200, 201), r.text
-    data = r.json()["data"]
-    assert data["main_image"] == "img/main.jpg"
-    assert data["images"] == ["img/a.jpg", "img/b.jpg"]
-
-
-@pytest.mark.asyncio
-async def test_update_spu_main_image(client, product_operator_headers, db_session):
-    await _seed_category(db_session)
-    r = await client.post("/api/v1/spus", headers=product_operator_headers,
-                          json={"category_code": "10", "name_i18n": {"zh": "钢管"},
-                               "main_image": "img/old.jpg"})
-    sid = r.json()["data"]["id"]
-    r2 = await client.put(f"/api/v1/spus/{sid}", headers=product_operator_headers,
-                          json={"main_image": "img/new.jpg"})
-    assert r2.status_code == 200, r2.text
-    assert r2.json()["data"]["main_image"] == "img/new.jpg"
-
-
-@pytest.mark.asyncio
-async def test_update_spu_main_image_blank_rejected(client, product_operator_headers, db_session):
-    await _seed_category(db_session)
-    r = await client.post("/api/v1/spus", headers=product_operator_headers,
-                          json={"category_code": "10", "name_i18n": {"zh": "钢管"},
-                               "main_image": "img/old.jpg"})
-    sid = r.json()["data"]["id"]
-    r2 = await client.put(f"/api/v1/spus/{sid}", headers=product_operator_headers,
-                          json={"main_image": ""})
-    assert r2.status_code == 422
-
-
-# ── SkuOut.image + 回退字段 spu_main_image ──
-
-@pytest.mark.asyncio
-async def test_sku_out_has_image_field_and_falls_back_to_spu_main_image(
-    client, product_operator_headers, db_session
-):
-    await _seed_category(db_session)
-    spu = (await client.post("/api/v1/spus", headers=product_operator_headers,
-        json={"category_code": "10", "name_i18n": {"zh": "钢管"},
-             "main_image": "img/spu-main.jpg"})).json()["data"]
-
-    # SKU 不带图 → SkuOut.image=None,spu_main_image 回退可用
-    r_sku = await client.post("/api/v1/skus", headers=product_operator_headers, json={
-        "spu_id": spu["id"], "unit": "piece", "name_i18n": {"zh": "钢管A"}, "spec_items": []})
-    assert r_sku.status_code in (200, 201), r_sku.text
-    assert r_sku.json()["data"]["image"] is None
-
-    r_search = await client.get(f"/api/v1/skus?spu_id={spu['id']}",
-                                headers=product_operator_headers)
-    row = r_search.json()["data"]["items"][0]
-    assert row["image"] is None
-    assert row["spu_main_image"] == "img/spu-main.jpg"
-
-    # SKU 自带图 → 搜索行 image 生效(前端 sku.image ?? spu_main_image 取到 SKU 自己的)
-    r_sku2 = await client.post("/api/v1/skus", headers=product_operator_headers, json={
-        "spu_id": spu["id"], "unit": "piece", "name_i18n": {"zh": "钢管B"}, "spec_items": [],
-        "image": "img/sku-b.jpg"})
-    assert r_sku2.json()["data"]["image"] == "img/sku-b.jpg"
-
-    r_search2 = await client.get(f"/api/v1/skus?spu_id={spu['id']}",
-                                 headers=product_operator_headers)
-    row2 = next(x for x in r_search2.json()["data"]["items"]
-                if x["name_i18n"]["zh"] == "钢管B")
-    assert row2["image"] == "img/sku-b.jpg"
-    assert row2["spu_main_image"] == "img/spu-main.jpg"
-
-
-@pytest.mark.asyncio
-async def test_update_sku_image(client, product_operator_headers, db_session):
-    await _seed_category(db_session)
-    spu = (await client.post("/api/v1/spus", headers=product_operator_headers,
-        json={"category_code": "10", "name_i18n": {"zh": "钢管"},
-             "main_image": "img/spu-main.jpg"})).json()["data"]
-    sku = (await client.post("/api/v1/skus", headers=product_operator_headers, json={
-        "spu_id": spu["id"], "unit": "piece", "name_i18n": {"zh": "钢管A"},
-        "spec_items": []})).json()["data"]
-
-    r = await client.put(f"/api/v1/skus/{sku['id']}", headers=product_operator_headers,
-                         json={"image": "img/updated.jpg"})
-    assert r.status_code == 200, r.text
-    assert r.json()["data"]["image"] == "img/updated.jpg"
+from app.api.v1.uploads import _KEY_RE
 
 
 # ── 上传端点契约(local 后端,默认 STORAGE_BACKEND) ──
@@ -175,9 +57,6 @@ async def test_put_upload_requires_manage_permission(client, superadmin_headers)
 
 # ── 安全加固:key 形状校验 + content-type 白名单(防越权覆盖/存储型 XSS) ──
 
-from app.api.v1.uploads import _KEY_RE  # noqa: E402
-
-
 @pytest.mark.asyncio
 async def test_create_upload_rejects_svg_content_type(client, product_operator_headers):
     r = await client.post("/api/v1/uploads", headers=product_operator_headers,
@@ -214,9 +93,6 @@ async def test_create_upload_sanitizes_chinese_and_space_filename(client, produc
 async def test_put_upload_rejects_path_traversal_key(client, product_operator_headers):
     r = await client.put("/api/v1/uploads/../../etc/passwd", headers=product_operator_headers,
                          content=b"x")
-    # httpx 在构造请求 URL 时会先按 RFC3986 折叠 ".." 段(落到 /api/etc/passwd,不再匹配
-    # /api/v1/uploads 前缀)→ 404;若某客户端不折叠而是原样送达,则落进 _KEY_RE 校验 → 400。
-    # 两种结果都意味着 200/写入未发生 —— 穿越不可达。
     assert r.status_code in (400, 404)
 
 
@@ -229,7 +105,6 @@ async def test_put_upload_rejects_encoded_path_traversal_key(client, product_ope
 
 @pytest.mark.asyncio
 async def test_put_upload_rejects_arbitrary_preexisting_key(client, product_operator_headers):
-    # 非 create_upload 生成形状的 key(如覆盖既有商品图)一律拒绝
     r = await client.put("/api/v1/uploads/img/main.jpg", headers=product_operator_headers,
                          content=b"x")
     assert r.status_code == 400
@@ -253,7 +128,6 @@ async def test_put_upload_accepts_valid_generated_key(client, product_operator_h
 
 # ── /media 本地读取:build_url 返回的 /media/{key} 现可服务(前端 <img> 无需鉴权)──
 
-
 @pytest.mark.asyncio
 async def test_media_get_serves_uploaded_local_image(client, product_operator_headers):
     created = (await client.post("/api/v1/uploads", headers=product_operator_headers,
@@ -262,7 +136,6 @@ async def test_media_get_serves_uploaded_local_image(client, product_operator_he
     await client.put(f"/api/v1/uploads/{key}", headers=product_operator_headers,
                      content=b"PNGDATA")
 
-    # 公开读,不带任何 Authorization(<img> 无法携带 Bearer)
     r = await client.get(f"/media/{key}")
     assert r.status_code == 200, r.text
     assert r.content == b"PNGDATA"

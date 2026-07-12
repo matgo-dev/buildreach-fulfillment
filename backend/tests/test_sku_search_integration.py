@@ -12,7 +12,7 @@ async def _seed_sku(client, headers, db_session, name_zh, spec):
         await db_session.commit()
     spu_id = (await client.post("/api/v1/spus", headers=headers,
               json={"category_code": "10", "name_i18n": {"zh": "球阀"},
-                    "main_image": "img/test.jpg"})).json()["data"]["id"]
+                    "images": [{"image_key": "img/test.jpg", "image_type": "MAIN", "sort_order": 0}]})).json()["data"]["id"]
     return (await client.post("/api/v1/skus", headers=headers, json={
         "spu_id": spu_id, "unit": "piece", "name_i18n": {"zh": name_zh},
         "spec_items": spec})).json()["data"]

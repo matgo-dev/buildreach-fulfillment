@@ -29,6 +29,8 @@ router = APIRouter(prefix="/uploads", tags=["uploads"])
 _KEY_RE = re.compile(r"img/[0-9a-f]{32}_[A-Za-z0-9._-]{1,80}")
 # 仅允许光栅图片;显式排除 image/svg+xml(可执行脚本 → 存储型 XSS)。
 _ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+# 单图硬上限 20MB(前端另有软限;后端是最后防线,防大文件打爆内存/存储)。
+_MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 
 class CreateUploadIn(BaseModel):
@@ -65,6 +67,12 @@ async def receive_upload(
             status_code=405, detail="该后端走对象存储直传,不经本端点")
     if not _KEY_RE.fullmatch(key):
         raise HTTPException(status_code=400, detail="非法上传 key")
+    # 先看 Content-Length 快速拒;再按实读字节兜底(头可伪造)。
+    declared = request.headers.get("content-length")
+    if declared is not None and declared.isdigit() and int(declared) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="图片超过 20MB 上限")
     body = await request.body()
+    if len(body) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="图片超过 20MB 上限")
     get_attachment_storage().save(key, BytesIO(body))
     return success({"key": key})

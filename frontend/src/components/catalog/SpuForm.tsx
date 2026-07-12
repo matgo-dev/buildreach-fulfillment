@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Drawer, Form, Input, TreeSelect, Button, Space, App } from "antd";
-import { catalogApi, CategoryNode, SpuOut } from "@/lib/catalog";
+import { catalogApi, CategoryNode, ImageRefIn, SpuDetail } from "@/lib/catalog";
 import { display } from "@/lib/i18n";
-import { ImageUpload } from "@/components/common/ImageUpload";
+import { SpuImageManager } from "@/components/catalog/ImageManager";
 
 interface CatTreeNode {
   value: string;
@@ -37,14 +37,14 @@ export function SpuForm({
   onSaved,
 }: {
   open: boolean;
-  spu?: SpuOut;
+  spu?: SpuDetail;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [cats, setCats] = useState<CatTreeNode[]>([]);
-  const [mainImage, setMainImage] = useState<string | null>(null);
+  const [images, setImages] = useState<ImageRefIn[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -58,13 +58,21 @@ export function SpuForm({
         ? { category_code: spu.category_code, name_zh: display(spu.name_i18n) }
         : { category_code: undefined, name_zh: "" },
     );
-    setMainImage(spu?.main_image ?? null);
+    setImages(
+      spu
+        ? spu.images.map((i) => ({
+            image_key: i.image_key,
+            image_type: i.image_type,
+            sort_order: i.sort_order,
+          }))
+        : [],
+    );
   }, [open, spu, form]);
 
   async function onSubmit() {
     const v = await form.validateFields();
-    if (!mainImage) {
-      message.error("主图必填");
+    if (!images.some((i) => i.image_type === "MAIN")) {
+      message.error("请至少上传一张主图(封面)");
       return;
     }
     setSaving(true);
@@ -72,7 +80,7 @@ export function SpuForm({
       const body = {
         category_code: v.category_code,
         name_i18n: { zh: v.name_zh.trim() },
-        main_image: mainImage,
+        images,
       };
       if (spu) await catalogApi.updateSpu(spu.id, body);
       else await catalogApi.createSpu(body);
@@ -90,7 +98,7 @@ export function SpuForm({
     <Drawer
       open={open}
       onClose={onClose}
-      width={460}
+      width={720}
       title={spu ? "编辑 SPU" : "新建 SPU"}
       extra={
         <Space>
@@ -114,6 +122,7 @@ export function SpuForm({
             treeDefaultExpandAll
             placeholder="选择分类"
             allowClear
+            style={{ maxWidth: 360 }}
           />
         </Form.Item>
         <Form.Item
@@ -127,12 +136,10 @@ export function SpuForm({
             },
           ]}
         >
-          <Input placeholder="如:镀锌钢管" maxLength={120} />
-        </Form.Item>
-        <Form.Item label="主图(必填)" required>
-          <ImageUpload value={mainImage} onChange={setMainImage} />
+          <Input placeholder="如:镀锌钢管" maxLength={120} style={{ maxWidth: 360 }} />
         </Form.Item>
       </Form>
+      <SpuImageManager value={images} onChange={setImages} />
     </Drawer>
   );
 }

@@ -14,6 +14,7 @@ from app.core.exceptions import ConflictError, NotFoundError
 from app.db.models.category import Category
 from app.db.models.sku import Sku
 from app.db.models.spu import Spu
+from app.services import image_service
 from app.services.numbering import allocate
 
 
@@ -34,15 +35,15 @@ async def get_spu(db: AsyncSession, spu_id: int) -> Spu:
     return spu
 
 
-async def create_spu(db: AsyncSession, *, category_code, name_i18n, main_image, images=None,
+async def create_spu(db: AsyncSession, *, category_code, name_i18n, image_refs,
                      actor_user_id, actor_user_email, request: Request | None = None) -> Spu:
     await _get_leaf_category(db, category_code)
     spu_code = format_code(NumberScope.SPU, await allocate(db, NumberScope.SPU))
     spu = Spu(spu_code=spu_code, category_code=category_code, name_i18n=name_i18n,
-              main_image=main_image, images=images if images is not None else [],
               created_by=actor_user_id)
     db.add(spu)
     await db.flush()
+    await image_service.reconcile_spu_images(db, spu.id, image_refs)
     await write_audit(db, resource_type=AuditResourceType.SPU, action=AuditAction.CREATE,
                       user_id=actor_user_id, user_email=actor_user_email,
                       resource_id=spu.id, request=request, commit=False)
@@ -51,7 +52,7 @@ async def create_spu(db: AsyncSession, *, category_code, name_i18n, main_image, 
 
 
 async def update_spu(db: AsyncSession, *, spu_id, name_i18n=None, category_code=None,
-                     main_image=None, images=None,
+                     image_refs=None,
                      actor_user_id, actor_user_email, request: Request | None = None) -> Spu:
     spu = await get_spu(db, spu_id)
     if category_code is not None:
@@ -59,10 +60,8 @@ async def update_spu(db: AsyncSession, *, spu_id, name_i18n=None, category_code=
         spu.category_code = category_code
     if name_i18n is not None:
         spu.name_i18n = name_i18n
-    if main_image is not None:
-        spu.main_image = main_image
-    if images is not None:
-        spu.images = images
+    if image_refs is not None:
+        await image_service.reconcile_spu_images(db, spu.id, image_refs)
     await write_audit(db, resource_type=AuditResourceType.SPU, action=AuditAction.UPDATE,
                       user_id=actor_user_id, user_email=actor_user_email,
                       resource_id=spu.id, request=request, commit=False)

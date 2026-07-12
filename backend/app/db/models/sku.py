@@ -39,7 +39,7 @@ class Sku(Base, TimestampUpdateMixin, SoftDeleteMixin):
     search_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
     name_i18n: Mapped[dict] = mapped_column(JSONB, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=SkuStatus.ACTIVE)
-    image: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # 图片已规范化到 product_images 表(sku_id 非空行);此处不再挂 image 列。
     # 创建人(商品运营录入归属):一等业务字段,同 spus.created_by 口径(见 base.py 审计归属约定)。
     created_by: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)

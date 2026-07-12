@@ -16,6 +16,7 @@ import { PlusOutlined, DeleteOutlined } from "@ant-design/icons";
 import {
   catalogApi,
   SkuOut,
+  SkuWithImages,
   SkuSpecItemIn,
   SpecSuggestion,
   SpecOption,
@@ -23,6 +24,7 @@ import {
   UnitOut,
 } from "@/lib/catalog";
 import { display } from "@/lib/i18n";
+import { ImageZone } from "@/components/catalog/ImageManager";
 
 const { Text } = Typography;
 
@@ -145,7 +147,7 @@ export function SkuForm({
   open: boolean;
   spuId: number;
   categoryCode: string;
-  sku?: SkuOut;
+  sku?: SkuWithImages;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -153,6 +155,7 @@ export function SkuForm({
   const [form] = Form.useForm();
   const [units, setUnits] = useState<UnitOut[]>([]);
   const [rows, setRows] = useState<Row[]>([]);
+  const [imageKeys, setImageKeys] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [customSeq, setCustomSeq] = useState(0);
 
@@ -164,6 +167,7 @@ export function SkuForm({
         ? { name_zh: display(sku.name_i18n), unit: sku.unit, reference_price: sku.reference_price ?? undefined }
         : { name_zh: "", unit: undefined, reference_price: undefined },
     );
+    setImageKeys(sku ? sku.images.map((i) => i.image_key) : []);
 
     // 模板全量铺开:每个 attribute 一行,已有值回填。
     catalogApi
@@ -240,6 +244,7 @@ export function SkuForm({
         name_i18n: { zh: v.name_zh.trim() },
         reference_price: v.reference_price ?? null,
         spec_items,
+        images: imageKeys.map((k, i) => ({ image_key: k, sort_order: i })),
       };
       if (sku) await catalogApi.updateSku(sku.id, body);
       else await catalogApi.createSku(body);
@@ -304,6 +309,14 @@ export function SkuForm({
           <InputNumber style={{ width: 200 }} precision={2} min={0} placeholder="0.00" addonBefore="¥" />
         </Form.Item>
       </Form>
+
+      <Divider titlePlacement="left" plain style={{ marginTop: 8 }}>
+        SKU 图(可选)
+      </Divider>
+      <div style={{ marginBottom: 4, fontSize: 12, color: "#6b7a90" }}>
+        该 SKU 有专属图时上传,否则自动用商品主图。
+      </div>
+      <ImageZone title="SKU 图" keys={imageKeys} max={6} onChange={setImageKeys} />
 
       <Divider titlePlacement="left" plain style={{ marginTop: 8 }}>
         规格(按类目模板铺开,留空不提交)

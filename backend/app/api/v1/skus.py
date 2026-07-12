@@ -11,7 +11,7 @@ from app.rbac.constants import Permissions
 from app.rbac.guards import require_permission
 from app.schemas.common import StatusPatchIn
 from app.schemas.sku import SkuCreateIn, SkuUpdateIn, sku_out
-from app.services import sku_service
+from app.services import image_service, sku_service
 
 router = APIRouter(prefix="/skus", tags=["skus"])
 
@@ -34,6 +34,11 @@ async def search_skus(
     return success({"items": items, "total": total, "page": page, "size": size})
 
 
+async def _sku_with_images(db: AsyncSession, sku, *, include_cost: bool) -> dict:
+    return sku_out(sku, include_cost=include_cost,
+                   images=await image_service.list_sku_images(db, sku.id))
+
+
 @router.post("", summary="加 SKU")
 async def create_sku(
     body: SkuCreateIn,
@@ -44,9 +49,9 @@ async def create_sku(
     sku = await sku_service.create_sku(
         db, spu_id=body.spu_id, unit=body.unit, reference_price=body.reference_price,
         name_i18n=body.name_i18n, spec_items=[i.model_dump() for i in body.spec_items],
-        image=body.image,
+        image_refs=[i.model_dump() for i in body.images],
         actor_user_id=current.id, actor_user_email=current.email, request=request)
-    return success(sku_out(sku, include_cost=True))
+    return success(await _sku_with_images(db, sku, include_cost=True))
 
 
 @router.put("/{sku_id}", summary="改 SKU(写路径重算 search_text)")
@@ -61,9 +66,10 @@ async def update_sku(
                   if body.spec_items is not None else None)
     sku = await sku_service.update_sku(
         db, sku_id=sku_id, name_i18n=body.name_i18n, unit=body.unit,
-        reference_price=body.reference_price, spec_items=spec_items, image=body.image,
+        reference_price=body.reference_price, spec_items=spec_items,
+        image_refs=([i.model_dump() for i in body.images] if body.images is not None else None),
         actor_user_id=current.id, actor_user_email=current.email, request=request)
-    return success(sku_out(sku, include_cost=True))
+    return success(await _sku_with_images(db, sku, include_cost=True))
 
 
 @router.get("/{sku_id}", summary="取 SKU")
@@ -74,7 +80,7 @@ async def get_sku(
 ):
     sku = await sku_service.get_sku(db, sku_id)
     include_cost = Permissions.PRODUCT_MANAGE in current.permissions
-    return success(sku_out(sku, include_cost=include_cost))
+    return success(await _sku_with_images(db, sku, include_cost=include_cost))
 
 
 @router.patch("/{sku_id}/status", summary="SKU 上下架")

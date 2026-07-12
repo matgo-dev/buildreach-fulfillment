@@ -141,14 +141,40 @@ export default function SpuDetailPage() {
         }
       >
         <div style={{ display: "flex", gap: 24 }}>
-          {spu.main_image && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={imageUrl(spu.main_image, 400)}
-              alt="主图"
-              style={{ width: 120, height: 120, objectFit: "cover", borderRadius: 8, flex: "none" }}
-            />
-          )}
+          {(() => {
+            const cover =
+              spu.images.find((i) => i.image_type === "MAIN")?.image_key ??
+              spu.images[0]?.image_key;
+            if (!cover) return null;
+            const rest = spu.images.filter((i) => i.image_key !== cover);
+            return (
+              <div style={{ flex: "none" }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={imageUrl(cover, 400)}
+                  alt="主图"
+                  style={{ width: 160, height: 160, objectFit: "cover", borderRadius: 8 }}
+                />
+                {rest.length > 0 && (
+                  <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap", maxWidth: 160 }}>
+                    {rest.map((g) => (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        key={g.id}
+                        src={imageUrl(g.image_key, 120)}
+                        alt=""
+                        title={g.image_type === "DETAIL" ? "详情图" : "轮播图"}
+                        style={{
+                          width: 36, height: 36, objectFit: "cover", borderRadius: 4,
+                          border: "1px solid #dbe4ea",
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           <Descriptions size="small" column={2} style={{ flex: 1 }}
             items={[
               { key: "n", label: "名称", children: display(spu.name_i18n) },

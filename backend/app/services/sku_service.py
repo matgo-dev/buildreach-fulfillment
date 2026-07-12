@@ -16,6 +16,7 @@ from app.db.models.sku import Sku
 from app.db.models.spu import Spu
 from app.db.models.unit import Unit
 from app.schemas.sku import validate_spec_items
+from app.services import image_service
 from app.services import spec_template_service as tmpl
 from app.services.numbering import allocate
 
@@ -139,8 +140,8 @@ async def search_skus(db: AsyncSession, q: str = "", limit: int = 50, *,
     分页:size 未传时退回 limit(向后兼容旧调用形态)。
     available=True 时派生过滤消费侧「可选货」语义:
     Sku.status=ACTIVE ∧ Sku.deleted_at IS NULL ∧ Spu.status=ACTIVE ∧ Spu.deleted_at IS NULL。
-    始终 join spus 带出 main_image,供前端跨 SPU 场景 `sku.image ?? spu.main_image` 回退
-    (搜索结果行不像 SPU 详情那样天然带着父 SPU 上下文)。
+    带出所属 SPU 封面(product_images 的 SPU 级 MAIN,批量 cover_keys 避免 N+1),供前端跨 SPU
+    场景 `SKU 首图 ?? spu_main_image` 回退(搜索结果行不像 SPU 详情那样天然带父 SPU 上下文)。
     返回:list[(Sku, spu_main_image)] + total。
     """
     size = size if size is not None else limit
@@ -152,13 +153,14 @@ async def search_skus(db: AsyncSession, q: str = "", limit: int = 50, *,
     if available:
         conds += [Sku.status == "ACTIVE", Spu.status == "ACTIVE", Spu.deleted_at.is_(None)]
 
-    base_from = select(Sku, Spu.main_image).join(Spu, Spu.id == Sku.spu_id).where(*conds)
+    base_from = select(Sku).join(Spu, Spu.id == Sku.spu_id).where(*conds)
     count_from = select(func.count()).select_from(Sku).join(Spu, Spu.id == Sku.spu_id).where(*conds)
 
     total = (await db.execute(count_from)).scalar_one()
     rows = (await db.execute(base_from.order_by(Sku.created_at.desc())
-            .offset((page - 1) * size).limit(size))).all()
-    return [(r[0], r[1]) for r in rows], total
+            .offset((page - 1) * size).limit(size))).scalars().all()
+    covers = await image_service.cover_keys(db, [s.spu_id for s in rows])
+    return [(s, covers.get(s.spu_id)) for s in rows], total
 
 
 async def set_sku_status(db: AsyncSession, *, sku_id, status, actor_user_id,
@@ -186,17 +188,18 @@ async def soft_delete_sku(db: AsyncSession, *, sku_id, actor_user_id, actor_user
 
 async def create_sku(db: AsyncSession, *, spu_id, unit, reference_price, name_i18n,
                      spec_items, actor_user_id, actor_user_email,
-                     image=None, request: Request | None = None) -> Sku:
+                     image_refs=None, request: Request | None = None) -> Sku:
     _, category_code = await _spu_category(db, spu_id)
     await _validate_unit(db, unit)
     spec_jsonb = await _resolve_spec(db, category_code, [i for i in spec_items])
     sku_code = format_code(NumberScope.SKU, await allocate(db, NumberScope.SKU))
     sku = Sku(spu_id=spu_id, sku_code=sku_code, unit=unit, reference_price=reference_price,
-              spec_jsonb=spec_jsonb, name_i18n=name_i18n, image=image,
+              spec_jsonb=spec_jsonb, name_i18n=name_i18n,
               search_text=build_search_text(name_i18n, spec_jsonb, sku_code),
               created_by=actor_user_id)
     db.add(sku)
     await db.flush()
+    await image_service.reconcile_sku_images(db, spu_id, sku.id, image_refs or [])
     await write_audit(db, resource_type=AuditResourceType.SKU, action=AuditAction.CREATE,
                       user_id=actor_user_id, user_email=actor_user_email,
                       resource_id=sku.id, request=request, commit=False)
@@ -206,7 +209,7 @@ async def create_sku(db: AsyncSession, *, spu_id, unit, reference_price, name_i1
 
 async def update_sku(db: AsyncSession, *, sku_id, name_i18n=None, unit=None,
                      reference_price=None, spec_items=None, actor_user_id,
-                     actor_user_email, image=None, request: Request | None = None) -> Sku:
+                     actor_user_email, image_refs=None, request: Request | None = None) -> Sku:
     sku = await get_sku(db, sku_id)
     _, category_code = await _spu_category(db, sku.spu_id)
     if name_i18n is not None:
@@ -216,8 +219,8 @@ async def update_sku(db: AsyncSession, *, sku_id, name_i18n=None, unit=None,
         sku.unit = unit
     if reference_price is not None:
         sku.reference_price = reference_price
-    if image is not None:
-        sku.image = image
+    if image_refs is not None:
+        await image_service.reconcile_sku_images(db, sku.spu_id, sku.id, image_refs)
     if spec_items is not None:
         sku.spec_jsonb = await _resolve_spec(db, category_code, [i for i in spec_items])
     # 写路径单一入口:任何影响面重算 search_text

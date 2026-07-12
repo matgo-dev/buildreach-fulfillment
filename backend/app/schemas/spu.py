@@ -1,28 +1,43 @@
-"""SPU schemas。"""
+"""SPU schemas。图片规范化到 product_images:写接口携带图集 refs,后端按 key 对账。"""
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.common import validate_i18n
 
 
-def _require_nonempty_image(v: str) -> str:
-    """main_image 必填(trim 后非空)——商品图非红线但主图不留空(展示回退基石)。"""
-    if not v or not v.strip():
-        raise ValueError("main_image 必填且禁空串")
-    return v.strip()
+class ImageRefIn(BaseModel):
+    """SPU 图集项:封面 MAIN(恰 1)/ 轮播 GALLERY / 详情 DETAIL。"""
+    image_key: str = Field(..., min_length=1, max_length=255)
+    image_type: Literal["MAIN", "GALLERY", "DETAIL"] = "GALLERY"
+    sort_order: int = 0
+
+
+def validate_spu_image_refs(images: list[ImageRefIn]) -> list[ImageRefIn]:
+    """校验:key 唯一;恰 1 MAIN(封面必备且唯一);主图组(MAIN+GALLERY)≤6;详情(DETAIL)≤12。"""
+    keys = [i.image_key for i in images]
+    if len(keys) != len(set(keys)):
+        raise ValueError("图片 key 不能重复")
+    main = sum(1 for i in images if i.image_type == "MAIN")
+    if main != 1:
+        raise ValueError("必须且只能有一张主图(封面)")
+    if sum(1 for i in images if i.image_type in ("MAIN", "GALLERY")) > 6:
+        raise ValueError("主图组(主图 + 轮播)最多 6 张")
+    if sum(1 for i in images if i.image_type == "DETAIL") > 12:
+        raise ValueError("详情图最多 12 张")
+    return images
 
 
 class SpuCreateIn(BaseModel):
     category_code: str = Field(..., max_length=50)
     name_i18n: dict
-    main_image: str = Field(..., max_length=255)
-    images: list[str] = []
+    images: list[ImageRefIn]
 
     _v = field_validator("name_i18n")(validate_i18n)
-    _v_img = field_validator("main_image")(_require_nonempty_image)
+    _v_img = field_validator("images")(validate_spu_image_refs)
 
 
 class SpuOut(BaseModel):
@@ -31,8 +46,6 @@ class SpuOut(BaseModel):
     category_code: str
     name_i18n: dict
     status: str
-    main_image: str
-    images: list
     created_by: int
     created_at: datetime
     updated_at: datetime
@@ -43,15 +56,14 @@ class SpuOut(BaseModel):
 class SpuUpdateIn(BaseModel):
     name_i18n: dict | None = None
     category_code: str | None = Field(default=None, max_length=50)
-    main_image: str | None = Field(default=None, max_length=255)
-    images: list[str] | None = None
+    images: list[ImageRefIn] | None = None
 
     @field_validator("name_i18n")
     @classmethod
     def _v_name(cls, v):
         return validate_i18n(v) if v is not None else v
 
-    @field_validator("main_image")
+    @field_validator("images")
     @classmethod
-    def _v_main_image(cls, v):
-        return _require_nonempty_image(v) if v is not None else v
+    def _v_images(cls, v):
+        return validate_spu_image_refs(v) if v is not None else v

@@ -21,7 +21,7 @@ async def test_create_spu_then_sku_builds_search_text(client, product_operator_h
     await _seed_category(db_session)
 
     r_spu = await client.post("/api/v1/spus", headers=product_operator_headers,
-                              json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "main_image": "img/test.jpg"})
+                              json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "images": [{"image_key": "img/test.jpg", "image_type": "MAIN", "sort_order": 0}]})
     assert r_spu.status_code == 200, r_spu.text
     spu_id = r_spu.json()["data"]["id"]
 
@@ -57,7 +57,7 @@ async def test_create_spu_then_sku_builds_search_text(client, product_operator_h
 async def test_update_sku_recomputes_search_text(client, product_operator_headers, db_session):
     await _seed_category(db_session)
     spu_id = (await client.post("/api/v1/spus", headers=product_operator_headers,
-              json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "main_image": "img/test.jpg"})).json()["data"]["id"]
+              json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "images": [{"image_key": "img/test.jpg", "image_type": "MAIN", "sort_order": 0}]})).json()["data"]["id"]
     sku_id = (await client.post("/api/v1/skus", headers=product_operator_headers, json={
         "spu_id": spu_id, "unit": "piece", "name_i18n": {"zh": "阀"},
         "spec_items": [{"key": "dn", "value": "DN50"}]})).json()["data"]["id"]
@@ -77,7 +77,7 @@ async def test_create_sku_under_deleted_spu_rejected(client, product_operator_he
     删空 SPU(无 SKU 可删)后再 POST /skus → 404,守住"活 SKU 必属活 SPU"不变式。"""
     await _seed_category(db_session)
     spu_id = (await client.post("/api/v1/spus", headers=product_operator_headers,
-              json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "main_image": "img/test.jpg"})).json()["data"]["id"]
+              json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "images": [{"image_key": "img/test.jpg", "image_type": "MAIN", "sort_order": 0}]})).json()["data"]["id"]
     r_del = await client.delete(f"/api/v1/spus/{spu_id}", headers=product_operator_headers)
     assert r_del.status_code == 200, r_del.text
 
@@ -91,7 +91,7 @@ async def test_create_sku_under_deleted_spu_rejected(client, product_operator_he
 async def test_create_sku_rejects_duplicate_spec_key(client, product_operator_headers, db_session):
     await _seed_category(db_session)
     spu_id = (await client.post("/api/v1/spus", headers=product_operator_headers,
-              json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "main_image": "img/test.jpg"})).json()["data"]["id"]
+              json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "images": [{"image_key": "img/test.jpg", "image_type": "MAIN", "sort_order": 0}]})).json()["data"]["id"]
     r = await client.post("/api/v1/skus", headers=product_operator_headers, json={
         "spu_id": spu_id, "unit": "piece", "name_i18n": {"zh": "阀"},
         "spec_items": [{"key": "dn", "value": "1"}, {"key": "dn", "value": "2"}]})
@@ -102,7 +102,7 @@ async def test_create_sku_rejects_duplicate_spec_key(client, product_operator_he
 async def test_update_sku_rejects_name_without_zh(client, product_operator_headers, db_session):
     await _seed_category(db_session)
     spu_id = (await client.post("/api/v1/spus", headers=product_operator_headers,
-              json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "main_image": "img/test.jpg"})).json()["data"]["id"]
+              json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "images": [{"image_key": "img/test.jpg", "image_type": "MAIN", "sort_order": 0}]})).json()["data"]["id"]
     sku_id = (await client.post("/api/v1/skus", headers=product_operator_headers, json={
         "spu_id": spu_id, "unit": "piece", "name_i18n": {"zh": "阀"},
         "spec_items": [{"key": "dn", "value": "DN50"}]})).json()["data"]["id"]
@@ -122,7 +122,7 @@ async def test_create_sku_rejects_enum_value_not_in_options(client, product_oper
     await db_session.commit()
 
     spu_id = (await client.post("/api/v1/spus", headers=product_operator_headers,
-              json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "main_image": "img/test.jpg"})).json()["data"]["id"]
+              json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "images": [{"image_key": "img/test.jpg", "image_type": "MAIN", "sort_order": 0}]})).json()["data"]["id"]
 
     # 负例:value 不在 options code 集内 → 400
     r_bad = await client.post("/api/v1/skus", headers=product_operator_headers, json={
@@ -141,7 +141,7 @@ async def test_create_sku_rejects_enum_value_not_in_options(client, product_oper
 async def test_handwritten_key_label_without_zh_rejected(client, product_operator_headers, db_session):
     await _seed_category(db_session)
     spu_id = (await client.post("/api/v1/spus", headers=product_operator_headers,
-              json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "main_image": "img/test.jpg"})).json()["data"]["id"]
+              json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "images": [{"image_key": "img/test.jpg", "image_type": "MAIN", "sort_order": 0}]})).json()["data"]["id"]
     # 手输新 key 但 label_i18n 无 zh → 400,不得污染模板(模板 label 也守 zh 必填)
     r = await client.post("/api/v1/skus", headers=product_operator_headers, json={
         "spu_id": spu_id, "unit": "piece", "name_i18n": {"zh": "阀"},
@@ -160,7 +160,7 @@ async def test_inline_new_attribute_unit_lands_in_template_not_spec_jsonb(
     永不落 unit(spec §11 Part B:计量单位只住模板)。"""
     await _seed_category(db_session)
     spu_id = (await client.post("/api/v1/spus", headers=product_operator_headers,
-              json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "main_image": "img/test.jpg"})).json()["data"]["id"]
+              json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "images": [{"image_key": "img/test.jpg", "image_type": "MAIN", "sort_order": 0}]})).json()["data"]["id"]
     r = await client.post("/api/v1/skus", headers=product_operator_headers, json={
         "spu_id": spu_id, "unit": "piece", "name_i18n": {"zh": "阀"},
         "spec_items": [
@@ -183,7 +183,7 @@ async def test_existing_key_submitted_unit_is_ignored(client, product_operator_h
     覆盖模板计量单位;spec_jsonb 不落 unit,模板行 unit 也不被 SKU 提交值污染。"""
     await _seed_category(db_session)
     spu_id = (await client.post("/api/v1/spus", headers=product_operator_headers,
-              json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "main_image": "img/test.jpg"})).json()["data"]["id"]
+              json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "images": [{"image_key": "img/test.jpg", "image_type": "MAIN", "sort_order": 0}]})).json()["data"]["id"]
     r = await client.post("/api/v1/skus", headers=product_operator_headers, json={
         "spu_id": spu_id, "unit": "piece", "name_i18n": {"zh": "阀"},
         "spec_items": [{"key": "dn", "value": "DN50", "unit": "inch"}],
@@ -212,7 +212,7 @@ async def test_create_sku_with_new_enum_option_appends_and_uses_new_code(
     await db_session.commit()
 
     spu_id = (await client.post("/api/v1/spus", headers=product_operator_headers,
-              json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "main_image": "img/test.jpg"})).json()["data"]["id"]
+              json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "images": [{"image_key": "img/test.jpg", "image_type": "MAIN", "sort_order": 0}]})).json()["data"]["id"]
 
     r = await client.post("/api/v1/skus", headers=product_operator_headers, json={
         "spu_id": spu_id, "unit": "piece", "name_i18n": {"zh": "阀"},

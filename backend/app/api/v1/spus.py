@@ -12,7 +12,7 @@ from app.rbac.guards import require_permission
 from app.schemas.common import StatusPatchIn
 from app.schemas.spu import SpuCreateIn, SpuOut, SpuUpdateIn
 from app.schemas.sku import sku_out
-from app.services import sku_service, spu_service
+from app.services import image_service, sku_service, spu_service
 
 router = APIRouter(prefix="/spus", tags=["spus"])
 
@@ -32,16 +32,18 @@ async def list_spus(
         db, category_code=category_code, status=status, keyword=keyword,
         include_descendants=include_descendants, page=page, size=size)
     active_ids = await sku_service.spu_ids_with_active_sku(db, [s.id for s in rows])
+    covers = await image_service.cover_keys(db, [s.id for s in rows])
     items = []
     for s in rows:
         d = SpuOut.model_validate(s, from_attributes=True).model_dump()
         d["has_available_sku"] = (
             s.status == "ACTIVE" and s.deleted_at is None and s.id in active_ids)
+        d["main_image"] = covers.get(s.id)  # 封面 key(缩略/回退用),无图则 None
         items.append(d)
     return success({"items": items, "total": total, "page": page, "size": size})
 
 
-@router.get("/{spu_id}", summary="SPU 详情(含内嵌 SKU + 派生可用性)")
+@router.get("/{spu_id}", summary="SPU 详情(含内嵌 SKU + 图集 + 派生可用性)")
 async def get_spu(
     spu_id: int,
     current: CurrentUser = Depends(require_permission(Permissions.PRODUCT_READ)),
@@ -52,14 +54,21 @@ async def get_spu(
     include_cost = Permissions.PRODUCT_MANAGE in current.permissions
     sku_dicts = []
     for s in skus:
-        d = sku_out(s, include_cost=include_cost)
+        d = sku_out(s, include_cost=include_cost,
+                    images=await image_service.list_sku_images(db, s.id))
         d["available"] = sku_service.sku_available(s, spu)
         sku_dicts.append(d)
     return success({
         **SpuOut.model_validate(spu, from_attributes=True).model_dump(),
+        "images": await image_service.list_spu_images(db, spu_id),
         "has_available_sku": any(x["available"] for x in sku_dicts),
         "skus": sku_dicts,
     })
+
+
+async def _spu_with_images(db: AsyncSession, spu) -> dict:
+    return {**SpuOut.model_validate(spu, from_attributes=True).model_dump(),
+            "images": await image_service.list_spu_images(db, spu.id)}
 
 
 @router.post("", summary="建 SPU")
@@ -71,9 +80,9 @@ async def create_spu(
 ):
     spu = await spu_service.create_spu(
         db, category_code=body.category_code, name_i18n=body.name_i18n,
-        main_image=body.main_image, images=body.images,
+        image_refs=[i.model_dump() for i in body.images],
         actor_user_id=current.id, actor_user_email=current.email, request=request)
-    return success(SpuOut.model_validate(spu, from_attributes=True).model_dump())
+    return success(await _spu_with_images(db, spu))
 
 
 @router.put("/{spu_id}", summary="改 SPU")
@@ -86,9 +95,9 @@ async def update_spu(
 ):
     spu = await spu_service.update_spu(
         db, spu_id=spu_id, name_i18n=body.name_i18n, category_code=body.category_code,
-        main_image=body.main_image, images=body.images,
+        image_refs=([i.model_dump() for i in body.images] if body.images is not None else None),
         actor_user_id=current.id, actor_user_email=current.email, request=request)
-    return success(SpuOut.model_validate(spu, from_attributes=True).model_dump())
+    return success(await _spu_with_images(db, spu))
 
 
 @router.patch("/{spu_id}/status", summary="SPU 上下架")

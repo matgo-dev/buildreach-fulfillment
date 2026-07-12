@@ -44,20 +44,22 @@
     双索引/CHECK)。旧 `0008–0012` 补丁迁移已废除。**重建库**:改历史后 dev/test 库需 `dropdb && createdb`
     重跑 `alembic upgrade head`(无历史数据,不做在线迁移)。
 
-- **商品管理前端(已完成,分支 `feat/product-catalog-fe`)**:消费上述 catalog API 的运营界面。
+- **商品管理前端 + 图片建模(已完成,分支 `feat/product-management-fe`)**:消费 catalog API 的运营界面 + 商品图规范化。
   - **组件地基**:Ant Design(`ConfigProvider` 主题令牌对齐 `frontend/DESIGN.md`,主色 `#003366`)+ 现有
     Zustand authStore / RouteGuard;`AppShell`(暗色侧栏 + 顶栏 + 面包屑)。设计**唯一源头 = `frontend/DESIGN.md`**。
   - **页面**(`/catalog`,守 `product:read`):SPU 列表(分类树子树过滤 / 关键词 / 状态 / 无可用 SKU 徽标)、
-    SPU 详情(基本信息 + 内嵌 SKU 列表 + 派生可售)、SPU 增改抽屉(主图必填)、SKU 增改抽屉(**模板驱动规格
+    SPU 详情(封面 + 图集 + 内嵌 SKU 列表 + 派生可售)、SPU 增改抽屉、SKU 增改抽屉(**模板驱动规格
     编辑器**:enum→下拉+新增选项逃生口 / number→带模板单位后缀 / string;售卖单位取自 `/units`)、SKU 全局搜索。
-  - **权限显隐**:`<Can perm="product:manage">` 控新建/编辑/上下架/删除/参考价;后端 `require_permission` +
-    `reference_price` 脱敏是安全底线,前端只是 UX 层。**ADMIN 只读**(仅 `product:read`,看不到 manage 操作与
-    参考价)、**PRODUCT_OPERATOR 全权**。
-  - **图片直传**:`ImageUpload`/`uploadImage`/`imageUrl` 走两步直传(`POST /uploads` → 拿 `{key,upload_url}` →
-    PUT),一套代码兼容 OSS 直传与 local 后端 PUT;表单只存 object key。前端图片环境变量(见下)。
-  - **本地图片预览**:后端新增 `GET /media/{key}`(**仅 `STORAGE_BACKEND=local`**,按 key 形状白名单、
-    公开读),补齐 `LocalDiskStorage.build_url` 返回的 `/media/{key}` 服务端点——local dev 上传图现可预览
-    (生产走 S3/OSS 公读桶,不经本端点)。
+  - **商品图规范化(`product_images` 表)**:一图一行,`image_type` **MAIN/GALLERY/DETAIL** + `sku_id` 区分层级
+    (对齐 buildreach)。封面=SPU 级唯一 MAIN 行(**部分唯一索引**硬保证);写接口按 `image_key` 对账(reconcile,
+    换封面先降后升防撞唯一索引);身份键 `UNIQUE(spu_id,image_key)` 硬约束。删旧 `spus.main_image/images`、`skus.image`。
+  - **图片管理器(前端)**:`ImageZone`/`SpuImageManager` —— 主图/轮播区(≤6,拖拽排序,☆ 切换封面,第一张为封面)
+    + 详情图区(≤12)+ SKU 图(≤6,不绑轴);单图 ≤20MB(前后端硬限);两步直传 `POST /uploads` → PUT,一套代码兼容
+    OSS 直传与 local PUT,表单只存 object key。
+  - **权限显隐**:`<Can perm="product:manage">` 控新建/编辑/上下架/删除/参考价/图片;后端 `require_permission` +
+    `reference_price` 脱敏是安全底线,前端只是 UX 层。**ADMIN 只读**、**PRODUCT_OPERATOR 全权**。
+  - **本地图片预览**:后端 `GET /media/{key}`(**仅 `STORAGE_BACKEND=local`**,key 形状白名单、公开读)补齐
+    `LocalDiskStorage.build_url` 的服务端点——local dev 上传图现可预览(生产走 S3/OSS 公读桶,不经本端点)。
 
 ## 本地开发
 
@@ -118,7 +120,7 @@ API_BASE_URL=http://localhost:8000 pnpm dev
 
 ```bash
 cd backend && source .venv/bin/activate
-python -m scripts.create_product_operator --email op@example.com --name 商品运营 --password 'Passw0rd!'
+python -m scripts.create_product_operator --email op@example.com --name 商品运营 --password 'Aa123456789'
 ```
 
 设计基准见 `frontend/DESIGN.md`。

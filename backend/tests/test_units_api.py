@@ -46,7 +46,7 @@ async def test_sku_unit_fk_restrict_blocks_delete(
         await db_session.commit()
     spu = (await client.post("/api/v1/spus", headers=product_operator_headers,
         json={"category_code": "10", "name_i18n": {"zh": "钢管"},
-             "main_image": "img/test.jpg"})).json()["data"]
+             "images": [{"image_key": "img/test.jpg", "image_type": "MAIN", "sort_order": 0}]})).json()["data"]
     r_sku = await client.post("/api/v1/skus", headers=product_operator_headers, json={
         "spu_id": spu["id"], "unit": "piece", "name_i18n": {"zh": "钢管A"}, "spec_items": []})
     assert r_sku.status_code in (200, 201), r_sku.text
@@ -70,7 +70,7 @@ async def test_create_sku_rejects_unknown_unit_code(
         await db_session.commit()
     spu = (await client.post("/api/v1/spus", headers=product_operator_headers,
         json={"category_code": "10", "name_i18n": {"zh": "钢管"},
-             "main_image": "img/test.jpg"})).json()["data"]
+             "images": [{"image_key": "img/test.jpg", "image_type": "MAIN", "sort_order": 0}]})).json()["data"]
     r = await client.post("/api/v1/skus", headers=product_operator_headers, json={
         "spu_id": spu["id"], "unit": "not_a_real_unit", "name_i18n": {"zh": "钢管A"},
         "spec_items": []})

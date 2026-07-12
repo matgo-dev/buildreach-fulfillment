@@ -31,8 +31,7 @@ class Spu(Base, TimestampUpdateMixin, SoftDeleteMixin):
         String(50), ForeignKey("categories.code", ondelete="RESTRICT"), nullable=False, index=True)
     name_i18n: Mapped[dict] = mapped_column(JSONB, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=SpuStatus.ACTIVE)
-    main_image: Mapped[str] = mapped_column(String(255), nullable=False, default="")
-    images: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    # 图片已规范化到 product_images 表(封面=MAIN 行 / 轮播=GALLERY / 详情=DETAIL);此处不再挂图列。
     # 创建人(商品运营录入归属):一等业务字段,展示/筛"我的"/按人统计录入量直接用,
     # 故上行而非只走 audit_logs(见 base.py 审计归属约定)。FK RESTRICT + index。
     created_by: Mapped[int] = mapped_column(
