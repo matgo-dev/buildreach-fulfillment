@@ -104,3 +104,12 @@ async def test_db_check_rejects_non_iso4217_currency(db_session, superadmin_head
                                   status="DRAFT", created_by=uid))
     with pytest.raises(IntegrityError):
         await db_session.flush()
+
+
+@pytest.mark.asyncio
+async def test_db_check_rejects_nonpositive_next_seq(db_session):
+    from app.db.models.number_sequence import NumberSequence
+    # 号段计数器 gapless-from-1;直写 0/负数被 DB 挡(next_seq >= 1)
+    db_session.add(NumberSequence(scope="TEST", period="", next_seq=0))
+    with pytest.raises(IntegrityError):
+        await db_session.flush()

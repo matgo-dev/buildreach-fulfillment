@@ -48,6 +48,10 @@ def upgrade() -> None:
     op.create_check_constraint(
         'ck_qlines_language', 'quotation_lines', "language IN ('zh','en','sw')")
 
+    # ── 号段计数器非负兜底(gapless-from-1,关键基础设施)──
+    op.create_check_constraint(
+        'ck_number_sequences_next_seq_pos', 'number_sequences', "next_seq >= 1")
+
     # ── FK 重建,补显式 ondelete(原为隐式 NO ACTION)──
     op.drop_constraint('quotation_orders_customer_id_fkey', 'quotation_orders', type_='foreignkey')
     op.create_foreign_key('quotation_orders_customer_id_fkey', 'quotation_orders',
@@ -65,6 +69,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.drop_constraint('ck_number_sequences_next_seq_pos', 'number_sequences', type_='check')
+
     # FK 还原为隐式 NO ACTION
     op.drop_constraint('quotation_lines_sku_id_fkey', 'quotation_lines', type_='foreignkey')
     op.create_foreign_key('quotation_lines_sku_id_fkey', 'quotation_lines',
