@@ -19,8 +19,6 @@ class QuotationOrder(Base, TimestampUpdateMixin):
         CheckConstraint("currency ~ '^[A-Z]{3}$'", name="ck_qorders_currency_iso4217"),
         # 状态 DB 兜底,只 bound 到当前已存在的值(同 skus 纪律);M2 增 LOCKED/CONVERTED 时同步扩这里。
         CheckConstraint("status IN ('DRAFT')", name="ck_qorders_status"),
-        # 报价语言三选一(单一源头 core.languages);派生自 customer.quote_language,不手录。
-        CheckConstraint("language IN ('zh','en','sw')", name="ck_qorders_language"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -45,8 +43,6 @@ class QuotationLine(Base, TimestampUpdateMixin):
         CheckConstraint("unit_price >= 0", name="ck_qlines_unit_price_nn"),
         CheckConstraint("line_total >= 0", name="ck_qlines_line_total_nn"),
         CheckConstraint("sort_order >= 0", name="ck_qlines_sort_nn"),
-        # 报价语言三选一(单一源头 core.languages);继承 order.language,不手录。
-        CheckConstraint("language IN ('zh','en','sw')", name="ck_qlines_language"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

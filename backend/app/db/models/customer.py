@@ -17,15 +17,13 @@ class Customer(Base, TimestampUpdateMixin):
     __table_args__ = (
         # 状态 DB 兜底(纵深防御,与 skus/spus 的 status CHECK 同纪律)
         CheckConstraint("status IN ('ACTIVE','INACTIVE')", name="ck_customers_status"),
-        # 报价语言三选一(单一源头 core.languages.SUPPORTED_QUOTE_LANGUAGES);未指定=NULL,建单缺省 zh。
-        CheckConstraint("quote_language IS NULL OR quote_language IN ('zh','en','sw')",
-                        name="ck_customers_quote_language"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     code: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
     name_i18n: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    # 客户报价语言偏好:三选一(zh/en/sw),运营录入时下拉可选,不填=NULL→建单默认 zh。
+    # 客户报价语言偏好:三选一(zh/en/sw),值域唯一源头 core.languages.SUPPORTED_QUOTE_LANGUAGES,
+    # 应用层校验(不在 DB 内联枚举副本);运营录入下拉可选,不填=NULL→建单默认 zh。
     quote_language: Mapped[str | None] = mapped_column(String(10), nullable=True)
     contact_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     contact_phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
