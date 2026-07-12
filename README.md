@@ -37,8 +37,8 @@
   - **售卖单位专表**:`units`(`code` 做 PK + `label_i18n`,主数据独立迁移),`skus.unit` 收编为 FK
     `units.code`(`ON DELETE RESTRICT`);单位种子唯一源头 = `app/seed.py::seed_units`。
   - **品类子树过滤**:`GET /api/v1/spus?category_code=...&include_descendants=1` 走 `text_pattern_ops` 前缀索引。
-  - **已知限制**:SPU 列表关键词只匹配中文名 + `spu_code`(SKU 搜索走 `search_text` 覆盖全语言);本地
-    `STORAGE_BACKEND=local` 图片预览路径待接(生产 S3 无此问题)。
+  - **已知限制**:SPU 列表关键词只匹配中文名 + `spu_code`(SKU 搜索走 `search_text` 覆盖全语言)。
+    (local 图片预览已由前端落地时新增的 `GET /media/{key}` 补齐,见下方商品管理前端条目。)
   - **迁移(开发初期净片)**:因未上线,商品目录迁移已合入终态、删除补丁链——`0003_spec_attributes`
     (规格属性正规化)、`0006_units`(单位专表)、`0007_spu_sku`(SPU/SKU 一次建成:编码/软删/图片/单位 FK/
     双索引/CHECK)。旧 `0008–0012` 补丁迁移已废除。**重建库**:改历史后 dev/test 库需 `dropdb && createdb`
@@ -55,7 +55,9 @@
     参考价)、**PRODUCT_OPERATOR 全权**。
   - **图片直传**:`ImageUpload`/`uploadImage`/`imageUrl` 走两步直传(`POST /uploads` → 拿 `{key,upload_url}` →
     PUT),一套代码兼容 OSS 直传与 local 后端 PUT;表单只存 object key。前端图片环境变量(见下)。
-  - **已知限制**:`STORAGE_BACKEND=local` 时上传图**预览**仍不出(后端 `/media` 静态服务待接,生产 S3 无此问题)。
+  - **本地图片预览**:后端新增 `GET /media/{key}`(**仅 `STORAGE_BACKEND=local`**,按 key 形状白名单、
+    公开读),补齐 `LocalDiskStorage.build_url` 返回的 `/media/{key}` 服务端点——local dev 上传图现可预览
+    (生产走 S3/OSS 公读桶,不经本端点)。
 
 ## 本地开发
 
@@ -112,8 +114,14 @@ API_BASE_URL=http://localhost:8000 pnpm dev
 | `NEXT_PUBLIC_IMAGE_PUBLIC_BASE` | `s3` 时的公读桶基址(如 `https://cdn.example.com`) |
 
 **账号**:启动 seed 只种 `SUPER_ADMIN_*` 的 **ADMIN**(对商品**只读**)。商品增改需 **PRODUCT_OPERATOR**
-角色的账号,由 ADMIN 经用户/角色管理授予(`ADMIN` 持 `user:manage`/`role:manage`)。设计基准见
-`frontend/DESIGN.md`。
+角色的账号 —— 生产由 ADMIN 经用户/角色管理授予;本地 QA 走一次性脚本(先启动过一次后端让 rbac 同步建好角色):
+
+```bash
+cd backend && source .venv/bin/activate
+python -m scripts.create_product_operator --email op@example.com --name 商品运营 --password 'Passw0rd!'
+```
+
+设计基准见 `frontend/DESIGN.md`。
 
 ## 测试
 

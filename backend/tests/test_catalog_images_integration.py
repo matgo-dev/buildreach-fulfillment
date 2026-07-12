@@ -249,3 +249,36 @@ async def test_put_upload_accepts_valid_generated_key(client, product_operator_h
     storage = get_attachment_storage()
     assert storage.exists(key)
     storage.delete(key)
+
+
+# ── /media 本地读取:build_url 返回的 /media/{key} 现可服务(前端 <img> 无需鉴权)──
+
+
+@pytest.mark.asyncio
+async def test_media_get_serves_uploaded_local_image(client, product_operator_headers):
+    created = (await client.post("/api/v1/uploads", headers=product_operator_headers,
+               json={"filename": "photo.png", "content_type": "image/png"})).json()["data"]
+    key = created["key"]
+    await client.put(f"/api/v1/uploads/{key}", headers=product_operator_headers,
+                     content=b"PNGDATA")
+
+    # 公开读,不带任何 Authorization(<img> 无法携带 Bearer)
+    r = await client.get(f"/media/{key}")
+    assert r.status_code == 200, r.text
+    assert r.content == b"PNGDATA"
+    assert r.headers["content-type"].startswith("image/png")
+
+    from app.services.storage import get_attachment_storage
+    get_attachment_storage().delete(key)
+
+
+@pytest.mark.asyncio
+async def test_media_get_missing_key_404(client):
+    r = await client.get("/media/img/00000000000000000000000000000000_absent.png")
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_media_get_rejects_bad_key_shape(client):
+    r = await client.get("/media/img/../../etc/passwd")
+    assert r.status_code in (400, 404)
