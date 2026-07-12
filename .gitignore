@@ -11,3 +11,6 @@ node_modules/
 .next/
 *.tsbuildinfo
 .DS_Store
+
+# 文档本地保留,不进仓(同 buildreach 约定)
+docs/

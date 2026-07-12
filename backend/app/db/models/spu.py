@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from sqlalchemy import ForeignKey, Integer, String
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base, TimestampUpdateMixin
+from app.db.base import Base, TimestampUpdateMixin, SoftDeleteMixin
 
 
 class SpuStatus:
@@ -12,11 +12,28 @@ class SpuStatus:
     INACTIVE = "INACTIVE"
 
 
-class Spu(Base, TimestampUpdateMixin):
+class Spu(Base, TimestampUpdateMixin, SoftDeleteMixin):
     __tablename__ = "spus"
+    __table_args__ = (
+        # 品类子树前缀过滤(list_spus 里 category_code LIKE '前缀.%')走索引:本库 locale
+        # 非 C,btree 默认 opclass 不支持前缀 LIKE 索引扫描,需 text_pattern_ops 专用索引。
+        # 模型在此声明 = 迁移创建 = create_all 建表,三者单一源头,不再靠迁移单方面偷偷加。
+        Index("ix_spus_category_code_prefix", "category_code",
+              postgresql_ops={"category_code": "text_pattern_ops"}),
+        # 状态 DB 兜底(纵深防御,与 category_spec_attributes 的 value_type/source CHECK 同纪律)
+        CheckConstraint("status IN ('ACTIVE','INACTIVE')", name="ck_spus_status"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    spu_code: Mapped[str] = mapped_column(String(30), unique=True, nullable=False, index=True)
+    # ON DELETE RESTRICT 显式:品类被引用时不可硬删(同 sku.unit 口径;categories 实际只软删)
     category_code: Mapped[str] = mapped_column(
-        String(50), ForeignKey("categories.code"), nullable=False, index=True)
+        String(50), ForeignKey("categories.code", ondelete="RESTRICT"), nullable=False, index=True)
     name_i18n: Mapped[dict] = mapped_column(JSONB, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=SpuStatus.ACTIVE)
+    main_image: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    images: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    # 创建人(商品运营录入归属):一等业务字段,展示/筛"我的"/按人统计录入量直接用,
+    # 故上行而非只走 audit_logs(见 base.py 审计归属约定)。FK RESTRICT + index。
+    created_by: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)

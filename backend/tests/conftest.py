@@ -181,3 +181,32 @@ async def superadmin_headers(client) -> dict[str, str]:
     assert r3.status_code == 200
     new_token = r3.json()["data"]["access_token"]
     return {"Authorization": f"Bearer {new_token}"}
+
+
+@pytest_asyncio.fixture
+async def product_operator_headers(client, db_session) -> dict[str, str]:
+    """建一个 PRODUCT_OPERATOR 账号并返回可用 headers（must_change_password=False）。
+
+    注：本仓库当前没有 /api/v1/users 创建用户的 HTTP 端点（`grep -rn 'api/v1/users'
+    backend/app/api` 无匹配，`app/services/user_service.create_internal_user` 尚未接
+    路由），所以直接走 service 层建号，再用 /api/v1/auth/login 拿 token。
+    """
+    from app.services.user_service import create_internal_user
+
+    email = "product_op@fulfillment.local"
+    pw = "CatalogOp12345"
+    await create_internal_user(
+        db_session,
+        email=email,
+        name="商品运营",
+        password=pw,
+        role="PRODUCT_OPERATOR",
+        must_change_password=False,
+        actor_user_id=0,
+        actor_user_email="system@test",
+    )
+    r = await client.post(
+        "/api/v1/auth/login", json={"identifier": email, "password": pw}
+    )
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['data']['access_token']}"}

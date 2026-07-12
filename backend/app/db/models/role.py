@@ -13,7 +13,8 @@ class RoleScope:
 
 class RoleCode:
     ADMIN = "ADMIN"
-    ALL = (ADMIN,)
+    PRODUCT_OPERATOR = "PRODUCT_OPERATOR"
+    ALL = (ADMIN, PRODUCT_OPERATOR)
 
 
 class Role(Base, TimestampMixin):

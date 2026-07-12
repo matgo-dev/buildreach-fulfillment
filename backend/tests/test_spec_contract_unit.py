@@ -8,9 +8,16 @@ def test_accepts_scalar_and_lang_map():
     items = validate_spec_items([
         {"key": "material", "value": {"zh": "不锈钢 304", "en": "SS304"}},
         {"key": "dn", "value": "DN50"},
-        {"key": "pressure", "value": 1.6, "unit": "MPa"},
+        {"key": "pressure", "value": 1.6},
     ])
     assert len(items) == 3
+
+
+def test_spec_item_has_no_unit_field():
+    """spec §11 Part B:计量单位只住模板 category_spec_attributes.unit,spec_jsonb
+    落库形状(SpecItem)不再承载 unit —— 传了也不会出现在解析结果里。"""
+    items = validate_spec_items([{"key": "pressure", "value": 1.6}])
+    assert not hasattr(items[0], "unit")
 
 
 def test_rejects_duplicate_key():

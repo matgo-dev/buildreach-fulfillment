@@ -25,10 +25,10 @@ class Permissions:
     SYSTEM_CONFIG = "system:config"
     SYSTEM_AUDIT = "system:audit"
 
-    # ----- 履约:customer / spu / sku / quote -----
+    # ----- 履约:customer / product(spu+sku) / quote -----
     CUSTOMER_MANAGE = "customer:manage"
-    SPU_MANAGE = "spu:manage"
-    SKU_MANAGE = "sku:manage"
+    PRODUCT_READ = "product:read"
+    PRODUCT_MANAGE = "product:manage"
     QUOTE_MANAGE = "quote:manage"
 
 
@@ -41,10 +41,10 @@ SYSTEM_RESERVED_CODES = frozenset({
 
 
 class ModuleLabel:
-    """资源域 module 标签(用于侧边栏分组)。"""
-    SYSTEM = "系统"
+    """资源域 module 分组码(稳定机器码,身份非展示;中文侧边栏标签走前端 i18n 映射)。"""
+    SYSTEM = "system"
     AUTH = "auth"
-    FULFILLMENT = "履约"
+    FULFILLMENT = "fulfillment"
 
 
 # 权限点元数据(用于启动同步:name / module)
@@ -60,12 +60,13 @@ PERMISSION_META: dict[str, dict[str, str]] = {
     Permissions.SYSTEM_AUDIT: {"name": "审计日志", "module": ModuleLabel.SYSTEM},
 
     Permissions.CUSTOMER_MANAGE: {"name": "客户管理", "module": ModuleLabel.FULFILLMENT},
-    Permissions.SPU_MANAGE: {"name": "SPU 管理", "module": ModuleLabel.FULFILLMENT},
-    Permissions.SKU_MANAGE: {"name": "SKU 管理", "module": ModuleLabel.FULFILLMENT},
+    Permissions.PRODUCT_READ: {"name": "商品查看", "module": ModuleLabel.FULFILLMENT},
+    Permissions.PRODUCT_MANAGE: {"name": "商品管理", "module": ModuleLabel.FULFILLMENT},
     Permissions.QUOTE_MANAGE: {"name": "报价管理", "module": ModuleLabel.FULFILLMENT},
 }
 
 
 ROLE_META: dict[str, dict[str, str]] = {
     "ADMIN": {"name": "系统管理员", "description": "系统级管理员,不触业务数据(Q25)"},
+    "PRODUCT_OPERATOR": {"name": "商品运营", "description": "商品 SPU/SKU 增改上下架"},
 }

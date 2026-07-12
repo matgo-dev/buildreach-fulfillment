@@ -10,22 +10,23 @@ from starlette.requests import Request
 
 from app.audit.constants import AuditAction, AuditResourceType
 from app.audit.logger import write_audit
-from app.core.codegen import format_quote_no
+from app.core.codegen import NumberScope, format_code
 from app.core.exceptions import NotFoundError
 from app.core.i18n import compose_spec_text, display
 from app.core.languages import resolve_quote_language
 from app.db.models.quotation import QuotationLine, QuotationOrder, QuotationStatus
 from app.db.models.sku import Sku
 from app.db.models.spu import Spu
+from app.db.models.unit import Unit
 from app.services import customer_service, spec_template_service as tmpl
-from app.services.numbering import NumberScope, allocate
+from app.services.numbering import allocate
 
 
 async def _next_quote_no(db: AsyncSession) -> str:
     # 单据号:Q{YYYYMM}{期内序号};按年月号段(编号服务)
     period = datetime.now(timezone.utc).strftime("%Y%m")
     seq = await allocate(db, NumberScope.QUOTATION, period)
-    return format_quote_no(period, seq)
+    return format_code(NumberScope.QUOTATION, seq, period)
 
 
 async def create_draft(db: AsyncSession, *, customer_id, currency, valid_until=None,
@@ -74,7 +75,16 @@ async def add_line(db: AsyncSession, *, order_id, sku_id, unit_price, qty, name_
     name = name_snapshot if name_snapshot is not None else display(sku.name_i18n, lang)
     spec_text = (spec_text_snapshot if spec_text_snapshot is not None
                  else compose_spec_text(sku.spec_jsonb, by_key, lang))
-    unit = unit_snapshot if unit_snapshot is not None else sku.unit
+    # unit_snapshot 冻结展示 label(镜像 name_snapshot=display(sku.name_i18n)):sku.unit
+    # 是 units.code(身份/FK 列,不存中文),报价快照要历史保真——单位改名/停用后旧
+    # 报价展示不变,故解析 code → units.label_i18n → display(..,lang) 冻结成文字,
+    # 快照列本身零 join、无 FK(spec §11 Part A)。
+    if unit_snapshot is not None:
+        unit = unit_snapshot
+    else:
+        unit_row = (await db.execute(
+            select(Unit).where(Unit.code == sku.unit))).scalar_one_or_none()
+        unit = display(unit_row.label_i18n, lang) if unit_row is not None else sku.unit
     total = Decimal(str(unit_price)) * Decimal(str(qty))
 
     line = QuotationLine(quotation_order_id=order_id, sku_id=sku_id, name_snapshot=name,

@@ -1,6 +1,7 @@
 import pytest
 
-from app.services.numbering import NumberScope, allocate
+from app.core.codegen import NumberScope
+from app.services.numbering import allocate
 
 
 @pytest.mark.asyncio

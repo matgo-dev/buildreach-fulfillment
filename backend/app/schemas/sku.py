@@ -1,16 +1,19 @@
 """SKU schemas + spec_jsonb Pydantic 契约(防漂移,来自 i18n 方案 §4.2b)。"""
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from datetime import datetime
+from decimal import Decimal
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, condecimal, field_validator
 
 from app.core.exceptions import SpecContractError
-from app.schemas.customer import _require_zh
+from app.schemas.common import validate_i18n
 
 
 class SpecItem(BaseModel):
+    """spec_jsonb 落库形状(spec §11 Part B:计量单位归位,只住模板,永不落这里)。"""
     key: str
     value: str | float | int | dict[str, str]
-    unit: str | None = None
 
     @field_validator("key")
     @classmethod
@@ -43,33 +46,45 @@ def validate_spec_items(items: list[dict]) -> list[SpecItem]:
 
 
 class SkuSpecItemIn(BaseModel):
-    key: str
-    value: str | float | int | dict[str, str]
+    # key 可缺省:新属性(带 label_i18n)由后端生成稳定键,不接受调用方直接指定
+    # 中文/任意原文当 key —— 身份≠展示铁律(_resolve_spec 强制)。
+    key: str | None = None
+    # enum 新增选项分支(带 label_i18n 且 code 不在模板 options 内)时可缺省/为 None——
+    # 最终落库值由后端生成的选项 code 覆盖,不接受调用方越过校验直接指定 code。
+    value: str | float | int | dict[str, str] | None = None
+    # 仅在"新增属性"分支生效:落进该新属性模板行的计量单位(如新增"长度"顺手给
+    # unit=mm)。对已存在的 key 一律忽略——计量单位以模板 category_spec_attributes.unit
+    # 为准,不接受某个 SKU 单独覆盖(spec §11 Part B:单位归位,spec_jsonb 永不存 unit)。
     unit: str | None = None
-    label_i18n: dict | None = None  # 手输新 key 时带,回写模板用
+    # 新属性时带(zh 必填),回写模板用;enum 已知属性时带 = 请求新增该属性一个新选项
+    # (value 的 code 不在模板 options 内 + 带此字段 → inline 新增选项,label_i18n 即
+    # 新选项展示名;code 不在 options 又不带此字段 → 仍 SpecContractError,不静默)
+    label_i18n: dict | None = None
 
 
 class SkuCreateIn(BaseModel):
     spu_id: int
     unit: str = Field(..., max_length=20)
-    reference_price: float | None = Field(default=None, ge=0)
+    reference_price: condecimal(ge=0, max_digits=18, decimal_places=2) | None = None
     name_i18n: dict
     spec_items: list[SkuSpecItemIn] = []
+    image: str | None = Field(default=None, max_length=255)
 
-    _v = field_validator("name_i18n")(_require_zh)
+    _v = field_validator("name_i18n")(validate_i18n)
 
 
 class SkuUpdateIn(BaseModel):
     name_i18n: dict | None = None
     unit: str | None = None
-    reference_price: float | None = Field(default=None, ge=0)
+    reference_price: condecimal(ge=0, max_digits=18, decimal_places=2) | None = None
     spec_items: list[SkuSpecItemIn] | None = None
+    image: str | None = Field(default=None, max_length=255)
 
     @field_validator("name_i18n")
     @classmethod
     def _v_name(cls, v):
         # 部分更新:仅当提供 name_i18n 时才校验 zh 必填/禁空串(与 create 一致)
-        return _require_zh(v) if v is not None else v
+        return validate_i18n(v) if v is not None else v
 
 
 class SkuOut(BaseModel):
@@ -77,8 +92,28 @@ class SkuOut(BaseModel):
     spu_id: int
     sku_code: str
     unit: str
-    reference_price: float | None
+    reference_price: Decimal | None
     spec_jsonb: list
     name_i18n: dict
     search_text: str
     status: str
+    image: str | None
+    created_by: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+def sku_out(sku, *, include_cost: bool, spu_main_image: str | None = None) -> dict:
+    """序列化 SKU;include_cost=False 时脱敏 reference_price(置 None)。
+
+    spu_main_image 给定时附加同名字段,供前端跨 SPU 场景(搜索行/单取)做
+    `sku.image ?? spu_main_image` 回退——本模型不存 SPU 全量信息,只搭一个字段。
+    """
+    data = SkuOut.model_validate(sku).model_dump()
+    if not include_cost:
+        data["reference_price"] = None
+    if spu_main_image is not None:
+        data["spu_main_image"] = spu_main_image
+    return data

@@ -15,7 +15,7 @@ from app.db.models.role import Role, RoleCode
 from app.db.models.user import User, UserStatus
 from app.db.models.user_role import UserRole
 
-ALLOWED_INTERNAL_ROLES = {RoleCode.ADMIN}
+ALLOWED_INTERNAL_ROLES = {RoleCode.ADMIN, RoleCode.PRODUCT_OPERATOR}
 
 
 async def create_internal_user(

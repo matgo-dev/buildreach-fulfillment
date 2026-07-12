@@ -11,11 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.number_sequence import NumberSequence
 
-
-class NumberScope:
-    SKU = "SKU"
-    CUSTOMER = "CUSTOMER"
-    QUOTATION = "QUOTATION"
+# scope 取值见 app.core.codegen.NumberScope(唯一注册处);此处 scope 收 str,枚举成员即 str 直接传入。
 
 
 async def allocate(db: AsyncSession, scope: str, period: str = "") -> int:
