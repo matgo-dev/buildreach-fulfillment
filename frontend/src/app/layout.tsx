@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { ReactNode } from "react";
 
+import { AntdProvider } from "@/components/providers/AntdProvider";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import "./globals.css";
 
@@ -13,7 +14,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="zh">
       <body>
-        <AuthProvider>{children}</AuthProvider>
+        <AntdProvider>
+          <AuthProvider>{children}</AuthProvider>
+        </AntdProvider>
       </body>
     </html>
   );

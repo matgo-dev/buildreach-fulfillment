@@ -21,9 +21,13 @@ export const Permissions = {
   PERMISSION_MANAGE: "permission:manage",
   SYSTEM_CONFIG: "system:config",
   SYSTEM_AUDIT: "system:audit",
+
+  // ----- 履约:商品(SPU+SKU)-----
+  PRODUCT_READ: "product:read",
+  PRODUCT_MANAGE: "product:manage",
 } as const;
 
 export type PermissionCode = (typeof Permissions)[keyof typeof Permissions];
 
-/** 基座唯一角色。与后端 app/rbac/constants.py ROLE_META 对齐。 */
-export const BASE_ROLES: readonly RoleCode[] = ["ADMIN"] as const;
+/** 角色。与后端 app/rbac/constants.py ROLE_META 对齐(ADMIN 不触业务数据,商品由 PRODUCT_OPERATOR 管)。 */
+export const BASE_ROLES: readonly RoleCode[] = ["ADMIN", "PRODUCT_OPERATOR"] as const;

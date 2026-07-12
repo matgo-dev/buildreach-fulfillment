@@ -2,7 +2,7 @@
 
 import { api } from "./api";
 
-export type RoleCode = "ADMIN";
+export type RoleCode = "ADMIN" | "PRODUCT_OPERATOR";
 
 export interface MeData {
   id: number;
