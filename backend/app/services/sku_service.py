@@ -193,7 +193,8 @@ async def create_sku(db: AsyncSession, *, spu_id, unit, reference_price, name_i1
     sku_code = format_code(NumberScope.SKU, await allocate(db, NumberScope.SKU))
     sku = Sku(spu_id=spu_id, sku_code=sku_code, unit=unit, reference_price=reference_price,
               spec_jsonb=spec_jsonb, name_i18n=name_i18n, image=image,
-              search_text=build_search_text(name_i18n, spec_jsonb, sku_code))
+              search_text=build_search_text(name_i18n, spec_jsonb, sku_code),
+              created_by=actor_user_id)
     db.add(sku)
     await db.flush()
     await write_audit(db, resource_type=AuditResourceType.SKU, action=AuditAction.CREATE,

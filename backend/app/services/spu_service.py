@@ -39,7 +39,8 @@ async def create_spu(db: AsyncSession, *, category_code, name_i18n, main_image, 
     await _get_leaf_category(db, category_code)
     spu_code = format_code(NumberScope.SPU, await allocate(db, NumberScope.SPU))
     spu = Spu(spu_code=spu_code, category_code=category_code, name_i18n=name_i18n,
-              main_image=main_image, images=images if images is not None else [])
+              main_image=main_image, images=images if images is not None else [],
+              created_by=actor_user_id)
     db.add(spu)
     await db.flush()
     await write_audit(db, resource_type=AuditResourceType.SPU, action=AuditAction.CREATE,

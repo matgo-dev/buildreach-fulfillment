@@ -52,9 +52,10 @@ class SoftDeleteMixin:
 #   (category / unit / spu / sku / customer / 规格模板…)的"谁创建/更新/删除"统一走
 #   audit_logs(resource_type + resource_id + action + user_id;各写服务已 write_audit)。
 # 例外 = 当"人"是一等业务字段(要页面展示 / 筛"我的" / 归属统计)才把它上到行上:
-#   **本履约后端当前仅 quotation_orders 把 created_by 作为业务字段**(我的报价/归属/统计
-#   直接用)。这是本仓当前事实,不是跨仓铁律——大仓 buildreach 另有 product/rfq/zone
-#   等按需带 created_by 的表,勿据此推断全局。
+#   **本履约后端 quotation_orders(交易归属)与 spus/skus(商品运营录入归属)把 created_by
+#   作为业务字段**(展示/筛我的/按人统计直接用;均不加 updated_by/deleted_by)。这是本仓
+#   当前事实,不是跨仓铁律——大仓 buildreach 另有 product/rfq/zone 等按需带 created_by 的表,
+#   勿据此推断全局。
 # 何时给某表补:展示"创建人"→ created_by;筛"我的/我负责的"→ created_by 或 owner_id;
 #   展示"最后编辑人"→ updated_by;要完整变更史→ 靠 audit,不靠会被覆盖的 updated_by。
 # 主要代价:audit_logs.resource_id 是字符串非 FK,"谁建的这个 SPU"没有行字段直取,

@@ -40,3 +40,6 @@ class Sku(Base, TimestampUpdateMixin, SoftDeleteMixin):
     name_i18n: Mapped[dict] = mapped_column(JSONB, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=SkuStatus.ACTIVE)
     image: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # 创建人(商品运营录入归属):一等业务字段,同 spus.created_by 口径(见 base.py 审计归属约定)。
+    created_by: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)

@@ -98,6 +98,7 @@ class SkuOut(BaseModel):
     search_text: str
     status: str
     image: str | None
+    created_by: int
     created_at: datetime
     updated_at: datetime
 

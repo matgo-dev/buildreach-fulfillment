@@ -33,6 +33,7 @@ class SpuOut(BaseModel):
     status: str
     main_image: str
     images: list
+    created_by: int
     created_at: datetime
     updated_at: datetime
 
