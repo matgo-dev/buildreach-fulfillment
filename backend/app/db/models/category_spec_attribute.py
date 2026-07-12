@@ -22,8 +22,8 @@ class CategorySpecAttribute(Base, TimestampUpdateMixin):
     原文当键、绝不翻译。一属性一行(而非分类挂一个 JSONB 数组):不同属性各自一行、
     并发编辑互不覆盖,UNIQUE(category_code, key) 由 DB 硬保唯一。
 
-    audit 列沿用 TimestampUpdateMixin(不加 created_by)——主数据操作者追溯走 audit_log,
-    对齐全仓口径(唯 quotation 交易域带 created_by)。
+    审计:仅 TimestampUpdateMixin,不加 created_by/updated_by —— 主数据创建/更新/删除人
+    走 audit_logs(见 base.py「审计归属约定」单一源头)。
     """
     __tablename__ = "category_spec_attributes"
     __table_args__ = (

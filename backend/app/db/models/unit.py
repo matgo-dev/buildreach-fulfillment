@@ -14,8 +14,8 @@ class Unit(Base, TimestampUpdateMixin):
     直接 code 做 PK 更简、sku.unit 引 PK 天然省一个 id
     (ff-schema-review #9 已记档:有意分歧,非意外)。
 
-    不加 created_by:主数据操作者追溯走 audit_log,对齐 category_spec_attributes 口径
-    (唯 quotation 交易域带 created_by)。
+    审计:仅 TimestampUpdateMixin,不加 created_by/updated_by —— 主数据创建/更新/删除人
+    走 audit_logs(见 base.py「审计归属约定」单一源头)。
     """
     __tablename__ = "units"
     __table_args__ = (
