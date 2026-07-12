@@ -44,6 +44,19 @@
     双索引/CHECK)。旧 `0008–0012` 补丁迁移已废除。**重建库**:改历史后 dev/test 库需 `dropdb && createdb`
     重跑 `alembic upgrade head`(无历史数据,不做在线迁移)。
 
+- **商品管理前端(已完成,分支 `feat/product-catalog-fe`)**:消费上述 catalog API 的运营界面。
+  - **组件地基**:Ant Design(`ConfigProvider` 主题令牌对齐 `frontend/DESIGN.md`,主色 `#003366`)+ 现有
+    Zustand authStore / RouteGuard;`AppShell`(暗色侧栏 + 顶栏 + 面包屑)。设计**唯一源头 = `frontend/DESIGN.md`**。
+  - **页面**(`/catalog`,守 `product:read`):SPU 列表(分类树子树过滤 / 关键词 / 状态 / 无可用 SKU 徽标)、
+    SPU 详情(基本信息 + 内嵌 SKU 列表 + 派生可售)、SPU 增改抽屉(主图必填)、SKU 增改抽屉(**模板驱动规格
+    编辑器**:enum→下拉+新增选项逃生口 / number→带模板单位后缀 / string;售卖单位取自 `/units`)、SKU 全局搜索。
+  - **权限显隐**:`<Can perm="product:manage">` 控新建/编辑/上下架/删除/参考价;后端 `require_permission` +
+    `reference_price` 脱敏是安全底线,前端只是 UX 层。**ADMIN 只读**(仅 `product:read`,看不到 manage 操作与
+    参考价)、**PRODUCT_OPERATOR 全权**。
+  - **图片直传**:`ImageUpload`/`uploadImage`/`imageUrl` 走两步直传(`POST /uploads` → 拿 `{key,upload_url}` →
+    PUT),一套代码兼容 OSS 直传与 local 后端 PUT;表单只存 object key。前端图片环境变量(见下)。
+  - **已知限制**:`STORAGE_BACKEND=local` 时上传图**预览**仍不出(后端 `/media` 静态服务待接,生产 S3 无此问题)。
+
 ## 本地开发
 
 本地开发**复用现有 brew PostgreSQL**(`@ :5433`),不用下面 `docker-compose.yml` 里的 `db` 服务
@@ -84,11 +97,23 @@ MinIO。要在本地验证 S3/MinIO 路径,单独起一个 MinIO 容器并把 `S
 
 ```bash
 cd frontend
-pnpm install
+pnpm install   # 含 Ant Design(antd / @ant-design/nextjs-registry / @ant-design/icons)
 API_BASE_URL=http://localhost:8000 pnpm dev
 ```
 
-访问 `http://localhost:3000`。
+访问 `http://localhost:3000`;商品目录在 `/catalog/spus`(需持 `product:read` 的账号)。
+
+**前端环境变量**(均可选,`.env.local` 或容器注入 `window.__ENV`):
+
+| 变量 | 说明 |
+|---|---|
+| `API_BASE_URL` | 后端公网地址(必填,浏览器直连) |
+| `NEXT_PUBLIC_IMAGE_BACKEND` | `local`(默认,经后端 `/media` 读)/ `s3`(公读桶直读) |
+| `NEXT_PUBLIC_IMAGE_PUBLIC_BASE` | `s3` 时的公读桶基址(如 `https://cdn.example.com`) |
+
+**账号**:启动 seed 只种 `SUPER_ADMIN_*` 的 **ADMIN**(对商品**只读**)。商品增改需 **PRODUCT_OPERATOR**
+角色的账号,由 ADMIN 经用户/角色管理授予(`ADMIN` 持 `user:manage`/`role:manage`)。设计基准见
+`frontend/DESIGN.md`。
 
 ## 测试
 
