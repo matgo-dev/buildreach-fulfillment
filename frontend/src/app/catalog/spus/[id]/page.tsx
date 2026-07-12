@@ -8,6 +8,7 @@ import { display } from "@/lib/i18n";
 import { imageUrl } from "@/lib/image";
 import { Can } from "@/components/common/Can";
 import { SpuForm } from "@/components/catalog/SpuForm";
+import { SkuForm } from "@/components/catalog/SkuForm";
 import { useAuthStore } from "@/stores/authStore";
 
 function specText(items: SkuDetailItem["spec_jsonb"]): string {
@@ -24,6 +25,7 @@ export default function SpuDetailPage() {
   const [spu, setSpu] = useState<SpuDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [editSpu, setEditSpu] = useState(false);
+  const [skuForm, setSkuForm] = useState<{ open: boolean; sku?: SkuDetailItem }>({ open: false });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -97,11 +99,14 @@ export default function SpuDetailPage() {
     },
     {
       title: "操作",
-      width: 160,
+      width: 220,
       className: "whitespace-nowrap",
       render: (_, r) => (
         <Can perm="product:manage">
           <Space size="small">
+            <Button size="small" type="link" onClick={() => setSkuForm({ open: true, sku: r })}>
+              编辑
+            </Button>
             <Button size="small" type="link" onClick={() => toggleSku(r)}>
               {r.status === "ACTIVE" ? "下架" : "上架"}
             </Button>
@@ -167,7 +172,17 @@ export default function SpuDetailPage() {
         </div>
       </Card>
 
-      <Card size="small" title="SKU 列表">
+      <Card
+        size="small"
+        title="SKU 列表"
+        extra={
+          <Can perm="product:manage">
+            <Button type="primary" onClick={() => setSkuForm({ open: true })}>
+              新建 SKU
+            </Button>
+          </Can>
+        }
+      >
         <Table
           rowKey="id"
           columns={columns}
@@ -178,6 +193,16 @@ export default function SpuDetailPage() {
       </Card>
 
       <SpuForm open={editSpu} spu={spu} onClose={() => setEditSpu(false)} onSaved={load} />
+      {skuForm.open && (
+        <SkuForm
+          open
+          spuId={spu.id}
+          categoryCode={spu.category_code}
+          sku={skuForm.sku}
+          onClose={() => setSkuForm({ open: false })}
+          onSaved={load}
+        />
+      )}
     </>
   );
 }
