@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Integer, String, Text
+from sqlalchemy import CheckConstraint, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -14,6 +14,10 @@ class CustomerStatus:
 
 class Customer(Base, TimestampUpdateMixin):
     __tablename__ = "customers"
+    __table_args__ = (
+        # 状态 DB 兜底(纵深防御,与 skus/spus 的 status CHECK 同纪律)
+        CheckConstraint("status IN ('ACTIVE','INACTIVE')", name="ck_customers_status"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     code: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)

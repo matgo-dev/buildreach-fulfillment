@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 class QuotationCreateIn(BaseModel):
     customer_id: int
-    currency: str = Field(..., max_length=10)
+    currency: str = Field(..., pattern=r"^[A-Z]{3}$")  # ISO4217 三字母大写 code(USD/CNY…)
     valid_until: date | None = None
     remark: str | None = None
 
