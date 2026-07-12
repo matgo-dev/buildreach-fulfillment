@@ -1,0 +1,210 @@
+"use client";
+import { useCallback, useEffect, useState } from "react";
+import {
+  Table,
+  Input,
+  Segmented,
+  Button,
+  Tag,
+  Space,
+  Tooltip,
+  Popconfirm,
+  Row,
+  Col,
+  Card,
+  App,
+} from "antd";
+import { PlusOutlined, WarningOutlined } from "@ant-design/icons";
+import type { ColumnsType } from "antd/es/table";
+import { useRouter } from "next/navigation";
+import { catalogApi, SpuListItem } from "@/lib/catalog";
+import { display } from "@/lib/i18n";
+import { Can } from "@/components/common/Can";
+import { CategoryTree } from "@/components/catalog/CategoryTree";
+
+const PAGE_SIZE = 20;
+
+export default function SpuListPage() {
+  const { message } = App.useApp();
+  const router = useRouter();
+  const [rows, setRows] = useState<SpuListItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [keyword, setKeyword] = useState("");
+  const [status, setStatus] = useState<string>("ALL");
+  const [category, setCategory] = useState<string | undefined>();
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await catalogApi.listSpus({
+        keyword,
+        status: status === "ALL" ? undefined : status,
+        category_code: category,
+        page,
+        size: PAGE_SIZE,
+      });
+      setRows(r.items);
+      setTotal(r.total);
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : "加载失败");
+    } finally {
+      setLoading(false);
+    }
+  }, [keyword, status, category, page, message]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function onDelete(id: number) {
+    try {
+      await catalogApi.deleteSpu(id);
+      message.success("已删除");
+      load();
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : "删除失败");
+    }
+  }
+  async function onToggle(s: SpuListItem) {
+    try {
+      await catalogApi.setSpuStatus(s.id, s.status === "ACTIVE" ? "INACTIVE" : "ACTIVE");
+      message.success("状态已更新");
+      load();
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : "操作失败");
+    }
+  }
+
+  const columns: ColumnsType<SpuListItem> = [
+    { title: "编码", dataIndex: "spu_code", width: 150 },
+    {
+      title: "名称",
+      dataIndex: "name_i18n",
+      render: (v, r) => (
+        <Space>
+          <span>{display(v)}</span>
+          {!r.has_available_sku && (
+            <Tooltip title="该商品下无可上架/可售 SKU">
+              <Tag icon={<WarningOutlined />} color="warning">
+                无可用 SKU
+              </Tag>
+            </Tooltip>
+          )}
+        </Space>
+      ),
+    },
+    { title: "分类", dataIndex: "category_code", width: 130 },
+    {
+      title: "状态",
+      dataIndex: "status",
+      width: 90,
+      render: (v: string) => (
+        <Tag color={v === "ACTIVE" ? "success" : "default"}>{v === "ACTIVE" ? "上架" : "下架"}</Tag>
+      ),
+    },
+    {
+      title: "操作",
+      width: 260,
+      className: "whitespace-nowrap",
+      render: (_, r) => (
+        <Space size="small">
+          <Button size="small" type="link" onClick={() => router.push(`/catalog/spus/${r.id}`)}>
+            查看 SKU
+          </Button>
+          <Can perm="product:manage">
+            <Button
+              size="small"
+              type="link"
+              onClick={() => router.push(`/catalog/spus/${r.id}?edit=1`)}
+            >
+              编辑
+            </Button>
+            <Button size="small" type="link" onClick={() => onToggle(r)}>
+              {r.status === "ACTIVE" ? "下架" : "上架"}
+            </Button>
+            <Popconfirm
+              title="删除该 SPU?"
+              description="逻辑删后从目录隐藏(仍有未删 SKU 时不可删)。"
+              okText="删除"
+              okButtonProps={{ danger: true }}
+              cancelText="取消"
+              onConfirm={() => onDelete(r.id)}
+            >
+              <Button size="small" type="link" danger>
+                删除
+              </Button>
+            </Popconfirm>
+          </Can>
+        </Space>
+      ),
+    },
+  ];
+
+  return (
+    <Row gutter={16}>
+      <Col flex="240px">
+        <Card size="small" title="分类">
+          <CategoryTree
+            onSelect={(c) => {
+              setCategory(c);
+              setPage(1);
+            }}
+          />
+        </Card>
+      </Col>
+      <Col flex="auto" style={{ minWidth: 0 }}>
+        <Card size="small">
+          <Space style={{ marginBottom: 12 }} wrap>
+            <Input.Search
+              placeholder="名称 / 编码"
+              allowClear
+              style={{ width: 240 }}
+              onSearch={(v) => {
+                setKeyword(v);
+                setPage(1);
+              }}
+            />
+            <Segmented
+              value={status}
+              onChange={(k) => {
+                setStatus(k as string);
+                setPage(1);
+              }}
+              options={[
+                { label: "全部", value: "ALL" },
+                { label: "上架", value: "ACTIVE" },
+                { label: "下架", value: "INACTIVE" },
+              ]}
+            />
+            <Can perm="product:manage">
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={() => router.push("/catalog/spus/new")}
+              >
+                新建 SPU
+              </Button>
+            </Can>
+          </Space>
+          <Table
+            rowKey="id"
+            loading={loading}
+            columns={columns}
+            dataSource={rows}
+            pagination={{
+              current: page,
+              total,
+              pageSize: PAGE_SIZE,
+              onChange: setPage,
+              showSizeChanger: false,
+              showTotal: (t) => `共 ${t} 条`,
+            }}
+            locale={{ emptyText: "暂无 SPU" }}
+          />
+        </Card>
+      </Col>
+    </Row>
+  );
+}
