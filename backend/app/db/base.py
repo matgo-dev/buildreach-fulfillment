@@ -54,8 +54,8 @@ class SoftDeleteMixin:
 # 例外 = 当"人"是一等业务字段(要页面展示 / 筛"我的" / 归属统计)才把它上到行上:
 #   **本履约后端 quotation_orders(交易归属)与 spus/skus(商品运营录入归属)把 created_by
 #   作为业务字段**(展示/筛我的/按人统计直接用;均不加 updated_by/deleted_by)。这是本仓
-#   当前事实,不是跨仓铁律——大仓 buildreach 另有 product/rfq/zone 等按需带 created_by 的表,
-#   勿据此推断全局。
+#   当前约定、非铁律——其它表按上面的判断各自决定要不要上 created_by,别据此推断"所有主
+#   数据一律不带"。
 # 何时给某表补:展示"创建人"→ created_by;筛"我的/我负责的"→ created_by 或 owner_id;
 #   展示"最后编辑人"→ updated_by;要完整变更史→ 靠 audit,不靠会被覆盖的 updated_by。
 # 主要代价:audit_logs.resource_id 是字符串非 FK,"谁建的这个 SPU"没有行字段直取,

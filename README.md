@@ -2,7 +2,7 @@
 
 公司内部供应链履约系统 · 独立仓库(认证 / RBAC / 审计 / 存储底座 + 业务领域)。面向公司内部运营/采购/财务(**买方看不到**),与前台电商平台完全独立。
 
-独立仓库、独立数据库、独立部署,不依赖 `buildreach` 主仓库。
+独立仓库、独立数据库、独立部署,不依赖任何外部主仓库。
 
 ## 进度
 
@@ -16,6 +16,8 @@
     品类树/单位维护写端点,职责分离),新增角色 `PRODUCT_OPERATOR`(商品运营,持 read+manage);`ADMIN`
     只保留 `product:read` 作职责分离过渡桥,不再持 `product:manage`(商品增改上下架收口给 `PRODUCT_OPERATOR`)。
   - **SPU 中性编码**:`spus.spu_code`(`SPU00000042`,复用统一编号服务)。
+  - **创建人归属**:`spus`/`skus` 加 `created_by`(FK→users,NOT NULL,建索引),记商品运营录入归属,
+    供"展示创建人/筛我的/按人统计录入量";非红线,`SpuOut`/`SkuOut` 下发。审计归属约定见 `app/db/base.py`。
   - **逻辑删**:`spus`/`skus` 都加 `deleted_at`,物理行永不删,读路径默认过滤已删;`DELETE` 端点即置
     `deleted_at`。
   - **上下架 + 派生可用性**:`status`(`ACTIVE`/`INACTIVE`)是自身字段;“可用”是派生语义,不落表——
@@ -159,6 +161,6 @@ docker compose build backend
 
 - GitHub remote 已建:`origin` → `github.com/matgo-dev/buildreach-fulfillment`;仍待接:
   - 远端 CI(`.github/workflows/ci.yml` 尚未在真实 GitHub Actions 环境验证过)
-  - 远端部署编排(参考 `buildreach` 主仓库 `deploy/` 的模式,目前本仓库无对应目录)
+  - 远端部署编排(目前本仓库无对应目录,后续按需补)
 - `frontend/Dockerfile`:生产构建镜像待补(见上「容器部署」一节)。
 - 前端界面:M1 未做(仅 M0 最小登录壳),随各模块后端稳定后逐步补(内部界面,中文)。
