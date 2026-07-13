@@ -30,11 +30,13 @@ async def _next_quote_no(db: AsyncSession) -> str:
 
 
 async def create_draft(db: AsyncSession, *, customer_id, currency, valid_until=None,
-                       remark=None, actor_user_id, actor_user_email,
+                       remark=None, salesperson_id=None, actor_user_id, actor_user_email,
                        request: Request | None = None) -> QuotationOrder:
     customer = await customer_service.get_customer(db, customer_id)
     language = customer.quote_language or DEFAULT_QUOTE_LANGUAGE
+    # 报价人默认=建单人,草稿内可重指派(设计:salesperson_id 业务字段,created_by 审计归属)。
     order = QuotationOrder(no=await _next_quote_no(db), customer_id=customer_id,
+                           salesperson_id=salesperson_id or actor_user_id,
                            language=language, currency=currency, valid_until=valid_until,
                            status=QuotationStatus.DRAFT, created_by=actor_user_id, remark=remark)
     db.add(order)
