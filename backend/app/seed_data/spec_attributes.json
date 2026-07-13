@@ -12,12 +12,42 @@
         "scope": "sku",
         "note": "DN 公称直径系列(GB/T·ISO 6708);仅铺常用段,罕见口径运营用「新增」现加。",
         "options": [
-          { "code": "dn15", "label_i18n": { "zh": "DN15" } },
-          { "code": "dn20", "label_i18n": { "zh": "DN20" } },
-          { "code": "dn25", "label_i18n": { "zh": "DN25" } },
-          { "code": "dn32", "label_i18n": { "zh": "DN32" } },
-          { "code": "dn40", "label_i18n": { "zh": "DN40" } },
-          { "code": "dn50", "label_i18n": { "zh": "DN50" } }
+          {
+            "code": "dn15",
+            "label_i18n": {
+              "zh": "DN15"
+            }
+          },
+          {
+            "code": "dn20",
+            "label_i18n": {
+              "zh": "DN20"
+            }
+          },
+          {
+            "code": "dn25",
+            "label_i18n": {
+              "zh": "DN25"
+            }
+          },
+          {
+            "code": "dn32",
+            "label_i18n": {
+              "zh": "DN32"
+            }
+          },
+          {
+            "code": "dn40",
+            "label_i18n": {
+              "zh": "DN40"
+            }
+          },
+          {
+            "code": "dn50",
+            "label_i18n": {
+              "zh": "DN50"
+            }
+          }
         ]
       },
       {
@@ -187,10 +217,11 @@
       {
         "key": "wall",
         "label_i18n": {
-          "zh": "壁厚/管系列"
+          "zh": "壁厚"
         },
-        "value_type": "string",
-        "scope": "sku"
+        "value_type": "number",
+        "scope": "sku",
+        "unit": "mm"
       },
       {
         "key": "surface",
@@ -418,10 +449,49 @@
       {
         "key": "dn",
         "label_i18n": {
-          "zh": "公称外径 dn"
+          "zh": "公称外径"
         },
-        "value_type": "string",
-        "scope": "sku"
+        "value_type": "enum",
+        "scope": "sku",
+        "unit": "",
+        "options": [
+          {
+            "code": "de20",
+            "label_i18n": {
+              "zh": "De20"
+            }
+          },
+          {
+            "code": "de25",
+            "label_i18n": {
+              "zh": "De25"
+            }
+          },
+          {
+            "code": "de32",
+            "label_i18n": {
+              "zh": "De32"
+            }
+          },
+          {
+            "code": "de40",
+            "label_i18n": {
+              "zh": "De40"
+            }
+          },
+          {
+            "code": "de50",
+            "label_i18n": {
+              "zh": "De50"
+            }
+          },
+          {
+            "code": "de63",
+            "label_i18n": {
+              "zh": "De63"
+            }
+          }
+        ]
       },
       {
         "key": "conn",
@@ -907,8 +977,46 @@
         "label_i18n": {
           "zh": "螺纹规格"
         },
-        "value_type": "string",
-        "scope": "sku"
+        "value_type": "enum",
+        "scope": "sku",
+        "options": [
+          {
+            "code": "m6",
+            "label_i18n": {
+              "zh": "M6"
+            }
+          },
+          {
+            "code": "m8",
+            "label_i18n": {
+              "zh": "M8"
+            }
+          },
+          {
+            "code": "m10",
+            "label_i18n": {
+              "zh": "M10"
+            }
+          },
+          {
+            "code": "m12",
+            "label_i18n": {
+              "zh": "M12"
+            }
+          },
+          {
+            "code": "m16",
+            "label_i18n": {
+              "zh": "M16"
+            }
+          },
+          {
+            "code": "m20",
+            "label_i18n": {
+              "zh": "M20"
+            }
+          }
+        ]
       },
       {
         "key": "length",
@@ -1015,8 +1123,46 @@
         "label_i18n": {
           "zh": "螺纹规格"
         },
-        "value_type": "string",
-        "scope": "sku"
+        "value_type": "enum",
+        "scope": "sku",
+        "options": [
+          {
+            "code": "m6",
+            "label_i18n": {
+              "zh": "M6"
+            }
+          },
+          {
+            "code": "m8",
+            "label_i18n": {
+              "zh": "M8"
+            }
+          },
+          {
+            "code": "m10",
+            "label_i18n": {
+              "zh": "M10"
+            }
+          },
+          {
+            "code": "m12",
+            "label_i18n": {
+              "zh": "M12"
+            }
+          },
+          {
+            "code": "m16",
+            "label_i18n": {
+              "zh": "M16"
+            }
+          },
+          {
+            "code": "m20",
+            "label_i18n": {
+              "zh": "M20"
+            }
+          }
+        ]
       },
       {
         "key": "nut_type",
@@ -1072,10 +1218,48 @@
       {
         "key": "thread",
         "label_i18n": {
-          "zh": "螺纹/直径"
+          "zh": "螺纹规格"
         },
-        "value_type": "string",
-        "scope": "sku"
+        "value_type": "enum",
+        "scope": "sku",
+        "options": [
+          {
+            "code": "m6",
+            "label_i18n": {
+              "zh": "M6"
+            }
+          },
+          {
+            "code": "m8",
+            "label_i18n": {
+              "zh": "M8"
+            }
+          },
+          {
+            "code": "m10",
+            "label_i18n": {
+              "zh": "M10"
+            }
+          },
+          {
+            "code": "m12",
+            "label_i18n": {
+              "zh": "M12"
+            }
+          },
+          {
+            "code": "m16",
+            "label_i18n": {
+              "zh": "M16"
+            }
+          },
+          {
+            "code": "m20",
+            "label_i18n": {
+              "zh": "M20"
+            }
+          }
+        ]
       },
       {
         "key": "length",
@@ -1202,10 +1386,48 @@
       {
         "key": "inner_dia",
         "label_i18n": {
-          "zh": "内径/适用螺纹"
+          "zh": "适用规格"
         },
-        "value_type": "string",
-        "scope": "sku"
+        "value_type": "enum",
+        "scope": "sku",
+        "options": [
+          {
+            "code": "m6",
+            "label_i18n": {
+              "zh": "M6"
+            }
+          },
+          {
+            "code": "m8",
+            "label_i18n": {
+              "zh": "M8"
+            }
+          },
+          {
+            "code": "m10",
+            "label_i18n": {
+              "zh": "M10"
+            }
+          },
+          {
+            "code": "m12",
+            "label_i18n": {
+              "zh": "M12"
+            }
+          },
+          {
+            "code": "m16",
+            "label_i18n": {
+              "zh": "M16"
+            }
+          },
+          {
+            "code": "m20",
+            "label_i18n": {
+              "zh": "M20"
+            }
+          }
+        ]
       }
     ]
   },
@@ -1251,8 +1473,46 @@
         "label_i18n": {
           "zh": "螺纹规格"
         },
-        "value_type": "string",
-        "scope": "sku"
+        "value_type": "enum",
+        "scope": "sku",
+        "options": [
+          {
+            "code": "m6",
+            "label_i18n": {
+              "zh": "M6"
+            }
+          },
+          {
+            "code": "m8",
+            "label_i18n": {
+              "zh": "M8"
+            }
+          },
+          {
+            "code": "m10",
+            "label_i18n": {
+              "zh": "M10"
+            }
+          },
+          {
+            "code": "m12",
+            "label_i18n": {
+              "zh": "M12"
+            }
+          },
+          {
+            "code": "m16",
+            "label_i18n": {
+              "zh": "M16"
+            }
+          },
+          {
+            "code": "m20",
+            "label_i18n": {
+              "zh": "M20"
+            }
+          }
+        ]
       },
       {
         "key": "drill_dia",
@@ -1347,17 +1607,105 @@
         "label_i18n": {
           "zh": "芯数"
         },
-        "value_type": "string",
-        "scope": "sku"
+        "value_type": "enum",
+        "scope": "sku",
+        "options": [
+          {
+            "code": "c1",
+            "label_i18n": {
+              "zh": "单芯"
+            }
+          },
+          {
+            "code": "c2",
+            "label_i18n": {
+              "zh": "2芯"
+            }
+          },
+          {
+            "code": "c3",
+            "label_i18n": {
+              "zh": "3芯"
+            }
+          },
+          {
+            "code": "c4",
+            "label_i18n": {
+              "zh": "4芯"
+            }
+          },
+          {
+            "code": "c5",
+            "label_i18n": {
+              "zh": "5芯"
+            }
+          },
+          {
+            "code": "c3_1",
+            "label_i18n": {
+              "zh": "3+1芯"
+            }
+          },
+          {
+            "code": "c4_1",
+            "label_i18n": {
+              "zh": "4+1芯"
+            }
+          }
+        ]
       },
       {
         "key": "section",
         "label_i18n": {
           "zh": "标称截面"
         },
-        "value_type": "string",
+        "value_type": "enum",
         "unit": "mm²",
-        "scope": "sku"
+        "scope": "sku",
+        "options": [
+          {
+            "code": "s1",
+            "label_i18n": {
+              "zh": "1.0"
+            }
+          },
+          {
+            "code": "s1_5",
+            "label_i18n": {
+              "zh": "1.5"
+            }
+          },
+          {
+            "code": "s2_5",
+            "label_i18n": {
+              "zh": "2.5"
+            }
+          },
+          {
+            "code": "s4",
+            "label_i18n": {
+              "zh": "4"
+            }
+          },
+          {
+            "code": "s6",
+            "label_i18n": {
+              "zh": "6"
+            }
+          },
+          {
+            "code": "s10",
+            "label_i18n": {
+              "zh": "10"
+            }
+          },
+          {
+            "code": "s16",
+            "label_i18n": {
+              "zh": "16"
+            }
+          }
+        ]
       },
       {
         "key": "standard",
