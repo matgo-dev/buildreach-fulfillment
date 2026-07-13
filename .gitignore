@@ -14,3 +14,6 @@ node_modules/
 
 # 文档本地保留,不进仓(同 buildreach 约定)
 docs/
+
+# AI 协作方法论,本地保留不进仓(用户约定)
+/CLAUDE.md
