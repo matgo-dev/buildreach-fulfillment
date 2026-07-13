@@ -96,6 +96,18 @@ export default function SpuDetailPage() {
       : []),
     { title: "规格", dataIndex: "spec_jsonb", render: (v) => specText(v) || "—" },
     {
+      title: "重量/尺寸",
+      key: "physical",
+      width: 150,
+      render: (_, r) => {
+        const parts: string[] = [];
+        if (r.weight_kg != null) parts.push(`${r.weight_kg}kg`);
+        if (r.length_cm != null && r.width_cm != null && r.height_cm != null)
+          parts.push(`${r.length_cm}×${r.width_cm}×${r.height_cm}cm`);
+        return parts.length ? parts.join(" · ") : "—";
+      },
+    },
+    {
       title: "可售",
       dataIndex: "available",
       width: 80,
