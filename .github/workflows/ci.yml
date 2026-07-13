@@ -75,3 +75,36 @@ jobs:
           alembic upgrade head
           echo "✅ Migration test passed!"
           alembic current
+
+  frontend:
+    name: frontend (lint + build)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      # next lint:ESLint 报错(errors)阻断合并;既有 warnings 不阻断
+      - name: Lint
+        working-directory: frontend
+        run: pnpm lint
+
+      # next build:类型检查(tsc)+ 产物构建,任一失败即红
+      - name: Build
+        working-directory: frontend
+        run: pnpm build
