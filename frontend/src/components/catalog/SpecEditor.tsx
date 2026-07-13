@@ -1,6 +1,6 @@
 "use client";
 import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
-import { Input, InputNumber, Select, Button, Space, Divider, Typography, App } from "antd";
+import { Input, InputNumber, Select, Button, Space, Typography, App } from "antd";
 import type { MessageInstance } from "antd/es/message/interface";
 import { PlusOutlined, DeleteOutlined } from "@ant-design/icons";
 import {
@@ -47,7 +47,11 @@ function toValueString(v: SpecItem["value"]): string {
   return typeof v === "object" && v !== null ? display(v) : String(v);
 }
 
-/** enum 取值单元:既有选项下拉 + 底部「新增选项」逃生口(zh 必填 / en 选填)。 */
+const ENUM_ADD = "__enum_add__"; // 「新增:X」确认项的哨兵值
+const ENUM_STAGED = "__enum_staged__"; // 已暂存的新值(选中态)的哨兵值
+
+/** enum 取值单元:可输入下拉(combobox)。输入即过滤既有选项;无匹配时出现「新增:X」
+ *  确认项——点它才落新值(不静默追加,守住受控值域)。提交后由后端生成稳定 code。 */
 function EnumCell({
   row,
   onChange,
@@ -55,75 +59,52 @@ function EnumCell({
   row: TemplateRow;
   onChange: (m: EnumMode) => void;
 }) {
-  const [newZh, setNewZh] = useState("");
-  const [newEn, setNewEn] = useState("");
+  const [search, setSearch] = useState("");
 
-  const options = row.options.map((o) => ({ value: o.code, label: display(o.label_i18n) || o.code }));
+  const base = row.options.map((o) => ({ value: o.code, label: display(o.label_i18n) || o.code }));
   // 编辑时既有 code 不在 options(极少),补一个回退项避免显示空。
   if (row.enumMode?.kind === "existing" && row.enumMode.code) {
     const code = row.enumMode.code;
     if (!row.options.some((o) => o.code === code)) {
-      options.push({ value: code, label: code });
+      base.push({ value: code, label: code });
     }
   }
-  const pendingVal = "__pending_new__";
+  // 已暂存的新值(尚未落库),作选中项展示。
   if (row.enumMode?.kind === "new") {
-    options.push({ value: pendingVal, label: `新增:${row.enumMode.zh}` });
+    base.push({ value: ENUM_STAGED, label: `新增:${row.enumMode.zh}` });
   }
+  // 正在输入且与既有 label 无精确匹配 → 追加「新增:X」确认项。
+  const q = search.trim();
+  const exact = !!q && base.some((o) => o.label.toLowerCase() === q.toLowerCase());
+  const options = q && !exact ? [...base, { value: ENUM_ADD, label: `新增:"${q}"` }] : base;
 
   const value =
     row.enumMode?.kind === "existing"
       ? row.enumMode.code
       : row.enumMode?.kind === "new"
-      ? pendingVal
+      ? ENUM_STAGED
       : undefined;
 
   return (
     <Select
       style={{ width: "100%" }}
-      placeholder="选择或新增"
+      showSearch
       allowClear
+      placeholder="选择,或输入新值后点「新增」"
       value={value}
       options={options}
+      searchValue={search}
+      onSearch={setSearch}
+      filterOption={(input, opt) =>
+        String(opt?.label ?? "").toLowerCase().includes(input.trim().toLowerCase())
+      }
       onChange={(v) => {
+        setSearch("");
         if (v === undefined) onChange({ kind: "existing", code: undefined });
-        else if (v !== pendingVal) onChange({ kind: "existing", code: v as string });
+        else if (v === ENUM_ADD) onChange({ kind: "new", zh: q });
+        else if (v !== ENUM_STAGED) onChange({ kind: "existing", code: v as string });
       }}
-      popupRender={(menu) => (
-        <>
-          {menu}
-          <Divider style={{ margin: "8px 0" }} />
-          <Space style={{ padding: "0 8px 8px" }} wrap>
-            <Input
-              size="small"
-              placeholder="新选项(中文)"
-              style={{ width: 130 }}
-              value={newZh}
-              onChange={(e) => setNewZh(e.target.value)}
-            />
-            <Input
-              size="small"
-              placeholder="英文(选填)"
-              style={{ width: 110 }}
-              value={newEn}
-              onChange={(e) => setNewEn(e.target.value)}
-            />
-            <Button
-              size="small"
-              type="link"
-              icon={<PlusOutlined />}
-              disabled={!newZh.trim()}
-              onClick={() => {
-                onChange({ kind: "new", zh: newZh.trim(), en: newEn.trim() || undefined });
-                setNewZh("");
-                setNewEn("");
-              }}
-            >
-              新增
-            </Button>
-          </Space>
-        </>
-      )}
+      onBlur={() => setSearch("")}
     />
   );
 }

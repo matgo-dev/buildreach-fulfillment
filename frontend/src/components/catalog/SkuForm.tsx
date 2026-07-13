@@ -9,6 +9,7 @@ import {
   Button,
   Space,
   Divider,
+  Tag,
   Typography,
   App,
 } from "antd";
@@ -17,7 +18,6 @@ import {
   SkuWithImages,
   SpecDisplayItem,
   UnitOut,
-  specDisplayText,
 } from "@/lib/catalog";
 import { display } from "@/lib/i18n";
 import { ImageZone } from "@/components/catalog/ImageManager";
@@ -25,6 +25,12 @@ import { SpecEditor, SpecEditorHandle } from "@/components/catalog/SpecEditor";
 import { colors } from "@/lib/tokens";
 
 const { Text } = Typography;
+
+// 单个展示项的值(enum 取 i18n label,标量原样)+ 单位。
+function itemValueText(s: SpecDisplayItem): string {
+  const val = typeof s.value === "object" && s.value !== null ? display(s.value) : s.value;
+  return `${val ?? ""}${s.unit ? ` ${s.unit}` : ""}`;
+}
 
 export function SkuForm({
   open,
@@ -171,25 +177,35 @@ export function SkuForm({
         </Space>
       </Form>
 
+      {/* 产品级规格在 SPU 上维护,这里 chip 只读回显,避免运营误以为要重填。 */}
       <Divider titlePlacement="left" plain style={{ marginTop: 8 }}>
-        SKU 图(可选)
+        产品级规格
       </Divider>
-      <div style={{ marginBottom: 4, fontSize: 12, color: colors.muted }}>
-        该 SKU 有专属图时上传,否则自动用商品主图。
+      <div style={{ marginTop: -4, marginBottom: 8, fontSize: 12, color: colors.muted }}>
+        继承自 SPU,只读;如需修改去 SPU 编辑页。
       </div>
-      <ImageZone title="SKU 图" keys={imageKeys} max={6} onChange={setImageKeys} />
+      {productSpec.length ? (
+        <Space size={[6, 6]} wrap>
+          {productSpec.map((s) => (
+            <Tag key={s.key} style={{ margin: 0, background: colors.bg, borderColor: colors.line }}>
+              <Text type="secondary">{display(s.label_i18n) || s.key}</Text>
+              {" "}
+              {itemValueText(s)}
+            </Tag>
+          ))}
+        </Space>
+      ) : (
+        <Text type="secondary" style={{ fontSize: 13 }}>
+          该 SPU 暂无产品级规格,可在 SPU 编辑页补充。
+        </Text>
+      )}
 
-      {/* 产品级规格在 SPU 上维护,这里只读回显,避免运营误以为要重填。 */}
-      <Divider titlePlacement="left" plain style={{ marginTop: 8 }}>
-        产品级规格(继承自 SPU,只读)
+      <Divider titlePlacement="left" plain style={{ marginTop: 16 }}>
+        变体规格
       </Divider>
-      <div style={{ fontSize: 13, color: colors.muted }}>
-        {productSpec.length ? specDisplayText(productSpec) : "该 SPU 暂无产品级规格,可在 SPU 编辑页补充。"}
+      <div style={{ marginTop: -4, marginBottom: 8, fontSize: 12, color: colors.muted }}>
+        本 SKU 独有的规格轴,区分同商品下不同 SKU(如管径、壁厚);按类目模板铺开,留空不提交。
       </div>
-
-      <Divider titlePlacement="left" plain style={{ marginTop: 8 }}>
-        变体规格(本 SKU 独有,按类目模板铺开,留空不提交)
-      </Divider>
       <SpecEditor
         ref={specRef}
         open={open}
@@ -198,11 +214,14 @@ export function SkuForm({
         initialSpec={source?.spec_jsonb}
         addHint="类目缺轴时用"
       />
-      <div style={{ marginTop: 8 }}>
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          变体规格用于区分同一商品下的不同 SKU(如管径、壁厚)。
-        </Text>
+
+      <Divider titlePlacement="left" plain style={{ marginTop: 16 }}>
+        SKU 图(可选)
+      </Divider>
+      <div style={{ marginBottom: 4, fontSize: 12, color: colors.muted }}>
+        该 SKU 有专属图时上传,否则自动用商品主图。
       </div>
+      <ImageZone title="SKU 图" keys={imageKeys} max={6} onChange={setImageKeys} />
     </Drawer>
   );
 }
