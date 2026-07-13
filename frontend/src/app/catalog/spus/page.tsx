@@ -98,7 +98,13 @@ export default function SpuListPage() {
         </Space>
       ),
     },
-    { title: "分类", dataIndex: "category_code", width: 130 },
+    {
+      title: "分类",
+      dataIndex: "category_name_i18n",
+      width: 150,
+      render: (v: SpuListItem["category_name_i18n"], r) =>
+        v ? display(v) : r.category_code,
+    },
     {
       title: "状态",
       dataIndex: "status",
@@ -109,13 +115,10 @@ export default function SpuListPage() {
     },
     {
       title: "操作",
-      width: 260,
+      width: 200,
       className: "whitespace-nowrap",
       render: (_, r) => (
-        <Space size="small">
-          <Button size="small" type="link" onClick={() => router.push(`/catalog/spus/${r.id}`)}>
-            查看 SKU
-          </Button>
+        <Space size="small" onClick={(e) => e.stopPropagation()}>
           <Can perm="product:manage">
             {/* 编辑/删除仅 DRAFT/INACTIVE 可见(ACTIVE 锁,先停用);启用/停用随状态互斥。 */}
             {spuEditable(r.status) && (
@@ -202,6 +205,10 @@ export default function SpuListPage() {
             loading={loading}
             columns={columns}
             dataSource={rows}
+            onRow={(r) => ({
+              onClick: () => router.push(`/catalog/spus/${r.id}`),
+              style: { cursor: "pointer" },
+            })}
             pagination={{
               current: page,
               total,
