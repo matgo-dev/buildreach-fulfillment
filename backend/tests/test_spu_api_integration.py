@@ -39,7 +39,7 @@ async def test_spu_crud_flow(client, product_operator_headers, db_session):
     assert page["page"] == 1
     assert page["size"] == 20
     row = next(x for x in page["items"] if x["id"] == sid)
-    assert row["has_available_sku"] is False
+    assert row["has_active_sku"] is False
 
     # 改(DRAFT 可编辑)
     r_upd = await client.put(f"/api/v1/spus/{sid}", headers=h,
@@ -107,10 +107,10 @@ async def test_spu_derived_availability(client, product_operator_headers, db_ses
     assert sku1["available"] is True
     assert sku1["status"] == "ACTIVE"
 
-    # 列表也带 has_available_sku=True
+    # 列表带 has_active_sku=True(有在售 SKU;完备性口径,不叠加 SPU 状态)
     lst1 = await client.get("/api/v1/spus?keyword=钢", headers=h)
     row1 = next(x for x in lst1.json()["data"]["items"] if x["id"] == sid)
-    assert row1["has_available_sku"] is True
+    assert row1["has_active_sku"] is True
 
     # SPU 下架 → has_available_sku=False,SKU.available=False,但 SKU.status 不级联(仍 ACTIVE)
     await client.patch(f"/api/v1/spus/{sid}/status", headers=h, json={"status": "INACTIVE"})
@@ -121,9 +121,12 @@ async def test_spu_derived_availability(client, product_operator_headers, db_ses
     assert sku2["available"] is False
     assert sku2["status"] == "ACTIVE"  # 不级联
 
+    # 列表 has_active_sku 只看 SKU 状态:SPU 虽下架,SKU 仍 ACTIVE → 仍 True。
+    # 与详情 has_available_sku=False 有意不同 —— 列表是"完备性/能否被启用"口径,
+    # 详情是"当前是否可售"口径(叠加了 SPU 状态)。两口径各服务其场景,不合并。
     lst2 = await client.get("/api/v1/spus?keyword=钢", headers=h)
     row2 = next(x for x in lst2.json()["data"]["items"] if x["id"] == sid)
-    assert row2["has_available_sku"] is False
+    assert row2["has_active_sku"] is True
 
     # SPU 恢复上架 + SKU 自身下架(走 PATCH /skus/{id}/status 端点)→ available=False(SKU 侧原因)
     await client.patch(f"/api/v1/spus/{sid}/status", headers=h, json={"status": "ACTIVE"})

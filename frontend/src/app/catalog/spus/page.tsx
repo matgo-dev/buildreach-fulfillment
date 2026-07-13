@@ -88,10 +88,10 @@ export default function SpuListPage() {
       render: (v, r) => (
         <Space>
           <span>{display(v)}</span>
-          {!r.has_available_sku && (
-            <Tooltip title="该商品下无可上架/可售 SKU">
+          {!r.has_active_sku && (
+            <Tooltip title="该商品下无在售 SKU,无法启用 / 被报价选用">
               <Tag icon={<WarningOutlined />} color="warning">
-                无可用 SKU
+                无在售 SKU
               </Tag>
             </Tooltip>
           )}

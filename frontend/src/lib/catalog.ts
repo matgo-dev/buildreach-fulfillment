@@ -55,7 +55,7 @@ export interface SpuOut {
 
 /** 列表行:后端附加派生可用性 + 封面 key(main_image,无图为 null)。 */
 export type SpuListItem = SpuOut & {
-  has_available_sku: boolean;
+  has_active_sku: boolean; // 是否有在售 SKU(纯 SKU 状态,完备性告警口径,与详情一致)
   main_image: string | null;
   category_name_i18n: Record<string, string> | null;
 };

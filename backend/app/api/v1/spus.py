@@ -37,8 +37,10 @@ async def list_spus(
     items = []
     for s in rows:
         d = SpuOut.model_validate(s, from_attributes=True).model_dump()
-        d["has_available_sku"] = (
-            s.status == "ACTIVE" and s.deleted_at is None and s.id in active_ids)
+        # 完备性告警口径 = 有没有在售 SKU(纯 SKU 状态),与详情「在售 SKU X/共Y」及启用
+        # 门禁 has_active_sku 同源。**不叠加 SPU 自身 ACTIVE**——否则草稿 SPU 即便已备好
+        # 在售 SKU 也会被误报"无可用",与详情自相矛盾。
+        d["has_active_sku"] = s.id in active_ids
         d["main_image"] = covers.get(s.id)  # 封面 key(缩略/回退用),无图则 None
         d["category_name_i18n"] = cat_names.get(s.category_code)
         items.append(d)
