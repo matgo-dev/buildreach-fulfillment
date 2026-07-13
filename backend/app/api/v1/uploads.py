@@ -29,6 +29,8 @@ router = APIRouter(prefix="/uploads", tags=["uploads"])
 _KEY_RE = re.compile(r"img/[0-9a-f]{32}_[A-Za-z0-9._-]{1,80}")
 # 仅允许光栅图片;显式排除 image/svg+xml(可执行脚本 → 存储型 XSS)。
 _ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+# 单图硬上限 20MB(前端另有软限;后端是最后防线,防大文件打爆内存/存储)。
+_MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 
 class CreateUploadIn(BaseModel):
@@ -65,6 +67,16 @@ async def receive_upload(
             status_code=405, detail="该后端走对象存储直传,不经本端点")
     if not _KEY_RE.fullmatch(key):
         raise HTTPException(status_code=400, detail="非法上传 key")
-    body = await request.body()
-    get_attachment_storage().save(key, BytesIO(body))
+    # 先看 Content-Length 快速拒(诚实客户端提前失败,不白读流)。
+    declared = request.headers.get("content-length")
+    if declared is not None and declared.isdigit() and int(declared) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="图片超过 20MB 上限")
+    # 有界流式读取:内存恒不超上限。绝不 `await request.body()`——它会先把整段(可
+    # 伪造省略 Content-Length 的无界载荷)全缓进内存再校验,是 OOM 向量(buildreach 踩过)。
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > _MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="图片超过 20MB 上限")
+    get_attachment_storage().save(key, BytesIO(bytes(body)))
     return success({"key": key})

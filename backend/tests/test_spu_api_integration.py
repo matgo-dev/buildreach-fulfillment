@@ -18,7 +18,7 @@ async def test_spu_crud_flow(client, product_operator_headers, db_session):
     await _seed_category(db_session, "10")
     r = await client.post("/api/v1/spus", headers=h,
                           json={"category_code": "10", "name_i18n": {"zh": "钢管"},
-                               "main_image": "img/test.jpg"})
+                               "images": [{"image_key": "img/test.jpg", "image_type": "MAIN", "sort_order": 0}]})
     assert r.status_code in (200, 201), r.text
     spu = r.json()["data"]
     assert spu["spu_code"].startswith("SPU")
@@ -41,18 +41,13 @@ async def test_spu_crud_flow(client, product_operator_headers, db_session):
     row = next(x for x in page["items"] if x["id"] == sid)
     assert row["has_available_sku"] is False
 
-    # 改
+    # 改(DRAFT 可编辑)
     r_upd = await client.put(f"/api/v1/spus/{sid}", headers=h,
                              json={"name_i18n": {"zh": "钢管2"}})
     assert r_upd.status_code == 200, r_upd.text
     assert r_upd.json()["data"]["name_i18n"]["zh"] == "钢管2"
 
-    # 上下架
-    r3 = await client.patch(f"/api/v1/spus/{sid}/status", headers=h, json={"status": "INACTIVE"})
-    assert r3.status_code == 200
-    assert r3.json()["data"]["status"] == "INACTIVE"
-
-    # 逻辑删 → 详情 404
+    # 逻辑删(DRAFT 可删,无 SKU)→ 详情 404。上下架/启用完备性走 test_product_lifecycle。
     r4 = await client.delete(f"/api/v1/spus/{sid}", headers=h)
     assert r4.status_code in (200, 204)
     r5 = await client.get(f"/api/v1/spus/{sid}", headers=h)
@@ -72,7 +67,7 @@ async def test_spu_detail_cost_masked_for_read_only_role(client, superadmin_head
     await _seed_category(db_session, "10")
     r = await client.post("/api/v1/spus", headers=product_operator_headers,
                           json={"category_code": "10", "name_i18n": {"zh": "钢管"},
-                               "main_image": "img/test.jpg"})
+                               "images": [{"image_key": "img/test.jpg", "image_type": "MAIN", "sort_order": 0}]})
     sid = r.json()["data"]["id"]
     r_sku = await client.post("/api/v1/skus", headers=product_operator_headers,
                               json={"spu_id": sid, "unit": "piece", "reference_price": "12.50",
@@ -95,12 +90,15 @@ async def test_spu_derived_availability(client, product_operator_headers, db_ses
     await _seed_category(db_session, "10")
     r = await client.post("/api/v1/spus", headers=h,
                           json={"category_code": "10", "name_i18n": {"zh": "钢管"},
-                               "main_image": "img/test.jpg"})
+                               "images": [{"image_key": "img/test.jpg", "image_type": "MAIN", "sort_order": 0}]})
     sid = r.json()["data"]["id"]
     r_sku = await client.post("/api/v1/skus", headers=h,
                               json={"spu_id": sid, "unit": "piece", "reference_price": "1.00",
                                     "name_i18n": {"zh": "钢管A"}, "spec_items": []})
     skid = r_sku.json()["data"]["id"]
+
+    # 启用 SPU(有带价在售 SKU)后才进入可售派生
+    await client.patch(f"/api/v1/spus/{sid}/status", headers=h, json={"status": "ACTIVE"})
 
     d1 = await client.get(f"/api/v1/spus/{sid}", headers=h)
     b1 = d1.json()["data"]
@@ -158,13 +156,13 @@ async def test_spus_category_subtree_filter(client, product_operator_headers, db
 
     r_a = await client.post("/api/v1/spus", headers=h,
                             json={"category_code": "01.001.001", "name_i18n": {"zh": "水泥A"},
-                                 "main_image": "img/a.jpg"})
+                                 "images": [{"image_key": "img/a.jpg", "image_type": "MAIN", "sort_order": 0}]})
     assert r_a.status_code in (200, 201), r_a.text
     spu_a_id = r_a.json()["data"]["id"]
 
     r_b = await client.post("/api/v1/spus", headers=h,
                             json={"category_code": "02", "name_i18n": {"zh": "五金B"},
-                                 "main_image": "img/b.jpg"})
+                                 "images": [{"image_key": "img/b.jpg", "image_type": "MAIN", "sort_order": 0}]})
     assert r_b.status_code in (200, 201), r_b.text
     spu_b_id = r_b.json()["data"]["id"]
 
@@ -210,7 +208,7 @@ async def test_spus_category_subtree_filter_escapes_like_wildcards(client, produ
 
     r_a = await client.post("/api/v1/spus", headers=h,
                             json={"category_code": "01.001", "name_i18n": {"zh": "水泥A"},
-                                 "main_image": "img/a.jpg"})
+                                 "images": [{"image_key": "img/a.jpg", "image_type": "MAIN", "sort_order": 0}]})
     assert r_a.status_code in (200, 201), r_a.text
     spu_a_id = r_a.json()["data"]["id"]
 
@@ -237,13 +235,13 @@ async def test_spus_category_subtree_filter_variable_length_prefix_boundary(
 
     r_a = await client.post("/api/v1/spus", headers=h,
                             json={"category_code": "01", "name_i18n": {"zh": "水泥A"},
-                                 "main_image": "img/a.jpg"})
+                                 "images": [{"image_key": "img/a.jpg", "image_type": "MAIN", "sort_order": 0}]})
     assert r_a.status_code in (200, 201), r_a.text
     spu_a_id = r_a.json()["data"]["id"]
 
     r_b = await client.post("/api/v1/spus", headers=h,
                             json={"category_code": "010", "name_i18n": {"zh": "配件B"},
-                                 "main_image": "img/b.jpg"})
+                                 "images": [{"image_key": "img/b.jpg", "image_type": "MAIN", "sort_order": 0}]})
     assert r_b.status_code in (200, 201), r_b.text
     spu_b_id = r_b.json()["data"]["id"]
 

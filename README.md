@@ -20,9 +20,16 @@
     供"展示创建人/筛我的/按人统计录入量";非红线,`SpuOut`/`SkuOut` 下发。审计归属约定见 `app/db/base.py`。
   - **逻辑删**:`spus`/`skus` 都加 `deleted_at`,物理行永不删,读路径默认过滤已删;`DELETE` 端点即置
     `deleted_at`。
-  - **上下架 + 派生可用性**:`status`(`ACTIVE`/`INACTIVE`)是自身字段;“可用”是派生语义,不落表——
-    `SKU 可用 ⟺ 自身 ACTIVE ∧ 未删 ∧ 所属 SPU ACTIVE ∧ 未删`(`app/services/sku_service.py::sku_available`)。
-    `GET /api/v1/skus?available=1` 按此语义过滤,供消费侧(报价选货等)只看真正能卖的货。
+  - **商品状态机(三态生命周期)**:SPU `status` = `DRAFT`(草稿,新建默认)→ `ACTIVE`(启用)⇄ `INACTIVE`
+    (停用);SKU 仍二态 `ACTIVE`/`INACTIVE`。语义 = **能否被下游(报价)选用**,非对外可见(内部平台无前台)。
+    转移白名单 / 可编辑集(`EDITABLE=DRAFT,INACTIVE`)/ 可删集三张表放 model 层单一源头
+    (`app/db/models/spu.py::SpuStatus`),service 每个写入口守卫,前端镜像成按钮显隐(`lib/productStatus.ts`)。
+    - **ACTIVE 锁编辑/删除**:启用中的 SPU 及其 SKU 增改删一律拒(`ProductNotEditableError` 409),先停用再改。
+    - **启用完备性**:`→ACTIVE` 须至少一个在售 SKU,否则拒(`ProductIncompleteError`)。不卡参考价 ——
+      `reference_price` 是内部采购参考价(红线成本),报价成交价销售自填,可报价性不依赖它。
+    - **SKU 上下架豁免**:启用中商品下仍可停售单个缺货变体;停用最后一个在售 SKU → 联动把 SPU 置 INACTIVE。
+  - **派生可用性**:“可用”不落表——`SKU 可用 ⟺ 自身 ACTIVE ∧ 未删 ∧ 所属 SPU ACTIVE ∧ 未删`
+    (`app/services/sku_service.py::sku_available`)。`GET /api/v1/skus?available=1` 按此过滤,供报价选货只看真正能卖的货。
   - **成本脱敏**:`skus.reference_price`(内部采购参考价)只有持 `product:manage` 的调用方能看到,否则序列化时
     置 `None`(`sku_out(..., include_cost=...)`)。
   - **商品图片**:`spus.main_image`(必填,创建校验 trim 后非空)/ `spus.images`(相册),`skus.image`
@@ -37,12 +44,29 @@
   - **售卖单位专表**:`units`(`code` 做 PK + `label_i18n`,主数据独立迁移),`skus.unit` 收编为 FK
     `units.code`(`ON DELETE RESTRICT`);单位种子唯一源头 = `app/seed.py::seed_units`。
   - **品类子树过滤**:`GET /api/v1/spus?category_code=...&include_descendants=1` 走 `text_pattern_ops` 前缀索引。
-  - **已知限制**:SPU 列表关键词只匹配中文名 + `spu_code`(SKU 搜索走 `search_text` 覆盖全语言);本地
-    `STORAGE_BACKEND=local` 图片预览路径待接(生产 S3 无此问题)。
+  - **已知限制**:SPU 列表关键词只匹配中文名 + `spu_code`(SKU 搜索走 `search_text` 覆盖全语言)。
+    (local 图片预览已由前端落地时新增的 `GET /media/{key}` 补齐,见下方商品管理前端条目。)
   - **迁移(开发初期净片)**:因未上线,商品目录迁移已合入终态、删除补丁链——`0003_spec_attributes`
     (规格属性正规化)、`0006_units`(单位专表)、`0007_spu_sku`(SPU/SKU 一次建成:编码/软删/图片/单位 FK/
     双索引/CHECK)。旧 `0008–0012` 补丁迁移已废除。**重建库**:改历史后 dev/test 库需 `dropdb && createdb`
     重跑 `alembic upgrade head`(无历史数据,不做在线迁移)。
+
+- **商品管理前端 + 图片建模(已完成,分支 `feat/product-management-fe`)**:消费 catalog API 的运营界面 + 商品图规范化。
+  - **组件地基**:Ant Design(`ConfigProvider` 主题令牌对齐 `frontend/DESIGN.md`,主色 `#003366`)+ 现有
+    Zustand authStore / RouteGuard;`AppShell`(暗色侧栏 + 顶栏 + 面包屑)。设计**唯一源头 = `frontend/DESIGN.md`**。
+  - **页面**(`/catalog`,守 `product:read`):SPU 列表(分类树子树过滤 / 关键词 / 状态 / 无可用 SKU 徽标)、
+    SPU 详情(封面 + 图集 + 内嵌 SKU 列表 + 派生可售)、SPU 增改抽屉、SKU 增改抽屉(**模板驱动规格
+    编辑器**:enum→下拉+新增选项逃生口 / number→带模板单位后缀 / string;售卖单位取自 `/units`)、SKU 全局搜索。
+  - **商品图规范化(`product_images` 表)**:一图一行,`image_type` **MAIN/GALLERY/DETAIL** + `sku_id` 区分层级
+    (对齐 buildreach)。封面=SPU 级唯一 MAIN 行(**部分唯一索引**硬保证);写接口按 `image_key` 对账(reconcile,
+    换封面先降后升防撞唯一索引);身份键 `UNIQUE(spu_id,image_key)` 硬约束。删旧 `spus.main_image/images`、`skus.image`。
+  - **图片管理器(前端)**:`ImageZone`/`SpuImageManager` —— 主图/轮播区(≤6,拖拽排序,☆ 切换封面,第一张为封面)
+    + 详情图区(≤12)+ SKU 图(≤6,不绑轴);单图 ≤20MB(前后端硬限);两步直传 `POST /uploads` → PUT,一套代码兼容
+    OSS 直传与 local PUT,表单只存 object key。
+  - **权限显隐**:`<Can perm="product:manage">` 控新建/编辑/上下架/删除/参考价/图片;后端 `require_permission` +
+    `reference_price` 脱敏是安全底线,前端只是 UX 层。**ADMIN 只读**、**PRODUCT_OPERATOR 全权**。
+  - **本地图片预览**:后端 `GET /media/{key}`(**仅 `STORAGE_BACKEND=local`**,key 形状白名单、公开读)补齐
+    `LocalDiskStorage.build_url` 的服务端点——local dev 上传图现可预览(生产走 S3/OSS 公读桶,不经本端点)。
 
 ## 本地开发
 
@@ -84,11 +108,30 @@ MinIO。要在本地验证 S3/MinIO 路径,单独起一个 MinIO 容器并把 `S
 
 ```bash
 cd frontend
-pnpm install
-API_BASE_URL=http://localhost:8000 pnpm dev
+pnpm install   # 含 Ant Design(antd / @ant-design/nextjs-registry / @ant-design/icons)
+echo 'NEXT_PUBLIC_API_BASE_URL=http://localhost:8000' > .env.local   # 浏览器直连后端,必须 NEXT_PUBLIC_ 前缀
+pnpm dev
 ```
 
-访问 `http://localhost:3000`。
+访问 `http://localhost:3000`(登录后自动进商品目录操作台 `/catalog/spus`,需持 `product:read` 的账号)。
+
+**前端环境变量**(`.env.local` 或容器注入 `window.__ENV`):
+
+| 变量 | 说明 |
+|---|---|
+| `NEXT_PUBLIC_API_BASE_URL` | 后端公网地址(**必填**;登录/接口在浏览器侧发起,故须 `NEXT_PUBLIC_` 前缀才注入 bundle。SSR 亦读 `API_BASE_URL`) |
+| `NEXT_PUBLIC_IMAGE_BACKEND` | `local`(默认,经后端 `/media` 读)/ `s3`(公读桶直读) |
+| `NEXT_PUBLIC_IMAGE_PUBLIC_BASE` | `s3` 时的公读桶基址(如 `https://cdn.example.com`) |
+
+**账号**:启动 seed 只种 `SUPER_ADMIN_*` 的 **ADMIN**(对商品**只读**)。商品增改需 **PRODUCT_OPERATOR**
+角色的账号 —— 生产由 ADMIN 经用户/角色管理授予;本地 QA 走一次性脚本(先启动过一次后端让 rbac 同步建好角色):
+
+```bash
+cd backend && source .venv/bin/activate
+python -m scripts.create_product_operator --email op@example.com --name 商品运营 --password 'Aa123456789'
+```
+
+设计基准见 `frontend/DESIGN.md`。
 
 ## 测试
 

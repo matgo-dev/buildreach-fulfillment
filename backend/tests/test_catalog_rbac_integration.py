@@ -18,7 +18,7 @@ async def test_admin_cannot_manage_but_can_read(client, superadmin_headers, db_s
     # ADMIN 无 product:manage → 建 SPU 应 403
     r = await client.post("/api/v1/spus", headers=superadmin_headers,
                           json={"category_code": "10", "name_i18n": {"zh": "X"},
-                               "main_image": "img/test.jpg"})
+                               "images": [{"image_key": "img/test.jpg", "image_type": "MAIN", "sort_order": 0}]})
     assert r.status_code == 403
     # ADMIN 有 product:read → 搜 SKU 应 200
     r2 = await client.get("/api/v1/skus?q=x", headers=superadmin_headers)
@@ -30,5 +30,5 @@ async def test_catalog_operator_can_manage(client, product_operator_headers, db_
     await _seed_category(db_session)
     r = await client.post("/api/v1/spus", headers=product_operator_headers,
                           json={"category_code": "10", "name_i18n": {"zh": "钢管"},
-                               "main_image": "img/test.jpg"})
+                               "images": [{"image_key": "img/test.jpg", "image_type": "MAIN", "sort_order": 0}]})
     assert r.status_code in (200, 201), r.text

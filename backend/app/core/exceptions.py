@@ -109,5 +109,30 @@ class SpecContractError(BusinessError):
                          message_key=MessageKey.SPEC_CONTRACT)
 
 
+# 模块段 12 = 商品生命周期(SPU 状态机)。见 db/models/spu.py SpuStatus。
+class ProductNotEditableError(BusinessError):
+    """商品当前状态不在 EDITABLE 集(ACTIVE 已启用),需先停用再改/删。"""
+
+    def __init__(self, message: str = "Product not editable in current status"):
+        super().__init__(status.HTTP_409_CONFLICT, 41201, message,
+                         message_key=MessageKey.PRODUCT_NOT_EDITABLE)
+
+
+class IllegalStatusTransitionError(BusinessError):
+    """状态转移不在 TRANSITIONS 白名单(如 DRAFT→INACTIVE、ACTIVE→DRAFT)。"""
+
+    def __init__(self, message: str = "Illegal status transition"):
+        super().__init__(status.HTTP_409_CONFLICT, 41202, message,
+                         message_key=MessageKey.PRODUCT_ILLEGAL_TRANSITION)
+
+
+class ProductIncompleteError(BusinessError):
+    """启用(→ACTIVE)完备性未达标:至少需一个在售 SKU(不卡参考价,见 has_active_sku)。"""
+
+    def __init__(self, message: str = "Product incomplete for activation"):
+        super().__init__(status.HTTP_409_CONFLICT, 41203, message,
+                         message_key=MessageKey.PRODUCT_INCOMPLETE)
+
+
 def success(data: Any = None, message: str = "ok") -> dict:
     return {"code": 0, "message": message, "data": data}

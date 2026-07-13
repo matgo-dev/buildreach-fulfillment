@@ -12,11 +12,12 @@ from app.db.models.number_sequence import NumberSequence  # noqa: F401
 from app.db.models.unit import Unit  # noqa: F401
 from app.db.models.spu import Spu  # noqa: F401
 from app.db.models.sku import Sku  # noqa: F401
+from app.db.models.product_image import ProductImage  # noqa: F401
 from app.db.models.quotation import QuotationOrder, QuotationLine  # noqa: F401
 
 __all__ = [
     "User", "Role", "RoleCode", "Permission",
     "UserRole", "RolePermission", "AuditLog", "Category",
     "CategorySpecAttribute", "Customer", "NumberSequence", "Unit", "Spu", "Sku",
-    "QuotationOrder", "QuotationLine",
+    "ProductImage", "QuotationOrder", "QuotationLine",
 ]

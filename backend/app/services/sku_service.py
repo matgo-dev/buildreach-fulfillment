@@ -12,12 +12,14 @@ from app.audit.logger import write_audit
 from app.core.codegen import NumberScope, format_code
 from app.core.exceptions import NotFoundError, SpecContractError
 from app.core.search_text import build_search_text
-from app.db.models.sku import Sku
-from app.db.models.spu import Spu
+from app.db.models.sku import Sku, SkuStatus
+from app.db.models.spu import Spu, SpuStatus
 from app.db.models.unit import Unit
 from app.schemas.sku import validate_spec_items
+from app.services import image_service
 from app.services import spec_template_service as tmpl
 from app.services.numbering import allocate
+from app.services.spu_service import ensure_spu_editable, has_active_sku
 
 
 async def _validate_unit(db: AsyncSession, code: str) -> None:
@@ -90,8 +92,11 @@ async def _resolve_spec(db: AsyncSession, category_code: str, spec_items: list[d
 async def _spu_category(db: AsyncSession, spu_id: int) -> tuple[Spu, str]:
     # 必须滤软删:否则可对已删 SPU 挂新 SKU(孤儿——SKU 可搜可读而父 SPU 404),
     # 与 get_spu 同款不变式(活 SKU 必属活 SPU)。
+    # with_for_update 锁父 SPU 聚合根:SKU 增改删的 editable 判定与并发 set_spu_status
+    # 串行,防 TOCTOU(见 spu_service.get_spu_for_update)。此函数仅写路径调用。
     spu = (await db.execute(
-        select(Spu).where(Spu.id == spu_id, Spu.deleted_at.is_(None)))).scalar_one_or_none()
+        select(Spu).where(Spu.id == spu_id, Spu.deleted_at.is_(None))
+        .with_for_update())).scalar_one_or_none()
     if spu is None:
         raise NotFoundError(f"SPU 不存在: {spu_id}")
     return spu, spu.category_code
@@ -139,8 +144,8 @@ async def search_skus(db: AsyncSession, q: str = "", limit: int = 50, *,
     分页:size 未传时退回 limit(向后兼容旧调用形态)。
     available=True 时派生过滤消费侧「可选货」语义:
     Sku.status=ACTIVE ∧ Sku.deleted_at IS NULL ∧ Spu.status=ACTIVE ∧ Spu.deleted_at IS NULL。
-    始终 join spus 带出 main_image,供前端跨 SPU 场景 `sku.image ?? spu.main_image` 回退
-    (搜索结果行不像 SPU 详情那样天然带着父 SPU 上下文)。
+    带出所属 SPU 封面(product_images 的 SPU 级 MAIN,批量 cover_keys 避免 N+1),供前端跨 SPU
+    场景 `SKU 首图 ?? spu_main_image` 回退(搜索结果行不像 SPU 详情那样天然带父 SPU 上下文)。
     返回:list[(Sku, spu_main_image)] + total。
     """
     size = size if size is not None else limit
@@ -152,19 +157,36 @@ async def search_skus(db: AsyncSession, q: str = "", limit: int = 50, *,
     if available:
         conds += [Sku.status == "ACTIVE", Spu.status == "ACTIVE", Spu.deleted_at.is_(None)]
 
-    base_from = select(Sku, Spu.main_image).join(Spu, Spu.id == Sku.spu_id).where(*conds)
+    base_from = select(Sku).join(Spu, Spu.id == Sku.spu_id).where(*conds)
     count_from = select(func.count()).select_from(Sku).join(Spu, Spu.id == Sku.spu_id).where(*conds)
 
     total = (await db.execute(count_from)).scalar_one()
     rows = (await db.execute(base_from.order_by(Sku.created_at.desc())
-            .offset((page - 1) * size).limit(size))).all()
-    return [(r[0], r[1]) for r in rows], total
+            .offset((page - 1) * size).limit(size))).scalars().all()
+    covers = await image_service.cover_keys(db, [s.spu_id for s in rows])
+    return [(s, covers.get(s.spu_id)) for s in rows], total
 
 
 async def set_sku_status(db: AsyncSession, *, sku_id, status, actor_user_id,
                          actor_user_email, request: Request | None = None) -> Sku:
+    """SKU 上下架 —— **豁免**父 SPU EDITABLE 锁:启用中的商品下也允许停售单个缺货变体。
+
+    联动(保 ACTIVE⇒有在售 SKU 不变式):停用后若父 SPU 仍 ACTIVE 但已无在售 SKU,
+    自动把 SPU 一并下架(INACTIVE),否则会留一个"启用却选不出可报价 SKU"的坏商品。
+    """
     sku = await get_sku(db, sku_id)
+    # 先锁父 SPU 聚合根,串行化完备性判定 —— 防两请求并发停售各自漏联动、
+    # 留下 ACTIVE 却 0 在售 SKU 的坏商品(见 spu_service.get_spu_for_update)。
+    spu = (await db.execute(select(Spu).where(
+        Spu.id == sku.spu_id, Spu.deleted_at.is_(None)).with_for_update())).scalar_one_or_none()
     sku.status = status
+    await db.flush()  # 让下方完备性查询看到本次停用结果
+    if (status == SkuStatus.INACTIVE and spu is not None
+            and spu.status == SpuStatus.ACTIVE and not await has_active_sku(db, sku.spu_id)):
+        spu.status = SpuStatus.INACTIVE  # 联动下架,保 ACTIVE⇒有在售 SKU 不变式
+        await write_audit(db, resource_type=AuditResourceType.SPU, action=AuditAction.UPDATE,
+                          user_id=actor_user_id, user_email=actor_user_email,
+                          resource_id=spu.id, request=request, commit=False)
     await write_audit(db, resource_type=AuditResourceType.SKU, action=AuditAction.UPDATE,
                       user_id=actor_user_id, user_email=actor_user_email,
                       resource_id=sku.id, request=request, commit=False)
@@ -175,6 +197,8 @@ async def set_sku_status(db: AsyncSession, *, sku_id, status, actor_user_id,
 async def soft_delete_sku(db: AsyncSession, *, sku_id, actor_user_id, actor_user_email,
                           request: Request | None = None) -> None:
     sku = await get_sku(db, sku_id)
+    spu, _ = await _spu_category(db, sku.spu_id)
+    ensure_spu_editable(spu)  # 父 SPU 启用中不可删 SKU,先停用(停售单个变体走 set_sku_status)
     # deleted_at 是 tz-aware DateTime(timezone=True)(SoftDeleteMixin);项目无公共 utcnow
     # 助手(见 spu_service.soft_delete_spu 的同款注释),对齐直取写法。
     sku.deleted_at = datetime.now(timezone.utc)
@@ -186,17 +210,19 @@ async def soft_delete_sku(db: AsyncSession, *, sku_id, actor_user_id, actor_user
 
 async def create_sku(db: AsyncSession, *, spu_id, unit, reference_price, name_i18n,
                      spec_items, actor_user_id, actor_user_email,
-                     image=None, request: Request | None = None) -> Sku:
-    _, category_code = await _spu_category(db, spu_id)
+                     image_refs=None, request: Request | None = None) -> Sku:
+    spu, category_code = await _spu_category(db, spu_id)
+    ensure_spu_editable(spu)  # 父 SPU 启用中不可加 SKU,先停用
     await _validate_unit(db, unit)
     spec_jsonb = await _resolve_spec(db, category_code, [i for i in spec_items])
     sku_code = format_code(NumberScope.SKU, await allocate(db, NumberScope.SKU))
     sku = Sku(spu_id=spu_id, sku_code=sku_code, unit=unit, reference_price=reference_price,
-              spec_jsonb=spec_jsonb, name_i18n=name_i18n, image=image,
+              spec_jsonb=spec_jsonb, name_i18n=name_i18n,
               search_text=build_search_text(name_i18n, spec_jsonb, sku_code),
               created_by=actor_user_id)
     db.add(sku)
     await db.flush()
+    await image_service.reconcile_sku_images(db, spu_id, sku.id, image_refs or [])
     await write_audit(db, resource_type=AuditResourceType.SKU, action=AuditAction.CREATE,
                       user_id=actor_user_id, user_email=actor_user_email,
                       resource_id=sku.id, request=request, commit=False)
@@ -206,9 +232,10 @@ async def create_sku(db: AsyncSession, *, spu_id, unit, reference_price, name_i1
 
 async def update_sku(db: AsyncSession, *, sku_id, name_i18n=None, unit=None,
                      reference_price=None, spec_items=None, actor_user_id,
-                     actor_user_email, image=None, request: Request | None = None) -> Sku:
+                     actor_user_email, image_refs=None, request: Request | None = None) -> Sku:
     sku = await get_sku(db, sku_id)
-    _, category_code = await _spu_category(db, sku.spu_id)
+    spu, category_code = await _spu_category(db, sku.spu_id)
+    ensure_spu_editable(spu)  # 父 SPU 启用中不可改 SKU,先停用
     if name_i18n is not None:
         sku.name_i18n = name_i18n
     if unit is not None:
@@ -216,8 +243,9 @@ async def update_sku(db: AsyncSession, *, sku_id, name_i18n=None, unit=None,
         sku.unit = unit
     if reference_price is not None:
         sku.reference_price = reference_price
-    if image is not None:
-        sku.image = image
+    removed_keys: list[str] = []
+    if image_refs is not None:
+        removed_keys = await image_service.reconcile_sku_images(db, sku.spu_id, sku.id, image_refs)
     if spec_items is not None:
         sku.spec_jsonb = await _resolve_spec(db, category_code, [i for i in spec_items])
     # 写路径单一入口:任何影响面重算 search_text
@@ -227,4 +255,5 @@ async def update_sku(db: AsyncSession, *, sku_id, name_i18n=None, unit=None,
                       user_id=actor_user_id, user_email=actor_user_email,
                       resource_id=sku.id, request=request, commit=False)
     await db.commit()
+    await image_service.gc_orphan_objects(db, removed_keys)  # 提交后回收孤儿存储对象
     return sku

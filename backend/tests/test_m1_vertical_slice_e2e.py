@@ -15,7 +15,7 @@ async def test_end_to_end_build_search_quote(
             json={"name_i18n": {"zh": "东非客户"}, "quote_language": "en"})).json()["data"]
     spu_id = (await client.post("/api/v1/spus", headers=product_operator_headers,
               json={"category_code": "10", "name_i18n": {"zh": "球阀"},
-                    "main_image": "img/test.jpg"})).json()["data"]["id"]
+                    "images": [{"image_key": "img/test.jpg", "image_type": "MAIN", "sort_order": 0}]})).json()["data"]["id"]
     sku = (await client.post("/api/v1/skus", headers=product_operator_headers, json={
         "spu_id": spu_id, "unit": "piece", "reference_price": 128.0,
         "name_i18n": {"zh": "不锈钢法兰球阀 DN50"},

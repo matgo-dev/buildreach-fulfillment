@@ -62,15 +62,31 @@ class SkuSpecItemIn(BaseModel):
     label_i18n: dict | None = None
 
 
+class SkuImageRefIn(BaseModel):
+    """SKU 级图集项(该 SKU 专属图,无 MAIN/DETAIL 语义,后端一律记 GALLERY)。"""
+    image_key: str = Field(..., min_length=1, max_length=255)
+    sort_order: int = 0
+
+
+def validate_sku_image_refs(images: list[SkuImageRefIn]) -> list[SkuImageRefIn]:
+    keys = [i.image_key for i in images]
+    if len(keys) != len(set(keys)):
+        raise ValueError("图片 key 不能重复")
+    if len(images) > 6:
+        raise ValueError("SKU 图最多 6 张")
+    return images
+
+
 class SkuCreateIn(BaseModel):
     spu_id: int
     unit: str = Field(..., max_length=20)
     reference_price: condecimal(ge=0, max_digits=18, decimal_places=2) | None = None
     name_i18n: dict
     spec_items: list[SkuSpecItemIn] = []
-    image: str | None = Field(default=None, max_length=255)
+    images: list[SkuImageRefIn] = []
 
     _v = field_validator("name_i18n")(validate_i18n)
+    _v_img = field_validator("images")(validate_sku_image_refs)
 
 
 class SkuUpdateIn(BaseModel):
@@ -78,13 +94,18 @@ class SkuUpdateIn(BaseModel):
     unit: str | None = None
     reference_price: condecimal(ge=0, max_digits=18, decimal_places=2) | None = None
     spec_items: list[SkuSpecItemIn] | None = None
-    image: str | None = Field(default=None, max_length=255)
+    images: list[SkuImageRefIn] | None = None
 
     @field_validator("name_i18n")
     @classmethod
     def _v_name(cls, v):
         # 部分更新:仅当提供 name_i18n 时才校验 zh 必填/禁空串(与 create 一致)
         return validate_i18n(v) if v is not None else v
+
+    @field_validator("images")
+    @classmethod
+    def _v_images(cls, v):
+        return validate_sku_image_refs(v) if v is not None else v
 
 
 class SkuOut(BaseModel):
@@ -97,7 +118,6 @@ class SkuOut(BaseModel):
     name_i18n: dict
     search_text: str
     status: str
-    image: str | None
     created_by: int
     created_at: datetime
     updated_at: datetime
@@ -105,15 +125,19 @@ class SkuOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-def sku_out(sku, *, include_cost: bool, spu_main_image: str | None = None) -> dict:
+def sku_out(sku, *, include_cost: bool, spu_main_image: str | None = None,
+            images: list | None = None) -> dict:
     """序列化 SKU;include_cost=False 时脱敏 reference_price(置 None)。
 
-    spu_main_image 给定时附加同名字段,供前端跨 SPU 场景(搜索行/单取)做
-    `sku.image ?? spu_main_image` 回退——本模型不存 SPU 全量信息,只搭一个字段。
+    images 给定时附加 SKU 级图集(product_images,sku_id 非空行)。
+    spu_main_image 给定时附加同名字段,供前端跨 SPU 场景(搜索行)做
+    `SKU 首图 ?? spu_main_image` 回退——本模型不存 SPU 信息,只搭一个字段。
     """
     data = SkuOut.model_validate(sku).model_dump()
     if not include_cost:
         data["reference_price"] = None
+    if images is not None:
+        data["images"] = images
     if spu_main_image is not None:
         data["spu_main_image"] = spu_main_image
     return data
