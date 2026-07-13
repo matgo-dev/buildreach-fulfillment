@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -56,6 +56,13 @@ class Spu(Base, TimestampUpdateMixin, SoftDeleteMixin):
     category_code: Mapped[str] = mapped_column(
         String(50), ForeignKey("categories.code", ondelete="RESTRICT"), nullable=False, index=True)
     name_i18n: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    # 主数据补全(商品概念层,跨 SKU 变体一致):
+    #   brand 可选品牌文本(值非枚举,可中文;不同品牌本就拆成不同 SPU,故一 SPU 一品牌);
+    #   description 中性商品描述(≠红线内部备注);hs_code 海关归类(标准码,展示原样)。
+    # 原产地不在此:来源侧属性(同一 SPU 不同供应商产地不同),归采购/批次/报关层。
+    brand: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    hs_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=SpuStatus.DRAFT)
     # 图片已规范化到 product_images 表(封面=MAIN 行 / 轮播=GALLERY / 详情=DETAIL);此处不再挂图列。
     # 创建人(商品运营录入归属):一等业务字段,展示/筛"我的"/按人统计录入量直接用,

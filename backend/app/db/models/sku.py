@@ -23,6 +23,11 @@ class Sku(Base, TimestampUpdateMixin, SoftDeleteMixin):
                         name="ck_skus_ref_price_nn"),
         # 状态 DB 兜底(纵深防御,与 category_spec_attributes 的 value_type/source CHECK 同纪律)
         CheckConstraint("status IN ('ACTIVE','INACTIVE')", name="ck_skus_status"),
+        # 物理属性(物流/发运消费者:重量 kg、尺寸 cm)非负兜底;体积由长宽高派生不落库。
+        CheckConstraint(
+            "(weight_kg IS NULL OR weight_kg >= 0) AND (length_cm IS NULL OR length_cm >= 0) "
+            "AND (width_cm IS NULL OR width_cm >= 0) AND (height_cm IS NULL OR height_cm >= 0)",
+            name="ck_skus_physical_nonneg"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -36,6 +41,11 @@ class Sku(Base, TimestampUpdateMixin, SoftDeleteMixin):
         String(20), ForeignKey("units.code", ondelete="RESTRICT"), nullable=False, index=True)
     reference_price: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
     spec_jsonb: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    # 物理属性:随变体(尺码/规格)而变,故落 SKU 非 SPU。体积=长宽高派生,不存(单一源头)。
+    weight_kg: Mapped[float | None] = mapped_column(Numeric(12, 3), nullable=True)
+    length_cm: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    width_cm: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    height_cm: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     search_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
     name_i18n: Mapped[dict] = mapped_column(JSONB, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=SkuStatus.ACTIVE)
