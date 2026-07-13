@@ -81,6 +81,10 @@ class SkuCreateIn(BaseModel):
     spu_id: int
     unit: str = Field(..., max_length=20)
     reference_price: condecimal(ge=0, max_digits=18, decimal_places=2) | None = None
+    weight_kg: condecimal(ge=0, max_digits=12, decimal_places=3) | None = None
+    length_cm: condecimal(ge=0, max_digits=10, decimal_places=2) | None = None
+    width_cm: condecimal(ge=0, max_digits=10, decimal_places=2) | None = None
+    height_cm: condecimal(ge=0, max_digits=10, decimal_places=2) | None = None
     name_i18n: dict
     spec_items: list[SkuSpecItemIn] = []
     images: list[SkuImageRefIn] = []
@@ -93,6 +97,10 @@ class SkuUpdateIn(BaseModel):
     name_i18n: dict | None = None
     unit: str | None = None
     reference_price: condecimal(ge=0, max_digits=18, decimal_places=2) | None = None
+    weight_kg: condecimal(ge=0, max_digits=12, decimal_places=3) | None = None
+    length_cm: condecimal(ge=0, max_digits=10, decimal_places=2) | None = None
+    width_cm: condecimal(ge=0, max_digits=10, decimal_places=2) | None = None
+    height_cm: condecimal(ge=0, max_digits=10, decimal_places=2) | None = None
     spec_items: list[SkuSpecItemIn] | None = None
     images: list[SkuImageRefIn] | None = None
 
@@ -114,6 +122,10 @@ class SkuOut(BaseModel):
     sku_code: str
     unit: str
     reference_price: Decimal | None
+    weight_kg: Decimal | None
+    length_cm: Decimal | None
+    width_cm: Decimal | None
+    height_cm: Decimal | None
     spec_jsonb: list
     name_i18n: dict
     search_text: str

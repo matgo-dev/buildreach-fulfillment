@@ -49,6 +49,8 @@ async def create_sku(
     sku = await sku_service.create_sku(
         db, spu_id=body.spu_id, unit=body.unit, reference_price=body.reference_price,
         name_i18n=body.name_i18n, spec_items=[i.model_dump() for i in body.spec_items],
+        weight_kg=body.weight_kg, length_cm=body.length_cm,
+        width_cm=body.width_cm, height_cm=body.height_cm,
         image_refs=[i.model_dump() for i in body.images],
         actor_user_id=current.id, actor_user_email=current.email, request=request)
     return success(await _sku_with_images(db, sku, include_cost=True))
@@ -67,6 +69,8 @@ async def update_sku(
     sku = await sku_service.update_sku(
         db, sku_id=sku_id, name_i18n=body.name_i18n, unit=body.unit,
         reference_price=body.reference_price, spec_items=spec_items,
+        weight_kg=body.weight_kg, length_cm=body.length_cm,
+        width_cm=body.width_cm, height_cm=body.height_cm,
         image_refs=([i.model_dump() for i in body.images] if body.images is not None else None),
         actor_user_id=current.id, actor_user_email=current.email, request=request)
     return success(await _sku_with_images(db, sku, include_cost=True))

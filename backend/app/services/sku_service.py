@@ -209,7 +209,8 @@ async def soft_delete_sku(db: AsyncSession, *, sku_id, actor_user_id, actor_user
 
 
 async def create_sku(db: AsyncSession, *, spu_id, unit, reference_price, name_i18n,
-                     spec_items, actor_user_id, actor_user_email,
+                     spec_items, weight_kg=None, length_cm=None, width_cm=None, height_cm=None,
+                     actor_user_id, actor_user_email,
                      image_refs=None, request: Request | None = None) -> Sku:
     spu, category_code = await _spu_category(db, spu_id)
     ensure_spu_editable(spu)  # 父 SPU 启用中不可加 SKU,先停用
@@ -218,6 +219,7 @@ async def create_sku(db: AsyncSession, *, spu_id, unit, reference_price, name_i1
     sku_code = format_code(NumberScope.SKU, await allocate(db, NumberScope.SKU))
     sku = Sku(spu_id=spu_id, sku_code=sku_code, unit=unit, reference_price=reference_price,
               spec_jsonb=spec_jsonb, name_i18n=name_i18n,
+              weight_kg=weight_kg, length_cm=length_cm, width_cm=width_cm, height_cm=height_cm,
               search_text=build_search_text(name_i18n, spec_jsonb, sku_code),
               created_by=actor_user_id)
     db.add(sku)
@@ -231,7 +233,9 @@ async def create_sku(db: AsyncSession, *, spu_id, unit, reference_price, name_i1
 
 
 async def update_sku(db: AsyncSession, *, sku_id, name_i18n=None, unit=None,
-                     reference_price=None, spec_items=None, actor_user_id,
+                     reference_price=None, spec_items=None,
+                     weight_kg=None, length_cm=None, width_cm=None, height_cm=None,
+                     actor_user_id,
                      actor_user_email, image_refs=None, request: Request | None = None) -> Sku:
     sku = await get_sku(db, sku_id)
     spu, category_code = await _spu_category(db, sku.spu_id)
@@ -243,6 +247,14 @@ async def update_sku(db: AsyncSession, *, sku_id, name_i18n=None, unit=None,
         sku.unit = unit
     if reference_price is not None:
         sku.reference_price = reference_price
+    if weight_kg is not None:
+        sku.weight_kg = weight_kg
+    if length_cm is not None:
+        sku.length_cm = length_cm
+    if width_cm is not None:
+        sku.width_cm = width_cm
+    if height_cm is not None:
+        sku.height_cm = height_cm
     removed_keys: list[str] = []
     if image_refs is not None:
         removed_keys = await image_service.reconcile_sku_images(db, sku.spu_id, sku.id, image_refs)
