@@ -11,15 +11,47 @@ from starlette.requests import Request
 from app.audit.constants import AuditAction, AuditResourceType
 from app.audit.logger import write_audit
 from app.core.codegen import NumberScope, format_code
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, QuotationInvalidLineError
 from app.core.i18n import compose_spec_text, display
 from app.core.languages import DEFAULT_QUOTE_LANGUAGE
 from app.db.models.quotation import QuotationLine, QuotationOrder, QuotationStatus
 from app.db.models.sku import Sku
 from app.db.models.spu import Spu
 from app.db.models.unit import Unit
-from app.services import customer_service, spec_template_service as tmpl
+from app.services import customer_service, sku_service, spec_template_service as tmpl
 from app.services.numbering import allocate
+
+
+async def compose_line_snapshot(db: AsyncSession, sku: Sku, order_lang: str) -> tuple[str, str, str]:
+    """按报价语言冻结行展示三件套:(name, spec_text, unit)。
+
+    spec_text 组自 **SPU.spec_jsonb ∪ SKU.spec_jsonb**(产品级 + 变体轴,PR9 规格分层后
+    完整规格是两层并集);unit 解析 units.label_i18n 冻结成展示文字(零 join/无 FK)。
+    """
+    spu = (await db.execute(select(Spu).where(Spu.id == sku.spu_id))).scalar_one()
+    by_key = await tmpl.suggestions_by_key(db, spu.category_code)
+    merged = list(spu.spec_jsonb or []) + list(sku.spec_jsonb or [])
+    name = display(sku.name_i18n, order_lang)
+    spec_text = compose_spec_text(merged, by_key, order_lang)
+    unit_row = (await db.execute(
+        select(Unit).where(Unit.code == sku.unit))).scalar_one_or_none()
+    unit = display(unit_row.label_i18n, order_lang) if unit_row is not None else sku.unit
+    return name, spec_text, unit
+
+
+async def assert_sku_available(db: AsyncSession, sku_id: int) -> Sku:
+    """报价选料门禁(写时):SKU+SPU 均 ACTIVE 未删,否则 QuotationInvalidLineError。
+
+    available=true 只是搜索期便利,写入口必须服务端硬挡,别让脏数据进报价。
+    """
+    sku = (await db.execute(
+        select(Sku).where(Sku.id == sku_id, Sku.deleted_at.is_(None)))).scalar_one_or_none()
+    if sku is None:
+        raise QuotationInvalidLineError(f"SKU 不存在或已删: {sku_id}")
+    spu = (await db.execute(select(Spu).where(Spu.id == sku.spu_id))).scalar_one_or_none()
+    if spu is None or not sku_service.sku_available(sku, spu):
+        raise QuotationInvalidLineError(f"SKU 不可报价(SKU/SPU 非 ACTIVE): {sku_id}")
+    return sku
 
 
 async def _next_quote_no(db: AsyncSession) -> str:
@@ -69,24 +101,13 @@ async def add_line(db: AsyncSession, *, order_id, sku_id, unit_price, qty, name_
     sku = (await db.execute(select(Sku).where(Sku.id == sku_id))).scalar_one_or_none()
     if sku is None:
         raise NotFoundError(f"SKU 不存在: {sku_id}")
-    spu = (await db.execute(select(Spu).where(Spu.id == sku.spu_id))).scalar_one()
-    by_key = await tmpl.suggestions_by_key(db, spu.category_code)
-
+    # 注:可选货门禁落在新的整单保存路径(save_order),旧 add_line 将于 API 重写时删除。
     lang = order.language
-    # 快照默认由 SKU + 模板按报价语言组合,均可被入参覆盖(线下定稿优先)
-    name = name_snapshot if name_snapshot is not None else display(sku.name_i18n, lang)
-    spec_text = (spec_text_snapshot if spec_text_snapshot is not None
-                 else compose_spec_text(sku.spec_jsonb, by_key, lang))
-    # unit_snapshot 冻结展示 label(镜像 name_snapshot=display(sku.name_i18n)):sku.unit
-    # 是 units.code(身份/FK 列,不存中文),报价快照要历史保真——单位改名/停用后旧
-    # 报价展示不变,故解析 code → units.label_i18n → display(..,lang) 冻结成文字,
-    # 快照列本身零 join、无 FK(spec §11 Part A)。
-    if unit_snapshot is not None:
-        unit = unit_snapshot
-    else:
-        unit_row = (await db.execute(
-            select(Unit).where(Unit.code == sku.unit))).scalar_one_or_none()
-        unit = display(unit_row.label_i18n, lang) if unit_row is not None else sku.unit
+    # 快照默认由 SKU + SPU∪SKU 规格按报价语言组合,均可被入参覆盖(线下定稿优先)
+    name_default, spec_default, unit_default = await compose_line_snapshot(db, sku, lang)
+    name = name_snapshot if name_snapshot is not None else name_default
+    spec_text = spec_text_snapshot if spec_text_snapshot is not None else spec_default
+    unit = unit_snapshot if unit_snapshot is not None else unit_default
     total = Decimal(str(unit_price)) * Decimal(str(qty))
 
     line = QuotationLine(quotation_order_id=order_id, sku_id=sku_id, name_snapshot=name,

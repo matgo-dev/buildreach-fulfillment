@@ -32,3 +32,11 @@ class MessageKey:
     PRODUCT_NOT_EDITABLE = "error.product.not_editable"
     PRODUCT_ILLEGAL_TRANSITION = "error.product.illegal_transition"
     PRODUCT_INCOMPLETE = "error.product.incomplete"
+
+    # quotation 报价(模块段 14)
+    QUOTATION_NOT_DRAFT = "error.quotation.not_draft"
+    QUOTATION_EMPTY_LINES = "error.quotation.empty_lines"
+    QUOTATION_INVALID_TRANSITION = "error.quotation.invalid_transition"
+    QUOTATION_CANNOT_UNLOCK_CONVERTED = "error.quotation.cannot_unlock_converted"
+    QUOTATION_EDIT_CONFLICT = "error.quotation.edit_conflict"
+    QUOTATION_INVALID_LINE = "error.quotation.invalid_line"

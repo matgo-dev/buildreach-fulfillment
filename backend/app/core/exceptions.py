@@ -134,5 +134,54 @@ class ProductIncompleteError(BusinessError):
                          message_key=MessageKey.PRODUCT_INCOMPLETE)
 
 
+# 模块段 14 = 报价(报价单状态机 + 整单保存)。见 db/models/quotation.py QuotationStatus。
+class QuotationNotDraftError(BusinessError):
+    """对非 DRAFT 报价单执行改/删/整单保存。"""
+
+    def __init__(self, message: str = "Quotation is not a draft"):
+        super().__init__(status.HTTP_409_CONFLICT, 41401, message,
+                         message_key=MessageKey.QUOTATION_NOT_DRAFT)
+
+
+class QuotationEmptyLinesError(BusinessError):
+    """锁档要求至少一行。"""
+
+    def __init__(self, message: str = "Quotation has no lines to lock"):
+        super().__init__(status.HTTP_400_BAD_REQUEST, 41402, message,
+                         message_key=MessageKey.QUOTATION_EMPTY_LINES)
+
+
+class QuotationInvalidTransitionError(BusinessError):
+    """状态转移不在 QUOTATION_TRANSITIONS 矩阵。"""
+
+    def __init__(self, message: str = "Illegal quotation status transition"):
+        super().__init__(status.HTTP_409_CONFLICT, 41403, message,
+                         message_key=MessageKey.QUOTATION_INVALID_TRANSITION)
+
+
+class QuotationCannotUnlockConvertedError(BusinessError):
+    """已转销售的报价不可解锁。"""
+
+    def __init__(self, message: str = "Cannot unlock a converted quotation"):
+        super().__init__(status.HTTP_409_CONFLICT, 41404, message,
+                         message_key=MessageKey.QUOTATION_CANNOT_UNLOCK_CONVERTED)
+
+
+class QuotationEditConflictError(BusinessError):
+    """乐观锁:expected_updated_at 与库中不一致(或引用了不存在的行 id)。"""
+
+    def __init__(self, message: str = "Quotation was modified by someone else"):
+        super().__init__(status.HTTP_409_CONFLICT, 41405, message,
+                         message_key=MessageKey.QUOTATION_EDIT_CONFLICT)
+
+
+class QuotationInvalidLineError(BusinessError):
+    """行引用的 SKU 不存在或不可报价(SKU/SPU 非 ACTIVE)。"""
+
+    def __init__(self, message: str = "Quotation line references a non-quotable SKU"):
+        super().__init__(status.HTTP_400_BAD_REQUEST, 41406, message,
+                         message_key=MessageKey.QUOTATION_INVALID_LINE)
+
+
 def success(data: Any = None, message: str = "ok") -> dict:
     return {"code": 0, "message": message, "data": data}
