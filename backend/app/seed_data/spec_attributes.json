@@ -8,8 +8,17 @@
         "label_i18n": {
           "zh": "公称直径"
         },
-        "value_type": "string",
-        "scope": "sku"
+        "value_type": "enum",
+        "scope": "sku",
+        "note": "DN 公称直径系列(GB/T·ISO 6708);仅铺常用段,罕见口径运营用「新增」现加。",
+        "options": [
+          { "code": "dn15", "label_i18n": { "zh": "DN15" } },
+          { "code": "dn20", "label_i18n": { "zh": "DN20" } },
+          { "code": "dn25", "label_i18n": { "zh": "DN25" } },
+          { "code": "dn32", "label_i18n": { "zh": "DN32" } },
+          { "code": "dn40", "label_i18n": { "zh": "DN40" } },
+          { "code": "dn50", "label_i18n": { "zh": "DN50" } }
+        ]
       },
       {
         "key": "conn",
@@ -1344,9 +1353,10 @@
       {
         "key": "section",
         "label_i18n": {
-          "zh": "标称截面 mm²"
+          "zh": "标称截面"
         },
         "value_type": "string",
+        "unit": "mm²",
         "scope": "sku"
       },
       {
