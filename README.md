@@ -102,16 +102,17 @@ MinIO。要在本地验证 S3/MinIO 路径,单独起一个 MinIO 容器并把 `S
 ```bash
 cd frontend
 pnpm install   # 含 Ant Design(antd / @ant-design/nextjs-registry / @ant-design/icons)
-API_BASE_URL=http://localhost:8000 pnpm dev
+echo 'NEXT_PUBLIC_API_BASE_URL=http://localhost:8000' > .env.local   # 浏览器直连后端,必须 NEXT_PUBLIC_ 前缀
+pnpm dev
 ```
 
-访问 `http://localhost:3000`;商品目录在 `/catalog/spus`(需持 `product:read` 的账号)。
+访问 `http://localhost:3000`(登录后自动进商品目录操作台 `/catalog/spus`,需持 `product:read` 的账号)。
 
-**前端环境变量**(均可选,`.env.local` 或容器注入 `window.__ENV`):
+**前端环境变量**(`.env.local` 或容器注入 `window.__ENV`):
 
 | 变量 | 说明 |
 |---|---|
-| `API_BASE_URL` | 后端公网地址(必填,浏览器直连) |
+| `NEXT_PUBLIC_API_BASE_URL` | 后端公网地址(**必填**;登录/接口在浏览器侧发起,故须 `NEXT_PUBLIC_` 前缀才注入 bundle。SSR 亦读 `API_BASE_URL`) |
 | `NEXT_PUBLIC_IMAGE_BACKEND` | `local`(默认,经后端 `/media` 读)/ `s3`(公读桶直读) |
 | `NEXT_PUBLIC_IMAGE_PUBLIC_BASE` | `s3` 时的公读桶基址(如 `https://cdn.example.com`) |
 

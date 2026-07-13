@@ -26,7 +26,8 @@ export function getApiBase(): string {
   }
   const base = process.env.API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL;
   if (!base) {
-    throw new Error("API_BASE_URL 未配置,请在 .env.local 中设置 API_BASE_URL");
+    // 浏览器侧只能读 NEXT_PUBLIC_ 前缀的变量,本地开发须在 .env.local 设该键。
+    throw new Error("API_BASE_URL 未配置,请在 .env.local 中设置 NEXT_PUBLIC_API_BASE_URL");
   }
   return base;
 }
