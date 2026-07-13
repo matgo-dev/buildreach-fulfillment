@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
@@ -29,9 +29,11 @@ from app.db.models.quotation import (
     QuotationOrder,
     QuotationStatus,
 )
+from app.db.models.customer import Customer
 from app.db.models.sku import Sku
 from app.db.models.spu import Spu
 from app.db.models.unit import Unit
+from app.db.models.user import User
 from app.services import customer_service, sku_service, spec_template_service as tmpl
 from app.services.numbering import allocate
 
@@ -273,3 +275,51 @@ async def void_order(db: AsyncSession, *, order_id, reason=None, actor_user_id, 
     return await _transition(db, order_id, QuotationStatus.VOID, AuditAction.VOID,
                              actor_user_id=actor_user_id, actor_user_email=actor_user_email,
                              request=request)
+
+
+async def list_orders(db: AsyncSession, *, status=None, customer_id=None, salesperson_id=None,
+                      keyword=None, created_from=None, created_to=None, sort="created_at",
+                      page: int = 1, size: int = 20) -> tuple[list[dict], int]:
+    """报价列表:筛选(状态/客户/报价人/关键词/日期)+ 排序(created_at|total_amount 降序)
+    + 分页。返回(投影行, 总数)。投影 display 客户/报价人名 + 行数,列表不返 lines。"""
+    conds = []
+    if status:
+        conds.append(QuotationOrder.status == status)
+    if customer_id:
+        conds.append(QuotationOrder.customer_id == customer_id)
+    if salesperson_id:
+        conds.append(QuotationOrder.salesperson_id == salesperson_id)
+    if created_from:
+        conds.append(QuotationOrder.created_at >= created_from)
+    if created_to:
+        conds.append(QuotationOrder.created_at <= created_to)
+    if keyword:
+        like = f"%{keyword}%"
+        conds.append(or_(QuotationOrder.no.ilike(like),
+                         Customer.name_i18n["zh"].astext.ilike(like)))
+
+    total = (await db.execute(
+        select(func.count(QuotationOrder.id))
+        .join(Customer, Customer.id == QuotationOrder.customer_id)
+        .where(*conds))).scalar_one()
+
+    line_count = (select(func.count(QuotationLine.id))
+                  .where(QuotationLine.quotation_order_id == QuotationOrder.id)
+                  .scalar_subquery())
+    order_col = (QuotationOrder.total_amount.desc() if sort == "total_amount"
+                 else QuotationOrder.created_at.desc())
+    rows = (await db.execute(
+        select(QuotationOrder, Customer.name_i18n, User.name, line_count.label("lc"))
+        .join(Customer, Customer.id == QuotationOrder.customer_id)
+        .join(User, User.id == QuotationOrder.salesperson_id)
+        .where(*conds).order_by(order_col)
+        .offset((page - 1) * size).limit(size))).all()
+
+    items = [{
+        "id": o.id, "no": o.no, "summary": o.summary,
+        "customer_display": display(cust_name, "zh"),
+        "salesperson_display": sp_name,
+        "status": o.status, "currency": o.currency, "total_amount": o.total_amount,
+        "valid_until": o.valid_until, "line_count": lc, "created_at": o.created_at,
+    } for (o, cust_name, sp_name, lc) in rows]
+    return items, total
