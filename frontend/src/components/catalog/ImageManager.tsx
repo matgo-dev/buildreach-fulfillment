@@ -66,7 +66,7 @@ export function ImageZone({
     <div style={{ marginBottom: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
         <span style={{ fontWeight: 600, color: colors.navy }}>
-          {title} <Text type="secondary">({keys.length}{max ? ` · ${keys.length}/${max}` : ""})</Text>
+          {title} <Text type="secondary">({max ? `${keys.length}/${max}` : keys.length})</Text>
         </span>
       </div>
       {hint && <div style={{ margin: "2px 0 8px", fontSize: 12, color: colors.muted }}>{hint}</div>}
