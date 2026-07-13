@@ -34,6 +34,9 @@ def validate_spu_image_refs(images: list[ImageRefIn]) -> list[ImageRefIn]:
 class SpuCreateIn(BaseModel):
     category_code: str = Field(..., max_length=50)
     name_i18n: dict
+    brand: str | None = Field(default=None, max_length=100)
+    description: str | None = None
+    hs_code: str | None = Field(default=None, max_length=20)
     images: list[ImageRefIn]
 
     _v = field_validator("name_i18n")(validate_i18n)
@@ -45,6 +48,9 @@ class SpuOut(BaseModel):
     spu_code: str
     category_code: str
     name_i18n: dict
+    brand: str | None
+    description: str | None
+    hs_code: str | None
     status: str
     created_by: int
     created_at: datetime
@@ -56,6 +62,9 @@ class SpuOut(BaseModel):
 class SpuUpdateIn(BaseModel):
     name_i18n: dict | None = None
     category_code: str | None = Field(default=None, max_length=50)
+    brand: str | None = Field(default=None, max_length=100)
+    description: str | None = None
+    hs_code: str | None = Field(default=None, max_length=20)
     images: list[ImageRefIn] | None = None
 
     @field_validator("name_i18n")

@@ -77,10 +77,12 @@ async def get_spu_for_update(db: AsyncSession, spu_id: int) -> Spu:
 
 
 async def create_spu(db: AsyncSession, *, category_code, name_i18n, image_refs,
+                     brand=None, description=None, hs_code=None,
                      actor_user_id, actor_user_email, request: Request | None = None) -> Spu:
     await _get_leaf_category(db, category_code)
     spu_code = format_code(NumberScope.SPU, await allocate(db, NumberScope.SPU))
     spu = Spu(spu_code=spu_code, category_code=category_code, name_i18n=name_i18n,
+              brand=brand, description=description, hs_code=hs_code,
               created_by=actor_user_id)
     db.add(spu)
     await db.flush()
@@ -93,7 +95,7 @@ async def create_spu(db: AsyncSession, *, category_code, name_i18n, image_refs,
 
 
 async def update_spu(db: AsyncSession, *, spu_id, name_i18n=None, category_code=None,
-                     image_refs=None,
+                     image_refs=None, brand=None, description=None, hs_code=None,
                      actor_user_id, actor_user_email, request: Request | None = None) -> Spu:
     spu = await get_spu_for_update(db, spu_id)  # 锁聚合根,串行化并发写
     ensure_spu_editable(spu)
@@ -102,6 +104,12 @@ async def update_spu(db: AsyncSession, *, spu_id, name_i18n=None, category_code=
         spu.category_code = category_code
     if name_i18n is not None:
         spu.name_i18n = name_i18n
+    if brand is not None:
+        spu.brand = brand
+    if description is not None:
+        spu.description = description
+    if hs_code is not None:
+        spu.hs_code = hs_code
     removed_keys: list[str] = []
     if image_refs is not None:
         removed_keys = await image_service.reconcile_spu_images(db, spu.id, image_refs)
