@@ -1,7 +1,13 @@
-"""报价单路由 /api/v1/quotations。M1:建草稿 + 逐行录入(带快照)+ 取。锁档/转销售留 M2。"""
+"""报价单路由 /api/v1/quotations。8 端点:列表/建/取/整单保存/删/锁档/解锁/作废。
+
+行录入走整单 POST/PUT(内联表格 + 一次保存,按行 id 对账 + 乐观锁);状态跃迁独立 action。
+锁档/转销售留下游增量(CONVERTED 在矩阵占位)。
+"""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from datetime import date
+
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import CurrentUser
@@ -10,57 +16,145 @@ from app.db.session import get_db
 from app.rbac.constants import Permissions
 from app.rbac.guards import require_permission
 from app.schemas.quotation import (
-    QuotationCreateIn,
-    QuotationLineIn,
     QuotationLineOut,
+    QuotationListItem,
     QuotationOrderOut,
+    QuotationSaveIn,
+    QuotationUpdateIn,
+    QuotationVoidIn,
 )
 from app.services import quotation_service
 
 router = APIRouter(prefix="/quotations", tags=["quotations"])
 
+_GUARD = Depends(require_permission(Permissions.QUOTE_MANAGE))
 
-@router.post("", summary="建报价草稿")
+
+def _order_out(order) -> dict:
+    return QuotationOrderOut.model_validate(order, from_attributes=True).model_dump()
+
+
+@router.get("", summary="报价列表(筛选/排序/分页)")
+async def list_quotations(
+    status: str | None = None,
+    customer_id: int | None = None,
+    salesperson_id: int | None = None,
+    keyword: str | None = None,
+    created_from: date | None = None,
+    created_to: date | None = None,
+    sort: str = Query("created_at", pattern=r"^(created_at|total_amount)$"),
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    _current: CurrentUser = _GUARD,
+    db: AsyncSession = Depends(get_db),
+):
+    items, total = await quotation_service.list_orders(
+        db, status=status, customer_id=customer_id, salesperson_id=salesperson_id,
+        keyword=keyword, created_from=created_from, created_to=created_to,
+        sort=sort, page=page, size=size)
+    return success({
+        "items": [QuotationListItem.model_validate(it).model_dump() for it in items],
+        "total": total, "page": page, "size": size,
+    })
+
+
+@router.post("", summary="新建报价(整单:表头 + 行数组)")
 async def create_quotation(
-    body: QuotationCreateIn,
+    body: QuotationSaveIn,
     request: Request,
-    current: CurrentUser = Depends(require_permission(Permissions.QUOTE_MANAGE)),
+    current: CurrentUser = _GUARD,
     db: AsyncSession = Depends(get_db),
 ):
-    order = await quotation_service.create_draft(
-        db, customer_id=body.customer_id, currency=body.currency,
-        valid_until=body.valid_until, remark=body.remark,
+    order = await quotation_service.save_order(
+        db, order_id=None, customer_id=body.customer_id, currency=body.currency,
+        salesperson_id=body.salesperson_id, valid_until=body.valid_until,
+        summary=body.summary, language=body.language, remark=body.remark,
+        lines=[ln.model_dump() for ln in body.lines],
         actor_user_id=current.id, actor_user_email=current.email, request=request)
-    return success(QuotationOrderOut.model_validate(order, from_attributes=True).model_dump())
-
-
-@router.post("/{order_id}/lines", summary="加报价行(带规格快照)")
-async def add_line(
-    order_id: int,
-    body: QuotationLineIn,
-    request: Request,
-    current: CurrentUser = Depends(require_permission(Permissions.QUOTE_MANAGE)),
-    db: AsyncSession = Depends(get_db),
-):
-    line = await quotation_service.add_line(
-        db, order_id=order_id, sku_id=body.sku_id, unit_price=body.unit_price,
-        qty=body.qty, name_snapshot=body.name_snapshot,
-        spec_text_snapshot=body.spec_text_snapshot, unit_snapshot=body.unit_snapshot,
-        sort_order=body.sort_order, actor_user_id=current.id,
-        actor_user_email=current.email, request=request)
-    return success(QuotationLineOut.model_validate(line, from_attributes=True).model_dump())
+    return success(_order_out(order))
 
 
 @router.get("/{order_id}", summary="取报价单(含行)")
 async def get_quotation(
     order_id: int,
-    _current: CurrentUser = Depends(require_permission(Permissions.QUOTE_MANAGE)),
+    _current: CurrentUser = _GUARD,
     db: AsyncSession = Depends(get_db),
 ):
     order = await quotation_service.get_order(db, order_id)
     lines = await quotation_service.list_lines(db, order_id)
     return success({
-        "order": QuotationOrderOut.model_validate(order, from_attributes=True).model_dump(),
+        "order": _order_out(order),
         "lines": [QuotationLineOut.model_validate(l, from_attributes=True).model_dump()
                   for l in lines],
     })
+
+
+@router.put("/{order_id}", summary="整单保存草稿(行对账 + 乐观锁)")
+async def update_quotation(
+    order_id: int,
+    body: QuotationUpdateIn,
+    request: Request,
+    current: CurrentUser = _GUARD,
+    db: AsyncSession = Depends(get_db),
+):
+    order = await quotation_service.save_order(
+        db, order_id=order_id, customer_id=body.customer_id, currency=body.currency,
+        salesperson_id=body.salesperson_id, valid_until=body.valid_until,
+        summary=body.summary, language=body.language, remark=body.remark,
+        lines=[ln.model_dump() for ln in body.lines],
+        expected_updated_at=body.expected_updated_at,
+        actor_user_id=current.id, actor_user_email=current.email, request=request)
+    return success(_order_out(order))
+
+
+@router.delete("/{order_id}", summary="硬删报价草稿")
+async def delete_quotation(
+    order_id: int,
+    request: Request,
+    current: CurrentUser = _GUARD,
+    db: AsyncSession = Depends(get_db),
+):
+    await quotation_service.delete_order(
+        db, order_id=order_id, actor_user_id=current.id,
+        actor_user_email=current.email, request=request)
+    return success(None)
+
+
+@router.post("/{order_id}/lock", summary="锁档(DRAFT→LOCKED)")
+async def lock_quotation(
+    order_id: int,
+    request: Request,
+    current: CurrentUser = _GUARD,
+    db: AsyncSession = Depends(get_db),
+):
+    order = await quotation_service.lock_order(
+        db, order_id=order_id, actor_user_id=current.id,
+        actor_user_email=current.email, request=request)
+    return success(_order_out(order))
+
+
+@router.post("/{order_id}/unlock", summary="解锁(LOCKED→DRAFT)")
+async def unlock_quotation(
+    order_id: int,
+    request: Request,
+    current: CurrentUser = _GUARD,
+    db: AsyncSession = Depends(get_db),
+):
+    order = await quotation_service.unlock_order(
+        db, order_id=order_id, actor_user_id=current.id,
+        actor_user_email=current.email, request=request)
+    return success(_order_out(order))
+
+
+@router.post("/{order_id}/void", summary="作废(DRAFT/LOCKED→VOID)")
+async def void_quotation(
+    order_id: int,
+    request: Request,
+    body: QuotationVoidIn | None = None,
+    current: CurrentUser = _GUARD,
+    db: AsyncSession = Depends(get_db),
+):
+    order = await quotation_service.void_order(
+        db, order_id=order_id, reason=(body.reason if body else None),
+        actor_user_id=current.id, actor_user_email=current.email, request=request)
+    return success(_order_out(order))

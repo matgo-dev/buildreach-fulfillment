@@ -23,6 +23,7 @@ from app.core.exceptions import (
 from app.core.i18n import compose_spec_text, display
 from app.core.languages import DEFAULT_QUOTE_LANGUAGE
 from app.db.models.quotation import (
+    QUOTATION_DELETABLE,
     QUOTATION_EDITABLE,
     QUOTATION_TRANSITIONS,
     QuotationLine,
@@ -77,25 +78,6 @@ async def _next_quote_no(db: AsyncSession) -> str:
     return format_code(NumberScope.QUOTATION, seq, period)
 
 
-async def create_draft(db: AsyncSession, *, customer_id, currency, valid_until=None,
-                       remark=None, salesperson_id=None, actor_user_id, actor_user_email,
-                       request: Request | None = None) -> QuotationOrder:
-    customer = await customer_service.get_customer(db, customer_id)
-    language = customer.quote_language or DEFAULT_QUOTE_LANGUAGE
-    # 报价人默认=建单人,草稿内可重指派(设计:salesperson_id 业务字段,created_by 审计归属)。
-    order = QuotationOrder(no=await _next_quote_no(db), customer_id=customer_id,
-                           salesperson_id=salesperson_id or actor_user_id,
-                           language=language, currency=currency, valid_until=valid_until,
-                           status=QuotationStatus.DRAFT, created_by=actor_user_id, remark=remark)
-    db.add(order)
-    await db.flush()
-    await write_audit(db, resource_type=AuditResourceType.QUOTATION, action=AuditAction.CREATE,
-                      user_id=actor_user_id, user_email=actor_user_email,
-                      resource_id=order.id, request=request, commit=False)
-    await db.commit()
-    return order
-
-
 async def get_order(db: AsyncSession, order_id: int) -> QuotationOrder:
     order = (await db.execute(
         select(QuotationOrder).where(QuotationOrder.id == order_id))).scalar_one_or_none()
@@ -108,35 +90,6 @@ async def list_lines(db: AsyncSession, order_id: int) -> list[QuotationLine]:
     return list((await db.execute(
         select(QuotationLine).where(QuotationLine.quotation_order_id == order_id)
         .order_by(QuotationLine.sort_order))).scalars().all())
-
-
-async def add_line(db: AsyncSession, *, order_id, sku_id, unit_price, qty, name_snapshot=None,
-                   spec_text_snapshot=None, unit_snapshot=None, sort_order=0,
-                   actor_user_id, actor_user_email, request: Request | None = None) -> QuotationLine:
-    order = await get_order(db, order_id)
-    sku = (await db.execute(select(Sku).where(Sku.id == sku_id))).scalar_one_or_none()
-    if sku is None:
-        raise NotFoundError(f"SKU 不存在: {sku_id}")
-    # 注:可选货门禁落在新的整单保存路径(save_order),旧 add_line 将于 API 重写时删除。
-    lang = order.language
-    # 快照默认由 SKU + SPU∪SKU 规格按报价语言组合,均可被入参覆盖(线下定稿优先)
-    name_default, spec_default, unit_default = await compose_line_snapshot(db, sku, lang)
-    name = name_snapshot if name_snapshot is not None else name_default
-    spec_text = spec_text_snapshot if spec_text_snapshot is not None else spec_default
-    unit = unit_snapshot if unit_snapshot is not None else unit_default
-    total = Decimal(str(unit_price)) * Decimal(str(qty))
-
-    line = QuotationLine(quotation_order_id=order_id, sku_id=sku_id, name_snapshot=name,
-                         spec_text_snapshot=spec_text, unit_snapshot=unit,
-                         unit_price=unit_price, qty=qty, line_total=total,
-                         language=lang, sort_order=sort_order)
-    db.add(line)
-    await db.flush()
-    await write_audit(db, resource_type=AuditResourceType.QUOTATION, action=AuditAction.UPDATE,
-                      user_id=actor_user_id, user_email=actor_user_email,
-                      resource_id=order_id, request=request, commit=False)
-    await db.commit()
-    return line
 
 
 def _override(given, default):
@@ -323,3 +276,16 @@ async def list_orders(db: AsyncSession, *, status=None, customer_id=None, salesp
         "valid_until": o.valid_until, "line_count": lc, "created_at": o.created_at,
     } for (o, cust_name, sp_name, lc) in rows]
     return items, total
+
+
+async def delete_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_email,
+                       request: Request | None = None) -> None:
+    """硬删报价单(仅草稿;行 CASCADE)。草稿=从没弄好可删,非草稿走作废。"""
+    order = await get_order(db, order_id)
+    if order.status not in QUOTATION_DELETABLE:
+        raise QuotationNotDraftError()
+    await write_audit(db, resource_type=AuditResourceType.QUOTATION, action=AuditAction.DELETE,
+                      user_id=actor_user_id, user_email=actor_user_email,
+                      resource_id=order.id, request=request, commit=False)
+    await db.delete(order)
+    await db.commit()

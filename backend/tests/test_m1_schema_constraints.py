@@ -6,9 +6,9 @@ from sqlalchemy.exc import IntegrityError
 from app.db.models.category import Category
 
 
-async def _prep_order_and_sku(client, headers, catalog_headers, db_session):
-    """headers：customer/quotation 用（ADMIN 保留 read；customer:manage/quote:manage 不变）。
-    catalog_headers：spu/sku 用（product:manage，ADMIN 已摘除，须 PRODUCT_OPERATOR）。
+async def _prep_customer_and_sku(client, headers, catalog_headers, db_session):
+    """headers：customer/quotation 用。catalog_headers：spu/sku 用（product:manage）。
+    行校验(qty>0/price≥0)是 Pydantic 层,先于可选货门禁触发,故 SKU 不必 ACTIVE。
     """
     if not (await db_session.execute(
             select(Category).where(Category.code == "10"))).scalar_one_or_none():
@@ -22,9 +22,7 @@ async def _prep_order_and_sku(client, headers, catalog_headers, db_session):
     sku = (await client.post("/api/v1/skus", headers=catalog_headers, json={
         "spu_id": spu_id, "unit": "piece", "name_i18n": {"zh": "阀"},
         "spec_items": [{"key": "dn", "value": "DN50", "label_i18n": {"zh": "公称通径"}}]})).json()["data"]
-    order = (await client.post("/api/v1/quotations", headers=headers,
-             json={"customer_id": cust["id"], "currency": "USD"})).json()["data"]
-    return order, sku
+    return cust, sku
 
 
 # ── 应用层:干净 400 ──
@@ -33,10 +31,11 @@ async def _prep_order_and_sku(client, headers, catalog_headers, db_session):
 async def test_line_rejects_zero_qty(
     client, superadmin_headers, product_operator_headers, db_session
 ):
-    order, sku = await _prep_order_and_sku(
+    cust, sku = await _prep_customer_and_sku(
         client, superadmin_headers, product_operator_headers, db_session)
-    r = await client.post(f"/api/v1/quotations/{order['id']}/lines", headers=superadmin_headers,
-                          json={"sku_id": sku["id"], "unit_price": 100.0, "qty": 0})
+    r = await client.post("/api/v1/quotations", headers=superadmin_headers,
+                          json={"customer_id": cust["id"], "currency": "USD",
+                                "lines": [{"sku_id": sku["id"], "unit_price": 100.0, "qty": 0}]})
     assert r.status_code == 422
 
 
@@ -44,10 +43,11 @@ async def test_line_rejects_zero_qty(
 async def test_line_rejects_negative_price(
     client, superadmin_headers, product_operator_headers, db_session
 ):
-    order, sku = await _prep_order_and_sku(
+    cust, sku = await _prep_customer_and_sku(
         client, superadmin_headers, product_operator_headers, db_session)
-    r = await client.post(f"/api/v1/quotations/{order['id']}/lines", headers=superadmin_headers,
-                          json={"sku_id": sku["id"], "unit_price": -1.0, "qty": 2})
+    r = await client.post("/api/v1/quotations", headers=superadmin_headers,
+                          json={"customer_id": cust["id"], "currency": "USD",
+                                "lines": [{"sku_id": sku["id"], "unit_price": -1.0, "qty": 2}]})
     assert r.status_code == 422
 
 
@@ -101,7 +101,7 @@ async def test_db_check_rejects_non_iso4217_currency(db_session, superadmin_head
     await db_session.flush()
     # 中文/小写/非三字母币种被 DB 挡住(currency ~ '^[A-Z]{3}$')
     db_session.add(QuotationOrder(no="Q-BAD-CUR", customer_id=cust.id, currency="美元",
-                                  status="DRAFT", created_by=uid))
+                                  status="DRAFT", created_by=uid, salesperson_id=uid))
     with pytest.raises(IntegrityError):
         await db_session.flush()
 

@@ -29,10 +29,11 @@ async def _seed(db, *, spu_status="ACTIVE", sku_status="ACTIVE"):
 @pytest.mark.asyncio
 async def test_snapshot_merges_spu_and_sku_spec(db_session):
     _, sku = await _seed(db_session)
-    name, spec_text, _unit = await quotation_service.compose_line_snapshot(db_session, sku, "zh")
+    name, spec_text, unit = await quotation_service.compose_line_snapshot(db_session, sku, "zh")
     assert name == "工字钢 200"
     assert "Q235" in spec_text    # 产品级(SPU.spec_jsonb)必须并进来 —— 现状 bug 会缺
     assert "DN200" in spec_text   # 变体轴(SKU.spec_jsonb)
+    assert unit == "吨" and unit != sku.unit   # 冻结 units.label_i18n 展示文字,非 code "ton"
 
 
 @pytest.mark.asyncio
