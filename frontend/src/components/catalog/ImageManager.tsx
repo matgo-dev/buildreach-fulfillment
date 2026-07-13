@@ -5,6 +5,7 @@ import { PlusOutlined, LoadingOutlined, StarFilled, StarOutlined, CloseOutlined 
 import { uploadImage } from "@/lib/upload";
 import { imageUrl } from "@/lib/image";
 import { ImageRefIn } from "@/lib/catalog";
+import { colors } from "@/lib/tokens";
 
 const { Text } = Typography;
 const ACCEPT = ["image/jpeg", "image/png", "image/webp", "image/gif"];
@@ -64,11 +65,11 @@ export function ImageZone({
   return (
     <div style={{ marginBottom: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-        <span style={{ fontWeight: 600, color: "#102441" }}>
+        <span style={{ fontWeight: 600, color: colors.navy }}>
           {title} <Text type="secondary">({keys.length}{max ? ` · ${keys.length}/${max}` : ""})</Text>
         </span>
       </div>
-      {hint && <div style={{ margin: "2px 0 8px", fontSize: 12, color: "#6b7a90" }}>{hint}</div>}
+      {hint && <div style={{ margin: "2px 0 8px", fontSize: 12, color: colors.muted }}>{hint}</div>}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
         {keys.map((key, i) => {
           const isCover = onSetCover && key === coverKey;
@@ -89,7 +90,7 @@ export function ImageZone({
                 height: 96,
                 borderRadius: 8,
                 overflow: "hidden",
-                border: isCover ? "2px solid #003366" : "1px solid #dbe4ea",
+                border: isCover ? `2px solid ${colors.brand}` : `1px solid ${colors.line}`,
                 cursor: "grab",
                 flex: "none",
               }}
@@ -103,7 +104,7 @@ export function ImageZone({
               {isCover && (
                 <span
                   style={{
-                    position: "absolute", top: 0, left: 0, background: "#003366", color: "#fff",
+                    position: "absolute", top: 0, left: 0, background: colors.brand, color: colors.white,
                     fontSize: 11, padding: "1px 6px", borderBottomRightRadius: 6,
                   }}
                 >
@@ -120,14 +121,14 @@ export function ImageZone({
                 {onSetCover && !isCover && (
                   <StarOutlined
                     title="设为主图"
-                    style={{ color: "#fff", fontSize: 18, cursor: "pointer" }}
+                    style={{ color: colors.white, fontSize: 18, cursor: "pointer" }}
                     onClick={() => onSetCover(key)}
                   />
                 )}
-                {isCover && <StarFilled style={{ color: "#FF6B35", fontSize: 18 }} />}
+                {isCover && <StarFilled style={{ color: colors.brandAccent, fontSize: 18 }} />}
                 <CloseOutlined
                   title="移除"
-                  style={{ color: "#fff", fontSize: 18, cursor: "pointer" }}
+                  style={{ color: colors.white, fontSize: 18, cursor: "pointer" }}
                   onClick={() => onChange(keys.filter((k) => k !== key))}
                 />
               </div>

@@ -5,11 +5,12 @@ import { AppstoreOutlined, TagsOutlined, UserOutlined, LogoutOutlined } from "@a
 import { usePathname, useRouter } from "next/navigation";
 import { useAuthStore } from "@/stores/authStore";
 import { authApi } from "@/lib/auth";
+import { colors } from "@/lib/tokens";
 
 const { Header, Sider, Content } = Layout;
 
-// 侧栏暗色底 = DESIGN §1.1 sidebar #0A1929(与 AntD 默认 #001529 的有意偏离)。
-const SIDER_BG = "#0A1929";
+// 侧栏暗色底 = DESIGN §1.1 sidebar(与 AntD 默认 #001529 的有意偏离)。
+const SIDER_BG = colors.sidebar;
 
 const MENU_ITEMS = [
   { key: "/catalog/spus", icon: <AppstoreOutlined />, label: "商品目录" },
@@ -46,7 +47,7 @@ export function AppShell({ children, breadcrumb = [] }: { children: ReactNode; b
           style={{
             height: 48,
             margin: 8,
-            color: "#fff",
+            color: colors.white,
             fontWeight: 700,
             textAlign: "center",
             lineHeight: "32px",
@@ -67,8 +68,8 @@ export function AppShell({ children, breadcrumb = [] }: { children: ReactNode; b
       <Layout>
         <Header
           style={{
-            background: "#fff",
-            borderBottom: "1px solid #dbe4ea",
+            background: colors.white,
+            borderBottom: `1px solid ${colors.line}`,
             display: "flex",
             justifyContent: "flex-end",
             alignItems: "center",
@@ -80,7 +81,7 @@ export function AppShell({ children, breadcrumb = [] }: { children: ReactNode; b
               items: [{ key: "logout", icon: <LogoutOutlined />, label: "登出", onClick: onLogout }],
             }}
           >
-            <span style={{ cursor: "pointer", color: "#1c314f" }}>
+            <span style={{ cursor: "pointer", color: colors.ink }}>
               <Avatar size="small" icon={<UserOutlined />} /> {user?.name}
             </span>
           </Dropdown>

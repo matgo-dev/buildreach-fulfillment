@@ -25,6 +25,7 @@ import {
 } from "@/lib/catalog";
 import { display } from "@/lib/i18n";
 import { ImageZone } from "@/components/catalog/ImageManager";
+import { colors } from "@/lib/tokens";
 
 const { Text } = Typography;
 
@@ -316,7 +317,7 @@ export function SkuForm({
       <Divider titlePlacement="left" plain style={{ marginTop: 8 }}>
         SKU 图(可选)
       </Divider>
-      <div style={{ marginBottom: 4, fontSize: 12, color: "#6b7a90" }}>
+      <div style={{ marginBottom: 4, fontSize: 12, color: colors.muted }}>
         该 SKU 有专属图时上传,否则自动用商品主图。
       </div>
       <ImageZone title="SKU 图" keys={imageKeys} max={6} onChange={setImageKeys} />
@@ -332,7 +333,7 @@ export function SkuForm({
       <Space direction="vertical" size={10} style={{ width: "100%" }}>
         {templateRows.map((r) => (
           <div key={r.key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 150, textAlign: "right", color: "#6b7a90" }}>
+            <div style={{ width: 150, textAlign: "right", color: colors.muted }}>
               {r.label}
               {r.unit ? <Text type="secondary"> [{r.unit}]</Text> : null}
             </div>

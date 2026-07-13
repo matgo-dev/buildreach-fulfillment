@@ -6,6 +6,7 @@ import type { ColumnsType } from "antd/es/table";
 import { catalogApi, SkuDetailItem, SpuDetail, specText } from "@/lib/catalog";
 import { display } from "@/lib/i18n";
 import { imageUrl } from "@/lib/image";
+import { colors } from "@/lib/tokens";
 import { Can } from "@/components/common/Can";
 import { SpuForm } from "@/components/catalog/SpuForm";
 import { SkuForm } from "@/components/catalog/SkuForm";
@@ -193,7 +194,7 @@ export default function SpuDetailPage() {
                         title={g.image_type === "DETAIL" ? "详情图" : "轮播图"}
                         style={{
                           width: 36, height: 36, objectFit: "cover", borderRadius: 4,
-                          border: "1px solid #dbe4ea",
+                          border: `1px solid ${colors.line}`,
                         }}
                       />
                     ))}
