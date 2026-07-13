@@ -206,7 +206,13 @@ export default function SpuDetailPage() {
           <Descriptions size="small" column={2} style={{ flex: 1 }}
             items={[
               { key: "n", label: "名称", children: display(spu.name_i18n) },
-              { key: "c", label: "分类", children: spu.category_code },
+              {
+                key: "c",
+                label: "分类",
+                children: spu.category_name_i18n ? display(spu.category_name_i18n) : spu.category_code,
+              },
+              { key: "b", label: "品牌", children: spu.brand || "—" },
+              { key: "h", label: "HS 编码", children: spu.hs_code || "—" },
               {
                 key: "s",
                 label: "状态",
@@ -218,9 +224,10 @@ export default function SpuDetailPage() {
               },
               {
                 key: "a",
-                label: "可用 SKU",
-                children: spu.has_available_sku ? "有" : "无",
+                label: "在售 SKU",
+                children: `${spu.skus.filter((s) => s.status === "ACTIVE").length} / 共 ${spu.skus.length} 个`,
               },
+              { key: "d", label: "描述", span: 2, children: spu.description || "—" },
             ]}
           />
         </div>
