@@ -223,7 +223,11 @@ export default function SpuDetailPage() {
               {
                 key: "c",
                 label: "分类",
-                children: spu.category_name_i18n ? display(spu.category_name_i18n) : spu.category_code,
+                children: spu.category_path?.length
+                  ? spu.category_path.map((c) => display(c.name_i18n)).join(" / ")
+                  : spu.category_name_i18n
+                    ? display(spu.category_name_i18n)
+                    : spu.category_code,
               },
               { key: "b", label: "品牌", children: spu.brand || "—" },
               { key: "h", label: "HS 编码", children: spu.hs_code || "—" },

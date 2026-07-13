@@ -70,6 +70,8 @@ export type SpuListItem = SpuOut & {
 export type SpuDetail = SpuOut & {
   has_available_sku: boolean;
   category_name_i18n: Record<string, string> | null;
+  /** 分类完整路径(根→叶),后端从 categories 树派生。用于详情页展示层级,末级=叶。 */
+  category_path: { code: string; name_i18n: Record<string, string> }[];
   spec_display: SpecDisplayItem[];
   images: ProductImage[];
   skus: SkuDetailItem[];

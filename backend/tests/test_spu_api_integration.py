@@ -61,6 +61,32 @@ async def test_spu_list_read_allowed_for_admin(client, superadmin_headers):
 
 
 @pytest.mark.asyncio
+async def test_spu_detail_category_full_path(client, product_operator_headers, db_session):
+    """详情分类返回根→叶完整路径,从 categories 树 parent_code 链派生(不落 SPU)。
+
+    深树里叶名会重名(真实品类 4 层、多处重名),故详情须给完整路径消歧。
+    """
+    h = product_operator_headers
+    db_session.add(Category(code="30", parent_code=None, name_i18n={"zh": "建材"},
+                            level=1, is_leaf=False, sort_order=0))
+    db_session.add(Category(code="30.001", parent_code="30", name_i18n={"zh": "门窗"},
+                            level=2, is_leaf=False, sort_order=0))
+    db_session.add(Category(code="30.001.002", parent_code="30.001", name_i18n={"zh": "窗配件"},
+                            level=3, is_leaf=True, sort_order=0))
+    await db_session.commit()
+    r = await client.post("/api/v1/spus", headers=h,
+                          json={"category_code": "30.001.002", "name_i18n": {"zh": "推拉窗滑轮"},
+                                "images": [{"image_key": "img/w.jpg", "image_type": "MAIN", "sort_order": 0}]})
+    sid = r.json()["data"]["id"]
+    body = (await client.get(f"/api/v1/spus/{sid}", headers=h)).json()["data"]
+    # 完整路径按根→叶有序
+    assert [p["code"] for p in body["category_path"]] == ["30", "30.001", "30.001.002"]
+    assert [p["name_i18n"]["zh"] for p in body["category_path"]] == ["建材", "门窗", "窗配件"]
+    # 叶名(category_name_i18n)= 路径末级,单一派生不再单独查
+    assert body["category_name_i18n"]["zh"] == "窗配件"
+
+
+@pytest.mark.asyncio
 async def test_spu_detail_cost_masked_for_read_only_role(client, superadmin_headers,
                                                           product_operator_headers, db_session):
     """详情内嵌 SKU 的 reference_price:PRODUCT_MANAGE 可见,仅 PRODUCT_READ 脱敏。"""

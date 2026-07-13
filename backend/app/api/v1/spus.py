@@ -62,14 +62,17 @@ async def get_spu(
     for s in skus:
         d = sku_out(s, include_cost=include_cost, images=images_by_sku.get(s.id, []))
         d["available"] = sku_service.sku_available(s, spu)
-        # SKU 完整规格 = SPU 产品级 ∪ SKU 轴(读时并集,后端单一解析,见评审 P2-#4)
+        # SKU 完整规格 = SPU 产品级 ∪ SKU 轴(读时并集,后端单一解析)
         d["spec_display"] = await tmpl.resolve_spec_display(
             db, spu.category_code, list(spu.spec_jsonb or []) + list(s.spec_jsonb or []))
         sku_dicts.append(d)
-    cat_names = await category_service.names_by_code(db, [spu.category_code])
+    # 分类完整路径(根→叶),从 categories 树 parent_code 链派生;叶名取末级,省一次查询。
+    cat_path = (await category_service.paths_by_code(db, [spu.category_code])).get(
+        spu.category_code, [])
     return success({
         **SpuOut.model_validate(spu, from_attributes=True).model_dump(),
-        "category_name_i18n": cat_names.get(spu.category_code),
+        "category_name_i18n": cat_path[-1]["name_i18n"] if cat_path else None,
+        "category_path": cat_path,
         "spec_display": await tmpl.resolve_spec_display(db, spu.category_code, spu.spec_jsonb),
         "images": await image_service.list_spu_images(db, spu_id),
         "has_available_sku": any(x["available"] for x in sku_dicts),
