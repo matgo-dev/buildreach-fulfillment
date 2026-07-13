@@ -118,11 +118,12 @@ font-family: ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Microsoft 
 ---
 
 ## 8. 图片（两级 + 回退 + 阿里云 OSS）
-- **模型**（存 OSS object key，非 URL）：`spu.main_image` 必填；`spu.images[]` 可选；`sku.image` nullable（仅视觉变体轴维护）。
-- **回退**：有效图 = `sku.image ?? spu.main_image`。
+- **模型**（规范化独立表 `product_images`，存 object key，非 URL）：SPU 图与 SKU 图同表，靠 `sku_id` 区分层级（`sku_id IS NULL` = SPU 级）。每行 `image_type ∈ {MAIN, GALLERY, DETAIL}`（DB CHECK 兜底）。**封面 = 该 SPU 唯一一行 `MAIN`（`sku_id IS NULL`）**，≤1 由部分唯一索引硬保证。**身份键 = `image_key`**，写接口按 key 声明期望图集、后端 reconcile 按 key 对账到期望态。
+- **张数上限**（后端 schema 校验）：SPU 级 主图组（`MAIN`+`GALLERY`）≤6（且恰 1 张 `MAIN`）/ 详情（`DETAIL`）≤12；SKU 级图 ≤6，一律记 `GALLERY`（无 `MAIN`/`DETAIL` 语义）。
+- **回退**：SKU 无自有图时用 **SPU 封面**（封面取 `MAIN`，无则 `GALLERY` 最小 `sort_order`）。
 - **尺寸靠存储层实时处理**（OSS `?x-oss-process=image/resize,w_80`列表 / `w_400`详情），不自生成缩略图、不存多份。
 - **列表缩略图默认关**（密度优先），主图放详情/抽屉。
-- **存储抽象**：`StorageProvider`（`build_url`/`create_upload`）；`OssProvider`（直传 OSS）+ `LocalProvider`（退避，指回后端），`STORAGE_PROVIDER` 切换，业务零改动。
+- **存储抽象**：统一 `Storage` 协议（`build_url`/`public_url`/`create_upload`/`save`/`open`/`delete`/`exists`），工厂 `get_attachment_storage()` 按 `STORAGE_BACKEND` 选实现——`local`→`LocalDiskStorage`（默认）/ `s3`→`S3Storage`（本地 MinIO・生产阿里云 OSS，S3 兼容端点），业务零改动。**本地预览走 `GET /media/{key}`（仅 `STORAGE_BACKEND=local` 启用；生产 `<img>` 直连公读桶、不经本端点）**。
 
 ---
 
@@ -139,7 +140,7 @@ Toast `9999` / Modal 遮罩 `50` / 抽屉 `40` / 用户菜单 `200` / 顶栏 `80
 ## 11. 规则
 1. **不发明新色值/字号** — 只用上表 token。**颜色只在 `tailwind.config.ts` 定义一次（语义命名 brand/sidebar/status-*，可选 CSS 变量兜底），组件只用 token 名（`bg-brand`），永不写裸 hex（`#003366`）。改色号 = 改 config 一处，全站更新。**
 2. **间距用 4px 网格**。
-3. **后台按钮用 shadcn 简洁风，不加渐变**（前台 Mall 的 pill/渐变风严禁用于本平台）。
+3. **后台按钮用 AntD 简洁风，不加渐变**（前台 Mall 的 pill/渐变风严禁用于本平台）。
 4. **hover 必须有反馈**（颜色/阴影至少一种）。
 5. **操作列 `whitespace-nowrap`**。
 6. **红线字段后端脱敏**，不靠前端藏。
