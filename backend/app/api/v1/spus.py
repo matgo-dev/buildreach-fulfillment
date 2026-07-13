@@ -12,7 +12,7 @@ from app.rbac.guards import require_permission
 from app.schemas.common import StatusPatchIn
 from app.schemas.spu import SpuCreateIn, SpuOut, SpuUpdateIn
 from app.schemas.sku import sku_out
-from app.services import image_service, sku_service, spu_service
+from app.services import category_service, image_service, sku_service, spu_service
 
 router = APIRouter(prefix="/spus", tags=["spus"])
 
@@ -33,12 +33,14 @@ async def list_spus(
         include_descendants=include_descendants, page=page, size=size)
     active_ids = await sku_service.spu_ids_with_active_sku(db, [s.id for s in rows])
     covers = await image_service.cover_keys(db, [s.id for s in rows])
+    cat_names = await category_service.names_by_code(db, [s.category_code for s in rows])
     items = []
     for s in rows:
         d = SpuOut.model_validate(s, from_attributes=True).model_dump()
         d["has_available_sku"] = (
             s.status == "ACTIVE" and s.deleted_at is None and s.id in active_ids)
         d["main_image"] = covers.get(s.id)  # 封面 key(缩略/回退用),无图则 None
+        d["category_name_i18n"] = cat_names.get(s.category_code)
         items.append(d)
     return success({"items": items, "total": total, "page": page, "size": size})
 
@@ -58,8 +60,10 @@ async def get_spu(
         d = sku_out(s, include_cost=include_cost, images=images_by_sku.get(s.id, []))
         d["available"] = sku_service.sku_available(s, spu)
         sku_dicts.append(d)
+    cat_names = await category_service.names_by_code(db, [spu.category_code])
     return success({
         **SpuOut.model_validate(spu, from_attributes=True).model_dump(),
+        "category_name_i18n": cat_names.get(spu.category_code),
         "images": await image_service.list_spu_images(db, spu_id),
         "has_available_sku": any(x["available"] for x in sku_dicts),
         "skus": sku_dicts,
