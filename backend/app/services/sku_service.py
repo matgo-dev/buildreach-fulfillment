@@ -12,13 +12,14 @@ from app.audit.logger import write_audit
 from app.core.codegen import NumberScope, format_code
 from app.core.exceptions import NotFoundError, SpecContractError
 from app.core.search_text import build_search_text
-from app.db.models.sku import Sku
-from app.db.models.spu import Spu
+from app.db.models.sku import Sku, SkuStatus
+from app.db.models.spu import Spu, SpuStatus
 from app.db.models.unit import Unit
 from app.schemas.sku import validate_spec_items
 from app.services import image_service
 from app.services import spec_template_service as tmpl
 from app.services.numbering import allocate
+from app.services.spu_service import ensure_spu_editable, has_active_sku
 
 
 async def _validate_unit(db: AsyncSession, code: str) -> None:
@@ -165,8 +166,23 @@ async def search_skus(db: AsyncSession, q: str = "", limit: int = 50, *,
 
 async def set_sku_status(db: AsyncSession, *, sku_id, status, actor_user_id,
                          actor_user_email, request: Request | None = None) -> Sku:
+    """SKU 上下架 —— **豁免**父 SPU EDITABLE 锁:启用中的商品下也允许停售单个缺货变体。
+
+    联动(保 ACTIVE⇒有在售 SKU 不变式):停用后若父 SPU 仍 ACTIVE 但已无在售 SKU,
+    自动把 SPU 一并下架(INACTIVE),否则会留一个"启用却选不出可报价 SKU"的坏商品。
+    """
     sku = await get_sku(db, sku_id)
     sku.status = status
+    await db.flush()  # 让下方完备性查询看到本次停用结果
+    if status == SkuStatus.INACTIVE:
+        spu = (await db.execute(select(Spu).where(
+            Spu.id == sku.spu_id, Spu.deleted_at.is_(None)))).scalar_one_or_none()
+        if (spu is not None and spu.status == SpuStatus.ACTIVE
+                and not await has_active_sku(db, sku.spu_id)):
+            spu.status = SpuStatus.INACTIVE
+            await write_audit(db, resource_type=AuditResourceType.SPU, action=AuditAction.UPDATE,
+                              user_id=actor_user_id, user_email=actor_user_email,
+                              resource_id=spu.id, request=request, commit=False)
     await write_audit(db, resource_type=AuditResourceType.SKU, action=AuditAction.UPDATE,
                       user_id=actor_user_id, user_email=actor_user_email,
                       resource_id=sku.id, request=request, commit=False)
@@ -177,6 +193,8 @@ async def set_sku_status(db: AsyncSession, *, sku_id, status, actor_user_id,
 async def soft_delete_sku(db: AsyncSession, *, sku_id, actor_user_id, actor_user_email,
                           request: Request | None = None) -> None:
     sku = await get_sku(db, sku_id)
+    spu, _ = await _spu_category(db, sku.spu_id)
+    ensure_spu_editable(spu)  # 父 SPU 启用中不可删 SKU,先停用(停售单个变体走 set_sku_status)
     # deleted_at 是 tz-aware DateTime(timezone=True)(SoftDeleteMixin);项目无公共 utcnow
     # 助手(见 spu_service.soft_delete_spu 的同款注释),对齐直取写法。
     sku.deleted_at = datetime.now(timezone.utc)
@@ -189,7 +207,8 @@ async def soft_delete_sku(db: AsyncSession, *, sku_id, actor_user_id, actor_user
 async def create_sku(db: AsyncSession, *, spu_id, unit, reference_price, name_i18n,
                      spec_items, actor_user_id, actor_user_email,
                      image_refs=None, request: Request | None = None) -> Sku:
-    _, category_code = await _spu_category(db, spu_id)
+    spu, category_code = await _spu_category(db, spu_id)
+    ensure_spu_editable(spu)  # 父 SPU 启用中不可加 SKU,先停用
     await _validate_unit(db, unit)
     spec_jsonb = await _resolve_spec(db, category_code, [i for i in spec_items])
     sku_code = format_code(NumberScope.SKU, await allocate(db, NumberScope.SKU))
@@ -211,7 +230,8 @@ async def update_sku(db: AsyncSession, *, sku_id, name_i18n=None, unit=None,
                      reference_price=None, spec_items=None, actor_user_id,
                      actor_user_email, image_refs=None, request: Request | None = None) -> Sku:
     sku = await get_sku(db, sku_id)
-    _, category_code = await _spu_category(db, sku.spu_id)
+    spu, category_code = await _spu_category(db, sku.spu_id)
+    ensure_spu_editable(spu)  # 父 SPU 启用中不可改 SKU,先停用
     if name_i18n is not None:
         sku.name_i18n = name_i18n
     if unit is not None:

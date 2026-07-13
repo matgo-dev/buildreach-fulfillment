@@ -44,4 +44,6 @@ class PageParams(BaseModel):
 
 
 class StatusPatchIn(BaseModel):
+    # 可经 API 设置的目标态子集 —— SpuStatus.ALL 含 DRAFT,但 DRAFT 是 create-only、
+    # 转移白名单无任何 →DRAFT 边,故不在此 Literal(SKU 本就二态)。加第 4 态时须回看这里。
     status: Literal["ACTIVE", "INACTIVE"]

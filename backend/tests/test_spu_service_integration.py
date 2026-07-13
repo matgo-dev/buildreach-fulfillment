@@ -94,10 +94,24 @@ async def test_update_spu_updates_name(db_session):
 @pytest.mark.asyncio
 async def test_set_spu_status(db_session):
     code = await _seed_leaf_category(db_session)
+    from decimal import Decimal
+    from app.services import sku_service
+    from app.core.exceptions import ProductIncompleteError
     spu = await spu_service.create_spu(db_session, category_code=code,
         name_i18n={"zh": "x"}, image_refs=[{"image_key": "img/test.jpg", "image_type": "MAIN", "sort_order": 0}],
         actor_user_id=1, actor_user_email="a@b.c")
-    assert spu.status == SpuStatus.ACTIVE
+    assert spu.status == SpuStatus.DRAFT  # 新建默认草稿
+    # 无带价在售 SKU → 启用被拒(完备性)
+    with pytest.raises(ProductIncompleteError):
+        await spu_service.set_spu_status(db_session, spu_id=spu.id,
+            status=SpuStatus.ACTIVE, actor_user_id=1, actor_user_email="a@b.c")
+    # 建带价在售 SKU 后可启用,再停用
+    await sku_service.create_sku(db_session, spu_id=spu.id, unit="piece",
+        reference_price=Decimal("1.00"), name_i18n={"zh": "a"}, spec_items=[],
+        actor_user_id=1, actor_user_email="a@b.c")
+    activated = await spu_service.set_spu_status(db_session, spu_id=spu.id,
+        status=SpuStatus.ACTIVE, actor_user_id=1, actor_user_email="a@b.c")
+    assert activated.status == SpuStatus.ACTIVE
     updated = await spu_service.set_spu_status(db_session, spu_id=spu.id,
         status=SpuStatus.INACTIVE, actor_user_id=1, actor_user_email="a@b.c")
     assert updated.status == SpuStatus.INACTIVE

@@ -122,7 +122,10 @@ async def test_search_available_filter_cascades_on_spu_status(client, product_op
     spu = (await client.post("/api/v1/spus", headers=h,
         json={"category_code": "10", "name_i18n": {"zh": "钢丝网"}, "images": [{"image_key": "img/test.jpg", "image_type": "MAIN", "sort_order": 0}]})).json()["data"]
     await client.post("/api/v1/skus", headers=h, json={
-        "spu_id": spu["id"], "unit": "piece", "name_i18n": {"zh": "钢丝网A"}, "spec_items": []})
+        "spu_id": spu["id"], "unit": "piece", "reference_price": "1.00",
+        "name_i18n": {"zh": "钢丝网A"}, "spec_items": []})
+    # 启用 SPU(带价在售 SKU)后 available=1 才可能命中
+    await client.patch(f"/api/v1/spus/{spu['id']}/status", headers=h, json={"status": "ACTIVE"})
 
     r1 = await client.get("/api/v1/skus?q=钢丝&available=1", headers=h)
     assert r1.status_code == 200

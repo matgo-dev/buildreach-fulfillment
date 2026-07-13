@@ -27,3 +27,8 @@ class MessageKey:
 
     # sku
     SPEC_CONTRACT = "error.sku.spec_contract"
+
+    # product 生命周期(SPU 状态机)
+    PRODUCT_NOT_EDITABLE = "error.product.not_editable"
+    PRODUCT_ILLEGAL_TRANSITION = "error.product.illegal_transition"
+    PRODUCT_INCOMPLETE = "error.product.incomplete"

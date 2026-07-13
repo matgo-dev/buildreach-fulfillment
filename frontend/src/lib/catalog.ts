@@ -11,7 +11,8 @@ export interface CategoryNode {
   sort_order: number;
 }
 
-export type ProductStatus = "ACTIVE" | "INACTIVE";
+// SPU 三态生命周期(SKU 仍二态 ACTIVE/INACTIVE)。语义见 backend SpuStatus / lib/productStatus。
+export type ProductStatus = "DRAFT" | "ACTIVE" | "INACTIVE";
 
 export type ImageType = "MAIN" | "GALLERY" | "DETAIL";
 

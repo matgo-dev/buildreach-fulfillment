@@ -21,6 +21,7 @@ import { catalogApi, SpuListItem } from "@/lib/catalog";
 import { display } from "@/lib/i18n";
 import { Can } from "@/components/common/Can";
 import { CategoryTree } from "@/components/catalog/CategoryTree";
+import { SPU_STATUS_META, spuEditable, spuDeletable, spuNextAction } from "@/lib/productStatus";
 
 const PAGE_SIZE = 20;
 
@@ -68,11 +69,13 @@ export default function SpuListPage() {
     }
   }
   async function onToggle(s: SpuListItem) {
+    const next = spuNextAction(s.status);
     try {
-      await catalogApi.setSpuStatus(s.id, s.status === "ACTIVE" ? "INACTIVE" : "ACTIVE");
-      message.success("状态已更新");
+      await catalogApi.setSpuStatus(s.id, next.to);
+      message.success(`已${next.label}`);
       load();
     } catch (e) {
+      // 启用可能因完备性(无带价在售 SKU)被后端拒,原样透出后端提示。
       message.error(e instanceof Error ? e.message : "操作失败");
     }
   }
@@ -100,8 +103,8 @@ export default function SpuListPage() {
       title: "状态",
       dataIndex: "status",
       width: 90,
-      render: (v: string) => (
-        <Tag color={v === "ACTIVE" ? "success" : "default"}>{v === "ACTIVE" ? "上架" : "下架"}</Tag>
+      render: (v: SpuListItem["status"]) => (
+        <Tag color={SPU_STATUS_META[v].color}>{SPU_STATUS_META[v].label}</Tag>
       ),
     },
     {
@@ -114,28 +117,33 @@ export default function SpuListPage() {
             查看 SKU
           </Button>
           <Can perm="product:manage">
-            <Button
-              size="small"
-              type="link"
-              onClick={() => router.push(`/catalog/spus/${r.id}?edit=1`)}
-            >
-              编辑
-            </Button>
-            <Button size="small" type="link" onClick={() => onToggle(r)}>
-              {r.status === "ACTIVE" ? "下架" : "上架"}
-            </Button>
-            <Popconfirm
-              title="删除该 SPU?"
-              description="逻辑删后从目录隐藏(仍有未删 SKU 时不可删)。"
-              okText="删除"
-              okButtonProps={{ danger: true }}
-              cancelText="取消"
-              onConfirm={() => onDelete(r.id)}
-            >
-              <Button size="small" type="link" danger>
-                删除
+            {/* 编辑/删除仅 DRAFT/INACTIVE 可见(ACTIVE 锁,先停用);启用/停用随状态互斥。 */}
+            {spuEditable(r.status) && (
+              <Button
+                size="small"
+                type="link"
+                onClick={() => router.push(`/catalog/spus/${r.id}?edit=1`)}
+              >
+                编辑
               </Button>
-            </Popconfirm>
+            )}
+            <Button size="small" type="link" onClick={() => onToggle(r)}>
+              {spuNextAction(r.status).label}
+            </Button>
+            {spuDeletable(r.status) && (
+              <Popconfirm
+                title="删除该 SPU?"
+                description="逻辑删后从目录隐藏(仍有未删 SKU 时不可删)。"
+                okText="删除"
+                okButtonProps={{ danger: true }}
+                cancelText="取消"
+                onConfirm={() => onDelete(r.id)}
+              >
+                <Button size="small" type="link" danger>
+                  删除
+                </Button>
+              </Popconfirm>
+            )}
           </Can>
         </Space>
       ),
@@ -174,8 +182,9 @@ export default function SpuListPage() {
               }}
               options={[
                 { label: "全部", value: "ALL" },
-                { label: "上架", value: "ACTIVE" },
-                { label: "下架", value: "INACTIVE" },
+                { label: "草稿", value: "DRAFT" },
+                { label: "启用", value: "ACTIVE" },
+                { label: "停用", value: "INACTIVE" },
               ]}
             />
             <Can perm="product:manage">

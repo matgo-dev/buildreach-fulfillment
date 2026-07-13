@@ -10,6 +10,13 @@ import { Can } from "@/components/common/Can";
 import { SpuForm } from "@/components/catalog/SpuForm";
 import { SkuForm } from "@/components/catalog/SkuForm";
 import { useAuthStore } from "@/stores/authStore";
+import {
+  SPU_STATUS_META,
+  SKU_STATUS_META,
+  spuEditable,
+  spuNextAction,
+  skuNextActionLabel,
+} from "@/lib/productStatus";
 
 function specText(items: SkuDetailItem["spec_jsonb"]): string {
   return (items ?? [])
@@ -65,6 +72,18 @@ export default function SpuDetailPage() {
       message.error(e instanceof Error ? e.message : "操作失败");
     }
   }
+  async function toggleSpu() {
+    if (!spu) return;
+    const next = spuNextAction(spu.status);
+    try {
+      await catalogApi.setSpuStatus(spu.id, next.to);
+      message.success(`已${next.label}`);
+      load();
+    } catch (e) {
+      // 启用可能因完备性(无带价在售 SKU)被后端拒;停用可能联动 —— 原样透出后端提示。
+      message.error(e instanceof Error ? e.message : "操作失败");
+    }
+  }
 
   const columns: ColumnsType<SkuDetailItem> = [
     { title: "编码", dataIndex: "sku_code", width: 150 },
@@ -94,7 +113,7 @@ export default function SpuDetailPage() {
       dataIndex: "status",
       width: 90,
       render: (v: string) => (
-        <Tag color={v === "ACTIVE" ? "success" : "default"}>{v === "ACTIVE" ? "上架" : "下架"}</Tag>
+        <Tag color={SKU_STATUS_META[v]?.color}>{SKU_STATUS_META[v]?.label ?? v}</Tag>
       ),
     },
     {
@@ -104,24 +123,29 @@ export default function SpuDetailPage() {
       render: (_, r) => (
         <Can perm="product:manage">
           <Space size="small">
-            <Button size="small" type="link" onClick={() => setSkuForm({ open: true, sku: r })}>
-              编辑
-            </Button>
-            <Button size="small" type="link" onClick={() => toggleSku(r)}>
-              {r.status === "ACTIVE" ? "下架" : "上架"}
-            </Button>
-            <Popconfirm
-              title="删除该 SKU?"
-              description="逻辑删后从目录隐藏。"
-              okText="删除"
-              okButtonProps={{ danger: true }}
-              cancelText="取消"
-              onConfirm={() => delSku(r.id)}
-            >
-              <Button size="small" type="link" danger>
-                删除
+            {/* SKU 增改删受父 SPU 锁;上下架(在售/停售)豁免 —— 启用中商品仍可停售单个缺货变体。 */}
+            {spuEditable(spu.status) && (
+              <Button size="small" type="link" onClick={() => setSkuForm({ open: true, sku: r })}>
+                编辑
               </Button>
-            </Popconfirm>
+            )}
+            <Button size="small" type="link" onClick={() => toggleSku(r)}>
+              {skuNextActionLabel(r.status)}
+            </Button>
+            {spuEditable(spu.status) && (
+              <Popconfirm
+                title="删除该 SKU?"
+                description="逻辑删后从目录隐藏。"
+                okText="删除"
+                okButtonProps={{ danger: true }}
+                cancelText="取消"
+                onConfirm={() => delSku(r.id)}
+              >
+                <Button size="small" type="link" danger>
+                  删除
+                </Button>
+              </Popconfirm>
+            )}
           </Space>
         </Can>
       ),
@@ -136,7 +160,16 @@ export default function SpuDetailPage() {
         style={{ marginBottom: 16 }}
         extra={
           <Can perm="product:manage">
-            <Button onClick={() => setEditSpu(true)}>编辑</Button>
+            <Space>
+              {/* 编辑仅 DRAFT/INACTIVE(ACTIVE 锁,先停用);启用/停用随状态互斥。 */}
+              {spuEditable(spu.status) && <Button onClick={() => setEditSpu(true)}>编辑</Button>}
+              <Button
+                type={spu.status === "ACTIVE" ? "default" : "primary"}
+                onClick={toggleSpu}
+              >
+                {spuNextAction(spu.status).label}
+              </Button>
+            </Space>
           </Can>
         }
       >
@@ -183,8 +216,8 @@ export default function SpuDetailPage() {
                 key: "s",
                 label: "状态",
                 children: (
-                  <Tag color={spu.status === "ACTIVE" ? "success" : "default"}>
-                    {spu.status === "ACTIVE" ? "上架" : "下架"}
+                  <Tag color={SPU_STATUS_META[spu.status].color}>
+                    {SPU_STATUS_META[spu.status].label}
                   </Tag>
                 ),
               },
@@ -203,9 +236,13 @@ export default function SpuDetailPage() {
         title="SKU 列表"
         extra={
           <Can perm="product:manage">
-            <Button type="primary" onClick={() => setSkuForm({ open: true })}>
-              新建 SKU
-            </Button>
+            {spuEditable(spu.status) ? (
+              <Button type="primary" onClick={() => setSkuForm({ open: true })}>
+                新建 SKU
+              </Button>
+            ) : (
+              <Tag color="default">启用中不可增改 SKU,先停用</Tag>
+            )}
           </Can>
         }
       >

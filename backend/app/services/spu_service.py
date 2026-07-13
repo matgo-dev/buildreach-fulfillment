@@ -10,12 +10,37 @@ from starlette.requests import Request
 from app.audit.constants import AuditAction, AuditResourceType
 from app.audit.logger import write_audit
 from app.core.codegen import NumberScope, format_code
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import (ConflictError, IllegalStatusTransitionError, NotFoundError,
+                                 ProductIncompleteError, ProductNotEditableError)
 from app.db.models.category import Category
-from app.db.models.sku import Sku
-from app.db.models.spu import Spu
+from app.db.models.sku import Sku, SkuStatus
+from app.db.models.spu import Spu, SpuStatus
 from app.services import image_service
 from app.services.numbering import allocate
+
+
+def ensure_spu_editable(spu: Spu) -> None:
+    """写门禁:SPU 须在 EDITABLE 集(DRAFT/INACTIVE)才可改内容 / 增删其 SKU。
+
+    ACTIVE(启用中,可能正被报价选用)一律拒,先停用再改 —— 状态粒度锁(见 SpuStatus)。
+    SKU 侧写操作复用本守卫(sku_service import),单一入口。
+    """
+    if spu.status not in SpuStatus.EDITABLE:
+        raise ProductNotEditableError(
+            f"商品当前为 {spu.status}(启用中),不可编辑;请先停用后再改")
+
+
+async def has_active_sku(db: AsyncSession, spu_id: int) -> bool:
+    """启用完备性 / 联动判据:该 SPU 是否至少有一个在售(ACTIVE 未删)SKU。
+
+    只看 status,**不看 reference_price** —— reference_price 是内部采购参考价(红线成本),
+    报价成交价由销售另填,报价可选性不依赖它;与消费侧口径(sku_available / search available
+    只滤 status=ACTIVE)保持一致(独立 DB 评审 should-fix)。
+    """
+    n = (await db.execute(select(func.count()).select_from(Sku).where(
+        Sku.spu_id == spu_id, Sku.status == SkuStatus.ACTIVE,
+        Sku.deleted_at.is_(None)))).scalar_one()
+    return n > 0
 
 
 async def _get_leaf_category(db: AsyncSession, code: str) -> Category:
@@ -55,6 +80,7 @@ async def update_spu(db: AsyncSession, *, spu_id, name_i18n=None, category_code=
                      image_refs=None,
                      actor_user_id, actor_user_email, request: Request | None = None) -> Spu:
     spu = await get_spu(db, spu_id)
+    ensure_spu_editable(spu)
     if category_code is not None:
         await _get_leaf_category(db, category_code)
         spu.category_code = category_code
@@ -74,6 +100,12 @@ async def update_spu(db: AsyncSession, *, spu_id, name_i18n=None, category_code=
 async def set_spu_status(db: AsyncSession, *, spu_id, status, actor_user_id,
                          actor_user_email, request: Request | None = None) -> Spu:
     spu = await get_spu(db, spu_id)
+    # 走转移白名单:启用/停用两向 + 停用后可重启;拒绝 DRAFT↔INACTIVE、同态自转等非法跳。
+    if not SpuStatus.can_transition(spu.status, status):
+        raise IllegalStatusTransitionError(f"非法状态转移: {spu.status} → {status}")
+    # 启用完备性:无在售 SKU 的商品报价选不到货,不许启用(不卡参考价,理由见 has_active_sku)。
+    if status == SpuStatus.ACTIVE and not await has_active_sku(db, spu_id):
+        raise ProductIncompleteError("启用失败:至少需一个在售 SKU")
     spu.status = status
     await write_audit(db, resource_type=AuditResourceType.SPU, action=AuditAction.UPDATE,
                       user_id=actor_user_id, user_email=actor_user_email,
@@ -85,6 +117,9 @@ async def set_spu_status(db: AsyncSession, *, spu_id, status, actor_user_id,
 async def soft_delete_spu(db: AsyncSession, *, spu_id, actor_user_id, actor_user_email,
                           request: Request | None = None) -> None:
     spu = await get_spu(db, spu_id)
+    if spu.status not in SpuStatus.DELETABLE:
+        raise ProductNotEditableError(
+            f"商品当前为 {spu.status}(启用中),不可删除;请先停用")
     n = (await db.execute(select(func.count()).select_from(Sku).where(
         Sku.spu_id == spu_id, Sku.deleted_at.is_(None)))).scalar_one()
     if n > 0:
