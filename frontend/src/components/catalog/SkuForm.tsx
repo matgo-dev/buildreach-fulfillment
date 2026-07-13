@@ -168,8 +168,17 @@ export function SkuForm({
     catalogApi.units().then((r) => setUnits(r.items)).catch(() => setUnits([]));
     form.setFieldsValue(
       sku
-        ? { name_zh: display(sku.name_i18n), unit: sku.unit, reference_price: sku.reference_price ?? undefined }
-        : { name_zh: "", unit: undefined, reference_price: undefined },
+        ? {
+            name_zh: display(sku.name_i18n),
+            unit: sku.unit,
+            reference_price: sku.reference_price ?? undefined,
+            weight_kg: sku.weight_kg ?? undefined,
+            length_cm: sku.length_cm ?? undefined,
+            width_cm: sku.width_cm ?? undefined,
+            height_cm: sku.height_cm ?? undefined,
+          }
+        : { name_zh: "", unit: undefined, reference_price: undefined,
+            weight_kg: undefined, length_cm: undefined, width_cm: undefined, height_cm: undefined },
     );
     setImageKeys(sku ? sku.images.map((i) => i.image_key) : []);
 
@@ -247,6 +256,10 @@ export function SkuForm({
         unit: v.unit,
         name_i18n: { zh: v.name_zh.trim() },
         reference_price: v.reference_price ?? null,
+        weight_kg: v.weight_kg ?? null,
+        length_cm: v.length_cm ?? null,
+        width_cm: v.width_cm ?? null,
+        height_cm: v.height_cm ?? null,
         spec_items,
         images: imageKeys.map((k, i) => ({ image_key: k, sort_order: i })),
       };
@@ -312,6 +325,20 @@ export function SkuForm({
         <Form.Item label="内部采购参考价(仅商品管理可见)" name="reference_price">
           <InputNumber style={{ width: 200 }} precision={2} min={0} placeholder="0.00" addonBefore="¥" />
         </Form.Item>
+        <Form.Item label="重量(kg,选填)" name="weight_kg">
+          <InputNumber style={{ width: 200 }} min={0} precision={3} addonAfter="kg" placeholder="单个售卖单位净重" />
+        </Form.Item>
+        <Space size={12} wrap>
+          <Form.Item label="长(cm)" name="length_cm">
+            <InputNumber style={{ width: 130 }} min={0} precision={2} addonAfter="cm" />
+          </Form.Item>
+          <Form.Item label="宽(cm)" name="width_cm">
+            <InputNumber style={{ width: 130 }} min={0} precision={2} addonAfter="cm" />
+          </Form.Item>
+          <Form.Item label="高(cm)" name="height_cm">
+            <InputNumber style={{ width: 130 }} min={0} precision={2} addonAfter="cm" />
+          </Form.Item>
+        </Space>
       </Form>
 
       <Divider titlePlacement="left" plain style={{ marginTop: 8 }}>
@@ -333,11 +360,11 @@ export function SkuForm({
       <Space direction="vertical" size={10} style={{ width: "100%" }}>
         {templateRows.map((r) => (
           <div key={r.key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 150, textAlign: "right", color: colors.muted }}>
+            <div style={{ width: 132, flex: "none", color: colors.muted, fontSize: 13 }}>
               {r.label}
               {r.unit ? <Text type="secondary"> [{r.unit}]</Text> : null}
             </div>
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
               {r.valueType === "enum" ? (
                 <EnumCell row={r} onChange={(enumMode) => updateTemplate(r.key, { enumMode })} />
               ) : r.valueType === "number" ? (
