@@ -58,11 +58,13 @@ TEST_DSN = _raw_dsn.replace("postgresql+asyncpg://", "postgresql+psycopg://", 1)
 
 # 护栏:本套件的 session fixture 会无条件 drop_all。若 DATABASE_URL 误指向非测试库
 # (曾把 dev 库整清过),必须在任何 fixture / drop_all 之前 fail-fast。
-# 判据:库名(DSN 最后一段,去掉 ?query)必须含 "test"。
-_db_name = _raw_dsn.rsplit("/", 1)[-1].split("?", 1)[0]
-if "test" not in _db_name.lower():
+# 判据:库名(DSN 最后一段,去掉 ?query)须以 `_test` 结尾(或恰为 `test`)。
+# 用后缀而非子串——否则 `fulfillment_dev_test_x` 这类 dev 库会被误放行;
+# 也不写死具体库名,好让 TEST_DATABASE_URL 指向自定义的 `*_test` 库。
+_db_name = _raw_dsn.rsplit("/", 1)[-1].split("?", 1)[0].lower()
+if _db_name != "test" and not _db_name.endswith("_test"):
     raise RuntimeError(
-        f"拒绝在非测试库上跑测试:DATABASE_URL 指向 '{_db_name}'(库名须含 'test')。"
+        f"拒绝在非测试库上跑测试:DATABASE_URL 指向 '{_db_name}'(库名须以 '_test' 结尾)。"
         f"本套件会 drop_all 清库 —— 显式 DATABASE_URL 指向 dev/prod 会清空数据。"
     )
 
