@@ -108,14 +108,6 @@ export default function SpuDetailPage() {
       },
     },
     {
-      title: "可售",
-      dataIndex: "available",
-      width: 80,
-      render: (v: boolean) => (
-        <Tag color={v ? "success" : "default"}>{v ? "可售" : "不可售"}</Tag>
-      ),
-    },
-    {
       title: "状态",
       dataIndex: "status",
       width: 90,
