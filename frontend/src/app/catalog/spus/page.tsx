@@ -34,6 +34,7 @@ export default function SpuListPage() {
   const [keyword, setKeyword] = useState("");
   const [status, setStatus] = useState<string>("ALL");
   const [category, setCategory] = useState<string | undefined>();
+  const [categoryLeaf, setCategoryLeaf] = useState(false); // 选中是叶子时,「新建 SPU」预填该分类
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
@@ -158,8 +159,9 @@ export default function SpuListPage() {
       <Col flex="240px">
         <Card size="small" title="分类">
           <CategoryTree
-            onSelect={(c) => {
+            onSelect={(c, isLeaf) => {
               setCategory(c);
+              setCategoryLeaf(isLeaf);
               setPage(1);
             }}
           />
@@ -194,7 +196,13 @@ export default function SpuListPage() {
               <Button
                 type="primary"
                 icon={<PlusOutlined />}
-                onClick={() => router.push("/catalog/spus/new")}
+                onClick={() =>
+                  router.push(
+                    category
+                      ? `/catalog/spus/new?category=${encodeURIComponent(category)}&leaf=${categoryLeaf ? 1 : 0}`
+                      : "/catalog/spus/new",
+                  )
+                }
               >
                 新建 SPU
               </Button>

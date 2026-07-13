@@ -32,14 +32,27 @@ function buildTreeSelect(nodes: CategoryNode[]): CatTreeNode[] {
   return make(null);
 }
 
+// 点分 code 的完整链(各级前缀含自身):"20.003.004" → ["20","20.003","20.003.004"]。
+// 预展开表单分类树到携带的分类,方便从父节点继续下钻到叶子。
+function catChain(code: string): string[] {
+  const parts = code.split(".");
+  return parts.map((_, i) => parts.slice(0, i + 1).join("."));
+}
+
 export function SpuForm({
   open,
   spu,
+  defaultCategoryCode,
+  defaultCategoryIsLeaf,
   onClose,
   onSaved,
 }: {
   open: boolean;
   spu?: SpuDetail;
+  /** 新建时列表左树选中的分类(来自 ?category=)。编辑时忽略,以 spu 自身分类为准。 */
+  defaultCategoryCode?: string;
+  /** 上面那个分类是否叶子:叶子→直接预填为值;父节点→只把表单树预展开到它,引导继续下钻到叶子。 */
+  defaultCategoryIsLeaf?: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -47,6 +60,7 @@ export function SpuForm({
   const [form] = Form.useForm();
   const [cats, setCats] = useState<CatTreeNode[]>([]);
   const [catCode, setCatCode] = useState<string | undefined>(undefined);
+  const [treeExpanded, setTreeExpanded] = useState<string[]>([]);
   const [images, setImages] = useState<ImageRefIn[]>([]);
   const [saving, setSaving] = useState(false);
   const specRef = useRef<SpecEditorHandle>(null);
@@ -57,7 +71,11 @@ export function SpuForm({
 
   useEffect(() => {
     if (!open) return;
-    setCatCode(spu?.category_code);
+    // 携带的分类:叶子→作为值预填(TreeSelect 只接受叶子);父节点→不填值,仅预展开引导下钻。
+    const carried = spu?.category_code ?? defaultCategoryCode;
+    const preValue = spu?.category_code ?? (defaultCategoryIsLeaf ? defaultCategoryCode : undefined);
+    setCatCode(preValue);
+    setTreeExpanded(carried ? catChain(carried) : []);
     form.setFieldsValue(
       spu
         ? {
@@ -67,7 +85,7 @@ export function SpuForm({
             hs_code: spu.hs_code ?? "",
             description: spu.description ?? "",
           }
-        : { category_code: undefined, name_zh: "", brand: "", hs_code: "", description: "" },
+        : { category_code: preValue, name_zh: "", brand: "", hs_code: "", description: "" },
     );
     setImages(
       spu
@@ -78,7 +96,7 @@ export function SpuForm({
           }))
         : [],
     );
-  }, [open, spu, form]);
+  }, [open, spu, defaultCategoryCode, defaultCategoryIsLeaf, form]);
 
   async function onSubmit() {
     const v = await form.validateFields();
@@ -139,6 +157,8 @@ export function SpuForm({
             placeholder="选择分类"
             allowClear
             style={{ maxWidth: 360 }}
+            treeExpandedKeys={treeExpanded}
+            onTreeExpand={(keys) => setTreeExpanded(keys as string[])}
             onChange={(v) => setCatCode(v)}
           />
         </Form.Item>
