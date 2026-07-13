@@ -44,6 +44,9 @@ export interface SpuOut {
   spu_code: string;
   category_code: string;
   name_i18n: Record<string, string>;
+  brand: string | null;
+  description: string | null;
+  hs_code: string | null;
   status: ProductStatus;
   created_by: number;
   created_at: string;
@@ -51,11 +54,16 @@ export interface SpuOut {
 }
 
 /** 列表行:后端附加派生可用性 + 封面 key(main_image,无图为 null)。 */
-export type SpuListItem = SpuOut & { has_available_sku: boolean; main_image: string | null };
+export type SpuListItem = SpuOut & {
+  has_available_sku: boolean;
+  main_image: string | null;
+  category_name_i18n: Record<string, string> | null;
+};
 
 /** 详情:图集全量 + 内嵌 SKU(每条带派生 available)+ 派生 has_available_sku。 */
 export type SpuDetail = SpuOut & {
   has_available_sku: boolean;
+  category_name_i18n: Record<string, string> | null;
   images: ProductImage[];
   skus: SkuDetailItem[];
 };
@@ -83,6 +91,10 @@ export interface SkuOut {
   unit: string;
   /** 无 product:manage 时后端脱敏为 null。JSON 里 Decimal 可能是字符串。 */
   reference_price: string | number | null;
+  weight_kg: string | number | null;
+  length_cm: string | number | null;
+  width_cm: string | number | null;
+  height_cm: string | number | null;
   spec_jsonb: SpecItem[];
   name_i18n: Record<string, string>;
   search_text: string;
@@ -140,6 +152,10 @@ export interface SkuWriteBody {
   spu_id: number;
   unit: string;
   reference_price?: string | number | null;
+  weight_kg?: string | number | null;
+  length_cm?: string | number | null;
+  width_cm?: string | number | null;
+  height_cm?: string | number | null;
   name_i18n: Record<string, string>;
   spec_items: SkuSpecItemIn[];
   images: SkuImageRefIn[];
@@ -174,6 +190,9 @@ export const catalogApi = {
   createSpu: (b: {
     category_code: string;
     name_i18n: Record<string, string>;
+    brand?: string | null;
+    description?: string | null;
+    hs_code?: string | null;
     images: ImageRefIn[];
   }) => api.post<SpuWriteResult>("/api/v1/spus", b),
   updateSpu: (
@@ -181,6 +200,9 @@ export const catalogApi = {
     b: {
       name_i18n?: Record<string, string>;
       category_code?: string;
+      brand?: string | null;
+      description?: string | null;
+      hs_code?: string | null;
       images?: ImageRefIn[];
     },
   ) => api.put<SpuWriteResult>(`/api/v1/spus/${id}`, b),
