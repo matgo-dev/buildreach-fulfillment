@@ -55,8 +55,14 @@ export function SpuForm({
     if (!open) return;
     form.setFieldsValue(
       spu
-        ? { category_code: spu.category_code, name_zh: display(spu.name_i18n) }
-        : { category_code: undefined, name_zh: "" },
+        ? {
+            category_code: spu.category_code,
+            name_zh: display(spu.name_i18n),
+            brand: spu.brand ?? "",
+            hs_code: spu.hs_code ?? "",
+            description: spu.description ?? "",
+          }
+        : { category_code: undefined, name_zh: "", brand: "", hs_code: "", description: "" },
     );
     setImages(
       spu
@@ -80,6 +86,9 @@ export function SpuForm({
       const body = {
         category_code: v.category_code,
         name_i18n: { zh: v.name_zh.trim() },
+        brand: v.brand?.trim() || null,
+        hs_code: v.hs_code?.trim() || null,
+        description: v.description?.trim() || null,
         images,
       };
       if (spu) await catalogApi.updateSpu(spu.id, body);
@@ -137,6 +146,21 @@ export function SpuForm({
           ]}
         >
           <Input placeholder="如:镀锌钢管" maxLength={120} style={{ maxWidth: 360 }} />
+        </Form.Item>
+        <Form.Item name="brand" label="品牌(选填)">
+          <Input placeholder="如:海螺" maxLength={100} style={{ maxWidth: 360 }} />
+        </Form.Item>
+        <Form.Item name="hs_code" label="HS 编码(选填)">
+          <Input placeholder="海关归类码,如 2523290000" maxLength={20} style={{ maxWidth: 360 }} />
+        </Form.Item>
+        <Form.Item name="description" label="描述(选填)">
+          <Input.TextArea
+            placeholder="商品说明(非内部备注)"
+            rows={3}
+            maxLength={1000}
+            showCount
+            style={{ maxWidth: 480 }}
+          />
         </Form.Item>
       </Form>
       <SpuImageManager value={images} onChange={setImages} />
