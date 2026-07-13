@@ -75,6 +75,7 @@ export function ImageZone({
           return (
             <div
               key={key}
+              className="group"
               draggable
               onDragStart={() => setDragIdx(i)}
               onDragOver={(e) => e.preventDefault()}
@@ -110,13 +111,11 @@ export function ImageZone({
                 </span>
               )}
               <div
+                className="opacity-0 transition-opacity duration-150 group-hover:opacity-100"
                 style={{
                   position: "absolute", inset: 0, display: "flex", alignItems: "center",
-                  justifyContent: "center", gap: 12, background: "rgba(0,0,0,0.35)", opacity: 0,
-                  transition: "opacity .15s",
+                  justifyContent: "center", gap: 12, background: "rgba(0,0,0,0.35)",
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
-                onMouseLeave={(e) => (e.currentTarget.style.opacity = "0")}
               >
                 {onSetCover && !isCover && (
                   <StarOutlined

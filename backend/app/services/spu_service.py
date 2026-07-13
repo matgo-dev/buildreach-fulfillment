@@ -60,12 +60,14 @@ async def update_spu(db: AsyncSession, *, spu_id, name_i18n=None, category_code=
         spu.category_code = category_code
     if name_i18n is not None:
         spu.name_i18n = name_i18n
+    removed_keys: list[str] = []
     if image_refs is not None:
-        await image_service.reconcile_spu_images(db, spu.id, image_refs)
+        removed_keys = await image_service.reconcile_spu_images(db, spu.id, image_refs)
     await write_audit(db, resource_type=AuditResourceType.SPU, action=AuditAction.UPDATE,
                       user_id=actor_user_id, user_email=actor_user_email,
                       resource_id=spu.id, request=request, commit=False)
     await db.commit()
+    await image_service.gc_orphan_objects(db, removed_keys)  # 提交后回收孤儿存储对象
     return spu
 
 

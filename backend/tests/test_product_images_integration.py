@@ -140,6 +140,57 @@ async def test_sku_image_set_persists_and_cap6(client, product_operator_headers,
     assert r7.status_code == 422, r7.text
 
 
+# ── 提交后 GC 孤儿存储对象(硬删图行不残留文件)──
+
+async def _upload_and_store(client, headers, filename, body=b"realbytes"):
+    """走 POST /uploads 拿 key → PUT 落盘,返回真实存在的 image_key。"""
+    key = (await client.post("/api/v1/uploads", headers=headers,
+           json={"filename": filename, "content_type": "image/jpeg"})).json()["data"]["key"]
+    r = await client.put(f"/api/v1/uploads/{key}", headers=headers, content=body)
+    assert r.status_code in (200, 201, 204), r.text
+    return key
+
+
+@pytest.mark.asyncio
+async def test_update_spu_removing_image_gc_deletes_orphan_object(
+        client, product_operator_headers, db_session):
+    from app.services.storage import get_attachment_storage
+    await _seed_category(db_session)
+    gallery = await _upload_and_store(client, product_operator_headers, "g.jpg")
+    assert get_attachment_storage().exists(gallery)
+
+    sid = (await _create_spu(client, product_operator_headers, [
+        _img("img/cover.jpg", "MAIN", 0), _img(gallery, "GALLERY", 1)])).json()["data"]["id"]
+
+    # 移除该 gallery 图 → 无其它行引用 → 存储对象应被 GC
+    r = await client.put(f"/api/v1/spus/{sid}", headers=product_operator_headers,
+                         json={"images": [_img("img/cover.jpg", "MAIN", 0)]})
+    assert r.status_code == 200, r.text
+    assert not get_attachment_storage().exists(gallery)
+
+
+@pytest.mark.asyncio
+async def test_gc_keeps_object_still_referenced_by_sku(
+        client, product_operator_headers, db_session):
+    """同一 key 被 SKU 行引用时,从 SPU 移除不得删存储对象(引用计数保护)。"""
+    from app.services.storage import get_attachment_storage
+    await _seed_category(db_session)
+    shared = await _upload_and_store(client, product_operator_headers, "shared.jpg")
+
+    sid = (await _create_spu(client, product_operator_headers, [
+        _img("img/cover.jpg", "MAIN", 0), _img(shared, "GALLERY", 1)])).json()["data"]["id"]
+    # 同一 key 也挂到一个 SKU 上
+    r = await client.post("/api/v1/skus", headers=product_operator_headers, json={
+        "spu_id": sid, "unit": "piece", "name_i18n": {"zh": "钢管A"}, "spec_items": [],
+        "images": [{"image_key": shared, "sort_order": 0}]})
+    assert r.status_code in (200, 201), r.text
+
+    # 从 SPU 移除 shared → SKU 行仍引用 → 存储对象保留
+    await client.put(f"/api/v1/spus/{sid}", headers=product_operator_headers,
+                     json={"images": [_img("img/cover.jpg", "MAIN", 0)]})
+    assert get_attachment_storage().exists(shared)
+
+
 # ── 上传 20MB 硬限 ──
 
 @pytest.mark.asyncio

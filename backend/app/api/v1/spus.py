@@ -52,10 +52,10 @@ async def get_spu(
     spu = await spu_service.get_spu(db, spu_id)
     skus = await sku_service.list_skus_by_spu(db, spu_id)
     include_cost = Permissions.PRODUCT_MANAGE in current.permissions
+    images_by_sku = await image_service.sku_images_by_sku(db, [s.id for s in skus])
     sku_dicts = []
     for s in skus:
-        d = sku_out(s, include_cost=include_cost,
-                    images=await image_service.list_sku_images(db, s.id))
+        d = sku_out(s, include_cost=include_cost, images=images_by_sku.get(s.id, []))
         d["available"] = sku_service.sku_available(s, spu)
         sku_dicts.append(d)
     return success({

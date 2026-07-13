@@ -58,6 +58,9 @@ export type SpuDetail = SpuOut & {
   skus: SkuDetailItem[];
 };
 
+/** 建/改 SPU 的返回:后端 _spu_with_images 只回 SpuOut + 图集(不含 skus / 派生可用性)。 */
+export type SpuWriteResult = SpuOut & { images: ProductImage[] };
+
 /** spec_jsonb 落库形状(§11 Part B:不含 unit,计量单位只住模板)。 */
 export interface SpecItem {
   key: string;
@@ -163,7 +166,7 @@ export const catalogApi = {
     category_code: string;
     name_i18n: Record<string, string>;
     images: ImageRefIn[];
-  }) => api.post<SpuDetail>("/api/v1/spus", b),
+  }) => api.post<SpuWriteResult>("/api/v1/spus", b),
   updateSpu: (
     id: number,
     b: {
@@ -171,7 +174,7 @@ export const catalogApi = {
       category_code?: string;
       images?: ImageRefIn[];
     },
-  ) => api.put<SpuDetail>(`/api/v1/spus/${id}`, b),
+  ) => api.put<SpuWriteResult>(`/api/v1/spus/${id}`, b),
   setSpuStatus: (id: number, status: string) =>
     api.patch<SpuOut>(`/api/v1/spus/${id}/status`, { status }),
   deleteSpu: (id: number) => api.del<null>(`/api/v1/spus/${id}`),

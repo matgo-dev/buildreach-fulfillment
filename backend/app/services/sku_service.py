@@ -219,8 +219,9 @@ async def update_sku(db: AsyncSession, *, sku_id, name_i18n=None, unit=None,
         sku.unit = unit
     if reference_price is not None:
         sku.reference_price = reference_price
+    removed_keys: list[str] = []
     if image_refs is not None:
-        await image_service.reconcile_sku_images(db, sku.spu_id, sku.id, image_refs)
+        removed_keys = await image_service.reconcile_sku_images(db, sku.spu_id, sku.id, image_refs)
     if spec_items is not None:
         sku.spec_jsonb = await _resolve_spec(db, category_code, [i for i in spec_items])
     # 写路径单一入口:任何影响面重算 search_text
@@ -230,4 +231,5 @@ async def update_sku(db: AsyncSession, *, sku_id, name_i18n=None, unit=None,
                       user_id=actor_user_id, user_email=actor_user_email,
                       resource_id=sku.id, request=request, commit=False)
     await db.commit()
+    await image_service.gc_orphan_objects(db, removed_keys)  # 提交后回收孤儿存储对象
     return sku
