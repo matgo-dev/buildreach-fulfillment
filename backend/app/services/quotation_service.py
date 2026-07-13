@@ -13,14 +13,18 @@ from app.audit.logger import write_audit
 from app.core.codegen import NumberScope, format_code
 from app.core.exceptions import (
     NotFoundError,
+    QuotationCannotUnlockConvertedError,
     QuotationEditConflictError,
+    QuotationEmptyLinesError,
     QuotationInvalidLineError,
+    QuotationInvalidTransitionError,
     QuotationNotDraftError,
 )
 from app.core.i18n import compose_spec_text, display
 from app.core.languages import DEFAULT_QUOTE_LANGUAGE
 from app.db.models.quotation import (
     QUOTATION_EDITABLE,
+    QUOTATION_TRANSITIONS,
     QuotationLine,
     QuotationOrder,
     QuotationStatus,
@@ -218,3 +222,54 @@ async def save_order(db: AsyncSession, *, order_id: int | None, customer_id, cur
     await db.commit()
     await db.refresh(order)
     return order
+
+
+def _assert_transition(current: str, target: str) -> None:
+    """合法转移守卫,读 model 层矩阵单一源头(QUOTATION_TRANSITIONS)。"""
+    if target not in QUOTATION_TRANSITIONS[current]:
+        raise QuotationInvalidTransitionError(f"非法转移: {current} → {target}")
+
+
+async def _transition(db: AsyncSession, order_id: int, target: str, audit_action: AuditAction,
+                      *, actor_user_id, actor_user_email, request: Request | None) -> QuotationOrder:
+    order = await get_order(db, order_id)
+    _assert_transition(order.status, target)
+    order.status = target
+    await db.flush()
+    await write_audit(db, resource_type=AuditResourceType.QUOTATION, action=audit_action,
+                      user_id=actor_user_id, user_email=actor_user_email,
+                      resource_id=order.id, request=request, commit=False)
+    await db.commit()
+    await db.refresh(order)
+    return order
+
+
+async def lock_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_email,
+                     request: Request | None = None) -> QuotationOrder:
+    """锁档 DRAFT→LOCKED(冻结基准),前置至少一行。"""
+    order = await get_order(db, order_id)
+    _assert_transition(order.status, QuotationStatus.LOCKED)
+    if not await list_lines(db, order_id):
+        raise QuotationEmptyLinesError()
+    return await _transition(db, order_id, QuotationStatus.LOCKED, AuditAction.LOCK,
+                             actor_user_id=actor_user_id, actor_user_email=actor_user_email,
+                             request=request)
+
+
+async def unlock_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_email,
+                       request: Request | None = None) -> QuotationOrder:
+    """解锁 LOCKED→DRAFT;已转销售不可解(专有错误码)。"""
+    order = await get_order(db, order_id)
+    if order.status == QuotationStatus.CONVERTED:
+        raise QuotationCannotUnlockConvertedError()
+    return await _transition(db, order_id, QuotationStatus.DRAFT, AuditAction.UNLOCK,
+                             actor_user_id=actor_user_id, actor_user_email=actor_user_email,
+                             request=request)
+
+
+async def void_order(db: AsyncSession, *, order_id, reason=None, actor_user_id, actor_user_email,
+                     request: Request | None = None) -> QuotationOrder:
+    """作废 DRAFT/LOCKED→VOID(曾有效现废弃;reason 落 audit)。"""
+    return await _transition(db, order_id, QuotationStatus.VOID, AuditAction.VOID,
+                             actor_user_id=actor_user_id, actor_user_email=actor_user_email,
+                             request=request)

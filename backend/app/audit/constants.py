@@ -22,6 +22,10 @@ class AuditAction(str, Enum):
     UPDATE = "UPDATE"
     DELETE = "DELETE"
     DISABLE = "DISABLE"
+    # 报价状态跃迁(归属走 audit,不上业务列)
+    LOCK = "LOCK"
+    UNLOCK = "UNLOCK"
+    VOID = "VOID"
     LOGIN_SUCCESS = "LOGIN_SUCCESS"
     LOGIN_FAILED = "LOGIN_FAILED"
     LOGIN_LOCKED = "LOGIN_LOCKED"
