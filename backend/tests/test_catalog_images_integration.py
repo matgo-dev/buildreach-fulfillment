@@ -155,3 +155,12 @@ async def test_media_get_missing_key_404(client):
 async def test_media_get_rejects_bad_key_shape(client):
     r = await client.get("/media/img/../../etc/passwd")
     assert r.status_code in (400, 404)
+
+
+@pytest.mark.asyncio
+async def test_media_get_returns_404_when_backend_not_local(client, monkeypatch):
+    """安全边界:非 local 后端(生产走公读桶)时 /media 一律 404,本端点不可达。"""
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "STORAGE_BACKEND", "s3")
+    r = await client.get("/media/img/00000000000000000000000000000000_x.png")
+    assert r.status_code == 404

@@ -1,4 +1,5 @@
 import { api } from "./api";
+import { display } from "./i18n";
 
 // ---- 类型(对齐后端 schemas/spu.py · sku.py · categories/units 路由)----
 
@@ -66,6 +67,13 @@ export type SpuWriteResult = SpuOut & { images: ProductImage[] };
 export interface SpecItem {
   key: string;
   value: string | number | Record<string, string>;
+}
+
+/** 规格串:`key:value`(值为 i18n 对象时取展示语言),空则空串。列表/详情共用。 */
+export function specText(items: SpecItem[] | undefined | null): string {
+  return (items ?? [])
+    .map((i) => `${i.key}:${typeof i.value === "object" ? display(i.value) : i.value}`)
+    .join(" / ");
 }
 
 export interface SkuOut {

@@ -3,14 +3,9 @@ import { useState } from "react";
 import { Card, Input, Table, Tag, App } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useRouter } from "next/navigation";
-import { catalogApi, SkuSearchItem } from "@/lib/catalog";
+import { catalogApi, SkuSearchItem, specText } from "@/lib/catalog";
 import { display } from "@/lib/i18n";
-
-function specText(items: SkuSearchItem["spec_jsonb"]): string {
-  return (items ?? [])
-    .map((i) => `${i.key}:${typeof i.value === "object" ? display(i.value) : i.value}`)
-    .join(" / ");
-}
+import { SKU_STATUS_META } from "@/lib/productStatus";
 
 export default function SkuSearchPage() {
   const { message } = App.useApp();
@@ -47,7 +42,7 @@ export default function SkuSearchPage() {
       dataIndex: "status",
       width: 90,
       render: (v: string) => (
-        <Tag color={v === "ACTIVE" ? "success" : "default"}>{v === "ACTIVE" ? "上架" : "下架"}</Tag>
+        <Tag color={SKU_STATUS_META[v]?.color}>{SKU_STATUS_META[v]?.label ?? v}</Tag>
       ),
     },
   ];

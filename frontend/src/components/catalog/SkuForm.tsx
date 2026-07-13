@@ -71,8 +71,11 @@ function EnumCell({
 
   const options = row.options.map((o) => ({ value: o.code, label: display(o.label_i18n) || o.code }));
   // 编辑时既有 code 不在 options(极少),补一个回退项避免显示空。
-  if (row.enumMode?.kind === "existing" && row.enumMode.code && !row.options.some((o) => o.code === row.enumMode!["code" as never])) {
-    options.push({ value: row.enumMode.code, label: row.enumMode.code });
+  if (row.enumMode?.kind === "existing" && row.enumMode.code) {
+    const code = row.enumMode.code;
+    if (!row.options.some((o) => o.code === code)) {
+      options.push({ value: code, label: code });
+    }
   }
   const pendingVal = "__pending_new__";
   if (row.enumMode?.kind === "new") {

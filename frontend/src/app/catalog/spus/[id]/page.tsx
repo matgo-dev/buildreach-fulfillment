@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { Card, Descriptions, Table, Button, Tag, Space, Popconfirm, Spin, App } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { catalogApi, SkuDetailItem, SpuDetail } from "@/lib/catalog";
+import { catalogApi, SkuDetailItem, SpuDetail, specText } from "@/lib/catalog";
 import { display } from "@/lib/i18n";
 import { imageUrl } from "@/lib/image";
 import { Can } from "@/components/common/Can";
@@ -17,12 +17,6 @@ import {
   spuNextAction,
   skuNextActionLabel,
 } from "@/lib/productStatus";
-
-function specText(items: SkuDetailItem["spec_jsonb"]): string {
-  return (items ?? [])
-    .map((i) => `${i.key}:${typeof i.value === "object" ? display(i.value) : i.value}`)
-    .join(" / ");
-}
 
 export default function SpuDetailPage() {
   const { id } = useParams<{ id: string }>();

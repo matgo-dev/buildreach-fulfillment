@@ -67,12 +67,16 @@ async def receive_upload(
             status_code=405, detail="该后端走对象存储直传,不经本端点")
     if not _KEY_RE.fullmatch(key):
         raise HTTPException(status_code=400, detail="非法上传 key")
-    # 先看 Content-Length 快速拒;再按实读字节兜底(头可伪造)。
+    # 先看 Content-Length 快速拒(诚实客户端提前失败,不白读流)。
     declared = request.headers.get("content-length")
     if declared is not None and declared.isdigit() and int(declared) > _MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="图片超过 20MB 上限")
-    body = await request.body()
-    if len(body) > _MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="图片超过 20MB 上限")
-    get_attachment_storage().save(key, BytesIO(body))
+    # 有界流式读取:内存恒不超上限。绝不 `await request.body()`——它会先把整段(可
+    # 伪造省略 Content-Length 的无界载荷)全缓进内存再校验,是 OOM 向量(buildreach 踩过)。
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > _MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="图片超过 20MB 上限")
+    get_attachment_storage().save(key, BytesIO(bytes(body)))
     return success({"key": key})
