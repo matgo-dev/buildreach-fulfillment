@@ -92,8 +92,11 @@ async def _resolve_spec(db: AsyncSession, category_code: str, spec_items: list[d
 async def _spu_category(db: AsyncSession, spu_id: int) -> tuple[Spu, str]:
     # 必须滤软删:否则可对已删 SPU 挂新 SKU(孤儿——SKU 可搜可读而父 SPU 404),
     # 与 get_spu 同款不变式(活 SKU 必属活 SPU)。
+    # with_for_update 锁父 SPU 聚合根:SKU 增改删的 editable 判定与并发 set_spu_status
+    # 串行,防 TOCTOU(见 spu_service.get_spu_for_update)。此函数仅写路径调用。
     spu = (await db.execute(
-        select(Spu).where(Spu.id == spu_id, Spu.deleted_at.is_(None)))).scalar_one_or_none()
+        select(Spu).where(Spu.id == spu_id, Spu.deleted_at.is_(None))
+        .with_for_update())).scalar_one_or_none()
     if spu is None:
         raise NotFoundError(f"SPU 不存在: {spu_id}")
     return spu, spu.category_code
@@ -172,17 +175,18 @@ async def set_sku_status(db: AsyncSession, *, sku_id, status, actor_user_id,
     自动把 SPU 一并下架(INACTIVE),否则会留一个"启用却选不出可报价 SKU"的坏商品。
     """
     sku = await get_sku(db, sku_id)
+    # 先锁父 SPU 聚合根,串行化完备性判定 —— 防两请求并发停售各自漏联动、
+    # 留下 ACTIVE 却 0 在售 SKU 的坏商品(见 spu_service.get_spu_for_update)。
+    spu = (await db.execute(select(Spu).where(
+        Spu.id == sku.spu_id, Spu.deleted_at.is_(None)).with_for_update())).scalar_one_or_none()
     sku.status = status
     await db.flush()  # 让下方完备性查询看到本次停用结果
-    if status == SkuStatus.INACTIVE:
-        spu = (await db.execute(select(Spu).where(
-            Spu.id == sku.spu_id, Spu.deleted_at.is_(None)))).scalar_one_or_none()
-        if (spu is not None and spu.status == SpuStatus.ACTIVE
-                and not await has_active_sku(db, sku.spu_id)):
-            spu.status = SpuStatus.INACTIVE
-            await write_audit(db, resource_type=AuditResourceType.SPU, action=AuditAction.UPDATE,
-                              user_id=actor_user_id, user_email=actor_user_email,
-                              resource_id=spu.id, request=request, commit=False)
+    if (status == SkuStatus.INACTIVE and spu is not None
+            and spu.status == SpuStatus.ACTIVE and not await has_active_sku(db, sku.spu_id)):
+        spu.status = SpuStatus.INACTIVE  # 联动下架,保 ACTIVE⇒有在售 SKU 不变式
+        await write_audit(db, resource_type=AuditResourceType.SPU, action=AuditAction.UPDATE,
+                          user_id=actor_user_id, user_email=actor_user_email,
+                          resource_id=spu.id, request=request, commit=False)
     await write_audit(db, resource_type=AuditResourceType.SKU, action=AuditAction.UPDATE,
                       user_id=actor_user_id, user_email=actor_user_email,
                       resource_id=sku.id, request=request, commit=False)
