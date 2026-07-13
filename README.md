@@ -80,6 +80,25 @@
   - **本地图片预览**:后端 `GET /media/{key}`(**仅 `STORAGE_BACKEND=local`**,key 形状白名单、公开读)补齐
     `LocalDiskStorage.build_url` 的服务端点——local dev 上传图现可预览(生产走 S3/OSS 公读桶,不经本端点)。
 
+- **报价(主流程第一步,已完成,分支 `feat/quotation-increment`)**:客户销售报价单,SKU 维度整单增改 + 生命周期。
+  - **状态机(四态)**:`DRAFT`(草稿,可编辑可硬删)→ `LOCKED`(锁档,冻结基准,手动)→ `CONVERTED`(已转销售,终态)/
+    `VOID`(已作废,终态);`LOCKED` 可撤回回 `DRAFT`。转移白名单 / 可编辑集 / 可删集 / 可作废集四张表放 model 层
+    单一源头(`app/db/models/quotation.py::QuotationStatus`),service 每写入口 `_assert_transition` 守卫,
+    前端镜像成按钮显隐(`lib/quotationStatus.ts`)。语义=能否被下游〈转销售〉选用,非对外可见。
+  - **整单保存**:`PUT /quotations/{id}` 一次提交表头 + 全部行,行按 `id` 对账(有 id→UPDATE、载入后不在 payload→DELETE、
+    无 id→INSERT);`total_amount` 由行反规范化维护(行是源);乐观锁 `expected_updated_at` 不匹配 → 409 `edit_conflict`。
+  - **规格快照**:下单那刻冻结展示串(名/规格/单位)入行,不随主数据变;规格文本 = SPU 产品级 ∪ SKU 轴级并集
+    (`compose_line_snapshot`,对齐 PR9 规格分层)。选货只收「可选货」(SKU 与 SPU 均 ACTIVE 未删,`assert_sku_available`)。
+  - **报价人可改派**:`salesperson_id`(FK→users,`ON DELETE RESTRICT`,NOT NULL,默认=建单人),可改派给其他持
+    `quote:manage` 的人;`GET /users/selectable` 供下拉。摘要 `summary`(≤180)/ 表头备注 / 行备注均选填。
+  - **RBAC**:新增角色 `SALES`(销售,持 `quote:manage`+`customer:read`+`product:read`);`quote:manage` 从 `ADMIN`
+    移除(ADMIN 严格不碰业务数据);客户列表读放宽为 `require_any_permission(customer:read, customer:manage)`。
+  - **8 端点**(均守 `quote:manage`):`GET /quotations`(筛选/排序/分页)、`POST`、`GET/{id}`、`PUT/{id}`、`DELETE/{id}`
+    (仅草稿硬删)、`POST/{id}/lock`、`/unlock`、`/void`。单号走 `NumberScope.QUOTATION`(`Q{YYYYMM}####`,模块段 MM=14)。
+  - **前端**(`/sales/quotations`,守 `quote:manage`):列表(状态 Segmented / 关键词 / 报价人=我 / 总额排序 / 行内门禁动作)、
+    详情(Descriptions + 明细表 + 状态门禁 锁档/撤回/作废/编辑)、整单编辑器(new 与 edit?edit=1 共用,内联行网格
+    复用 catalog SKU 搜索,合计实时算)。菜单按权限显隐加「报价单」。迁移 `0014_quotation_lifecycle`。
+
 ## 本地开发
 
 本地开发**复用现有 brew PostgreSQL**(`@ :5433`),不用下面 `docker-compose.yml` 里的 `db` 服务
@@ -120,7 +139,7 @@ MinIO。要在本地验证 S3/MinIO 路径,单独起一个 MinIO 容器并把 `S
 
 ```bash
 cd frontend
-pnpm install   # 含 Ant Design(antd / @ant-design/nextjs-registry / @ant-design/icons)
+pnpm install   # 含 Ant Design(antd / @ant-design/nextjs-registry / @ant-design/icons)+ dayjs(DatePicker 所需)
 echo 'NEXT_PUBLIC_API_BASE_URL=http://localhost:8000' > .env.local   # 浏览器直连后端,必须 NEXT_PUBLIC_ 前缀
 pnpm dev
 ```
