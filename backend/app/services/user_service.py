@@ -10,10 +10,29 @@ from app.audit.logger import write_audit
 from app.core.config import settings
 from app.core.exceptions import ConflictError, NotFoundError, ValidationFailedError
 from app.core.security import PASSWORD_RULE_MESSAGE, hash_password, validate_password_strength
-from app.db.models.permission import Permission  # noqa: F401  (确保 metadata 注册)
+from app.db.models.permission import Permission
 from app.db.models.role import Role, RoleCode
+from app.db.models.role_permission import RolePermission
 from app.db.models.user import User, UserStatus
 from app.db.models.user_role import UserRole
+from app.rbac.constants import Permissions
+
+
+async def list_selectable_salespersons(db: AsyncSession) -> list[dict]:
+    """报价人选择器数据源:ACTIVE 且持 quote:manage 的用户,只回 {id,name}。
+
+    参照数据选择器不下发敏感字段(邮箱/手机),也不要求 user:manage 权限。
+    """
+    stmt = (
+        select(User.id, User.name)
+        .join(UserRole, UserRole.user_id == User.id)
+        .join(RolePermission, RolePermission.role_id == UserRole.role_id)
+        .join(Permission, Permission.id == RolePermission.permission_id)
+        .where(Permission.code == Permissions.QUOTE_MANAGE, User.status == UserStatus.ACTIVE)
+        .distinct()
+        .order_by(User.name)
+    )
+    return [{"id": r.id, "name": r.name} for r in (await db.execute(stmt)).all()]
 
 ALLOWED_INTERNAL_ROLES = {RoleCode.ADMIN, RoleCode.PRODUCT_OPERATOR, RoleCode.SALES}
 
