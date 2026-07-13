@@ -128,7 +128,6 @@ export function SpuForm({
             treeData={cats}
             showSearch
             treeNodeFilterProp="title"
-            treeDefaultExpandAll
             placeholder="选择分类"
             allowClear
             style={{ maxWidth: 360 }}
