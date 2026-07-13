@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import { colors } from "./src/lib/tokens";
 
 const config: Config = {
   content: ["./src/**/*.{ts,tsx}"],
@@ -6,8 +7,8 @@ const config: Config = {
     extend: {
       colors: {
         brand: {
-          DEFAULT: "#003366",
-          dark: "#002244",
+          DEFAULT: colors.brand,
+          dark: colors.brandDark,
         },
       },
     },
