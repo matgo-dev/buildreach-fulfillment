@@ -11,10 +11,20 @@ from starlette.requests import Request
 from app.audit.constants import AuditAction, AuditResourceType
 from app.audit.logger import write_audit
 from app.core.codegen import NumberScope, format_code
-from app.core.exceptions import NotFoundError, QuotationInvalidLineError
+from app.core.exceptions import (
+    NotFoundError,
+    QuotationEditConflictError,
+    QuotationInvalidLineError,
+    QuotationNotDraftError,
+)
 from app.core.i18n import compose_spec_text, display
 from app.core.languages import DEFAULT_QUOTE_LANGUAGE
-from app.db.models.quotation import QuotationLine, QuotationOrder, QuotationStatus
+from app.db.models.quotation import (
+    QUOTATION_EDITABLE,
+    QuotationLine,
+    QuotationOrder,
+    QuotationStatus,
+)
 from app.db.models.sku import Sku
 from app.db.models.spu import Spu
 from app.db.models.unit import Unit
@@ -121,3 +131,90 @@ async def add_line(db: AsyncSession, *, order_id, sku_id, unit_price, qty, name_
                       resource_id=order_id, request=request, commit=False)
     await db.commit()
     return line
+
+
+def _override(given, default):
+    return given if given is not None else default
+
+
+async def _reconcile_lines(db: AsyncSession, order: QuotationOrder, lines: list[dict]) -> Decimal:
+    """按行 id 对账到期望态:有 id→UPDATE、库中缺席→DELETE、无 id→INSERT。返回总额。"""
+    existing = {ln.id: ln for ln in await list_lines(db, order.id)}
+    payload_ids = {ln["id"] for ln in lines if ln.get("id") is not None}
+    # payload 出现库中不存在的行 id = 并发删除/篡改(乐观锁已过仍出现)→ 冲突。
+    for lid in payload_ids:
+        if lid not in existing:
+            raise QuotationEditConflictError(f"报价行不存在: {lid}")
+    for lid, row in existing.items():
+        if lid not in payload_ids:
+            await db.delete(row)
+
+    total = Decimal("0")
+    for idx, ln in enumerate(lines):
+        sku = await assert_sku_available(db, ln["sku_id"])          # 写时挡非可选货
+        name_d, spec_d, unit_d = await compose_line_snapshot(db, sku, order.language)
+        name = _override(ln.get("name_snapshot"), name_d)
+        spec_text = _override(ln.get("spec_text_snapshot"), spec_d)
+        unit = _override(ln.get("unit_snapshot"), unit_d)
+        line_total = Decimal(str(ln["unit_price"])) * Decimal(str(ln["qty"]))
+        total += line_total
+        sort_order = ln.get("sort_order", idx)
+        if ln.get("id") is not None:
+            row = existing[ln["id"]]
+            row.sku_id = ln["sku_id"]
+            row.name_snapshot, row.spec_text_snapshot, row.unit_snapshot = name, spec_text, unit
+            row.unit_price, row.qty, row.line_total = ln["unit_price"], ln["qty"], line_total
+            row.language, row.sort_order, row.remark = order.language, sort_order, ln.get("remark")
+        else:
+            db.add(QuotationLine(
+                quotation_order_id=order.id, sku_id=ln["sku_id"], name_snapshot=name,
+                spec_text_snapshot=spec_text, unit_snapshot=unit, unit_price=ln["unit_price"],
+                qty=ln["qty"], line_total=line_total, language=order.language,
+                sort_order=sort_order, remark=ln.get("remark")))
+    await db.flush()
+    return total
+
+
+async def save_order(db: AsyncSession, *, order_id: int | None, customer_id, currency,
+                     salesperson_id=None, valid_until=None, summary=None, language=None,
+                     remark=None, lines: list[dict], expected_updated_at=None,
+                     actor_user_id, actor_user_email, request: Request | None = None
+                     ) -> QuotationOrder:
+    """整单保存(新建或改草稿)。order_id=None 新建;否则 PUT 整单(仅 DRAFT + 乐观锁)。
+
+    行按 id 对账(见 _reconcile_lines);total_amount=Σ行;快照按 SPU∪SKU 规格冻结。
+    """
+    if order_id is None:
+        customer = await customer_service.get_customer(db, customer_id)
+        order = QuotationOrder(
+            no=await _next_quote_no(db), customer_id=customer_id,
+            salesperson_id=salesperson_id or actor_user_id,
+            language=language or customer.quote_language or DEFAULT_QUOTE_LANGUAGE,
+            currency=currency, valid_until=valid_until, summary=summary, remark=remark,
+            status=QuotationStatus.DRAFT, created_by=actor_user_id, total_amount=0)
+        db.add(order)
+        await db.flush()
+        audit_action = AuditAction.CREATE
+    else:
+        order = await get_order(db, order_id)
+        if order.status not in QUOTATION_EDITABLE:
+            raise QuotationNotDraftError()
+        if expected_updated_at is not None and order.updated_at != expected_updated_at:
+            raise QuotationEditConflictError()
+        order.customer_id = customer_id
+        order.currency = currency
+        if salesperson_id is not None:
+            order.salesperson_id = salesperson_id
+        order.valid_until, order.summary, order.remark = valid_until, summary, remark
+        if language is not None:
+            order.language = language
+        audit_action = AuditAction.UPDATE
+
+    order.total_amount = await _reconcile_lines(db, order, lines)
+    await db.flush()
+    await write_audit(db, resource_type=AuditResourceType.QUOTATION, action=audit_action,
+                      user_id=actor_user_id, user_email=actor_user_email,
+                      resource_id=order.id, request=request, commit=False)
+    await db.commit()
+    await db.refresh(order)
+    return order
