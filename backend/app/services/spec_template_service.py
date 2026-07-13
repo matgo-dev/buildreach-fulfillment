@@ -345,7 +345,7 @@ async def resolve_spec(
 
 async def resolve_spec_display(
     db: AsyncSession, category_code: str, spec_items: list[dict]) -> list[dict]:
-    """spec_jsonb(仅 key/value)→ 展示投影(评审 P2-#4,后端单一源头):
+    """spec_jsonb(仅 key/value)→ 展示投影(后端单一源头):
     `[{key, label_i18n, value, unit, scope}]`。列表/详情/报价统一消费,不各拼各的。
 
     - value:enum 取选中 option 的 `label_i18n`(i18n dict,前端按语言 display);

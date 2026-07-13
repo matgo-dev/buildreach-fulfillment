@@ -135,7 +135,7 @@ async def update_spu(db: AsyncSession, *, spu_id, name_i18n=None, category_code=
     spu = await get_spu_for_update(db, spu_id)  # 锁聚合根,串行化并发写
     ensure_spu_editable(spu)
     if category_code is not None and category_code != spu.category_code:
-        # 改分类锁(评审 P1-#2):本系统 category=属性 schema 驱动,改分类=改 schema。
+        # 改分类锁:本系统 category=属性 schema 驱动,改分类=改 schema。
         # 有规格或子 SKU 时旧 key 可能不属新类/scope 相反 → 拒绝,先清空规格/删 SKU。
         if spu.spec_jsonb or await _count_live_skus(db, spu.id) > 0:
             raise ConflictError(
