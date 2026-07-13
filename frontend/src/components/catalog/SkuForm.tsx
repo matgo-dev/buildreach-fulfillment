@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Drawer,
   Form,
@@ -12,138 +12,25 @@ import {
   Typography,
   App,
 } from "antd";
-import { PlusOutlined, DeleteOutlined } from "@ant-design/icons";
 import {
   catalogApi,
-  SkuOut,
   SkuWithImages,
-  SkuSpecItemIn,
-  SpecSuggestion,
-  SpecOption,
-  SpecValueType,
+  SpecDisplayItem,
   UnitOut,
+  specDisplayText,
 } from "@/lib/catalog";
 import { display } from "@/lib/i18n";
 import { ImageZone } from "@/components/catalog/ImageManager";
+import { SpecEditor, SpecEditorHandle } from "@/components/catalog/SpecEditor";
 import { colors } from "@/lib/tokens";
 
 const { Text } = Typography;
-
-// enum 单元的取值意图:选既有选项 code,或 inline 新增一个选项(提交时后端生成 v_ code)。
-type EnumMode =
-  | { kind: "existing"; code?: string }
-  | { kind: "new"; zh: string; en?: string };
-
-interface TemplateRow {
-  fromTemplate: true;
-  key: string;
-  label: string;
-  valueType: SpecValueType;
-  unit: string; // 模板计量单位,只读展示(§11 Part B)
-  options: SpecOption[];
-  str?: string;
-  num?: number | null;
-  enumMode?: EnumMode;
-}
-interface CustomRow {
-  fromTemplate: false;
-  localId: string;
-  labelZh: string;
-  labelEn?: string;
-  unit?: string;
-  value: string;
-}
-type Row = TemplateRow | CustomRow;
-
-function toValueString(v: SkuOut["spec_jsonb"][number]["value"]): string {
-  return typeof v === "object" ? display(v) : String(v);
-}
-
-/** enum 取值单元:既有选项下拉 + 底部「新增选项」逃生口(zh 必填 / en 选填)。 */
-function EnumCell({
-  row,
-  onChange,
-}: {
-  row: TemplateRow;
-  onChange: (m: EnumMode) => void;
-}) {
-  const [newZh, setNewZh] = useState("");
-  const [newEn, setNewEn] = useState("");
-
-  const options = row.options.map((o) => ({ value: o.code, label: display(o.label_i18n) || o.code }));
-  // 编辑时既有 code 不在 options(极少),补一个回退项避免显示空。
-  if (row.enumMode?.kind === "existing" && row.enumMode.code) {
-    const code = row.enumMode.code;
-    if (!row.options.some((o) => o.code === code)) {
-      options.push({ value: code, label: code });
-    }
-  }
-  const pendingVal = "__pending_new__";
-  if (row.enumMode?.kind === "new") {
-    options.push({ value: pendingVal, label: `新增:${row.enumMode.zh}` });
-  }
-
-  const value =
-    row.enumMode?.kind === "existing"
-      ? row.enumMode.code
-      : row.enumMode?.kind === "new"
-      ? pendingVal
-      : undefined;
-
-  return (
-    <Select
-      style={{ width: "100%" }}
-      placeholder="选择或新增"
-      allowClear
-      value={value}
-      options={options}
-      onChange={(v) => {
-        if (v === undefined) onChange({ kind: "existing", code: undefined });
-        else if (v !== pendingVal) onChange({ kind: "existing", code: v as string });
-      }}
-      popupRender={(menu) => (
-        <>
-          {menu}
-          <Divider style={{ margin: "8px 0" }} />
-          <Space style={{ padding: "0 8px 8px" }} wrap>
-            <Input
-              size="small"
-              placeholder="新选项(中文)"
-              style={{ width: 130 }}
-              value={newZh}
-              onChange={(e) => setNewZh(e.target.value)}
-            />
-            <Input
-              size="small"
-              placeholder="英文(选填)"
-              style={{ width: 110 }}
-              value={newEn}
-              onChange={(e) => setNewEn(e.target.value)}
-            />
-            <Button
-              size="small"
-              type="link"
-              icon={<PlusOutlined />}
-              disabled={!newZh.trim()}
-              onClick={() => {
-                onChange({ kind: "new", zh: newZh.trim(), en: newEn.trim() || undefined });
-                setNewZh("");
-                setNewEn("");
-              }}
-            >
-              新增
-            </Button>
-          </Space>
-        </>
-      )}
-    />
-  );
-}
 
 export function SkuForm({
   open,
   spuId,
   categoryCode,
+  spuSpec,
   sku,
   copyFrom,
   onClose,
@@ -152,6 +39,8 @@ export function SkuForm({
   open: boolean;
   spuId: number;
   categoryCode: string;
+  /** 父 SPU 产品级规格(只读回显,让运营知道继承上下文);来自详情 spu.spec_display。 */
+  spuSpec?: SpecDisplayItem[];
   sku?: SkuWithImages;
   copyFrom?: SkuWithImages;
   onClose: () => void;
@@ -160,15 +49,15 @@ export function SkuForm({
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [units, setUnits] = useState<UnitOut[]>([]);
-  const [rows, setRows] = useState<Row[]>([]);
   const [imageKeys, setImageKeys] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
-  const [customSeq, setCustomSeq] = useState(0);
+  const specRef = useRef<SpecEditorHandle>(null);
+
+  const source = sku ?? copyFrom;
 
   useEffect(() => {
     if (!open) return;
     catalogApi.units().then((r) => setUnits(r.items)).catch(() => setUnits([]));
-    const source = sku ?? copyFrom;
     form.setFieldsValue(
       source
         ? {
@@ -184,74 +73,12 @@ export function SkuForm({
             weight_kg: undefined, length_cm: undefined, width_cm: undefined, height_cm: undefined },
     );
     setImageKeys(sku ? sku.images.map((i) => i.image_key) : []); // 复制不带图片
-
-    // 模板全量铺开:每个 attribute 一行,已有值回填。
-    catalogApi
-      .specSuggestions(categoryCode)
-      .then((r) => setRows(buildRows(r.items, source)))
-      .catch(() => setRows(buildRows([], source)));
-  }, [open, sku, copyFrom, categoryCode, form]);
-
-  function updateTemplate(key: string, patch: Partial<TemplateRow>) {
-    setRows((rs) =>
-      rs.map((r) => (r.fromTemplate && r.key === key ? { ...r, ...patch } : r)),
-    );
-  }
-  function updateCustom(localId: string, patch: Partial<CustomRow>) {
-    setRows((rs) =>
-      rs.map((r) => (!r.fromTemplate && r.localId === localId ? { ...r, ...patch } : r)),
-    );
-  }
-  function addCustom() {
-    setRows((rs) => [
-      ...rs,
-      { fromTemplate: false, localId: `c${customSeq}`, labelZh: "", value: "" },
-    ]);
-    setCustomSeq((n) => n + 1);
-  }
-  function removeCustom(localId: string) {
-    setRows((rs) => rs.filter((r) => r.fromTemplate || r.localId !== localId));
-  }
-
-  function collectSpecItems(): SkuSpecItemIn[] | null {
-    const items: SkuSpecItemIn[] = [];
-    for (const r of rows) {
-      if (r.fromTemplate) {
-        if (r.valueType === "enum") {
-          if (r.enumMode?.kind === "existing" && r.enumMode.code) {
-            items.push({ key: r.key, value: r.enumMode.code });
-          } else if (r.enumMode?.kind === "new" && r.enumMode.zh.trim()) {
-            items.push({
-              key: r.key,
-              label_i18n: { zh: r.enumMode.zh.trim(), ...(r.enumMode.en ? { en: r.enumMode.en } : {}) },
-            });
-          }
-          // 空 → 不提交
-        } else if (r.valueType === "number") {
-          if (r.num !== undefined && r.num !== null) items.push({ key: r.key, value: r.num });
-        } else {
-          if (r.str && r.str.trim()) items.push({ key: r.key, value: r.str.trim() });
-        }
-      } else {
-        if (!r.value.trim()) continue; // 空值行不提交
-        if (!r.labelZh.trim()) {
-          message.error("手输规格需填中文标签");
-          return null;
-        }
-        items.push({
-          label_i18n: { zh: r.labelZh.trim(), ...(r.labelEn?.trim() ? { en: r.labelEn.trim() } : {}) },
-          unit: r.unit?.trim() || null,
-          value: r.value.trim(),
-        });
-      }
-    }
-    return items;
-  }
+  }, [open, sku, copyFrom, form, source]);
 
   async function onSubmit() {
     const v = await form.validateFields();
-    const spec_items = collectSpecItems();
-    if (spec_items === null) return;
+    const spec_items = specRef.current?.collect();
+    if (spec_items == null) return; // 手输行缺标签 → 阻断
     setSaving(true);
     try {
       const body = {
@@ -283,8 +110,8 @@ export function SkuForm({
     [units],
   );
 
-  const templateRows = rows.filter((r): r is TemplateRow => r.fromTemplate);
-  const customRows = rows.filter((r): r is CustomRow => !r.fromTemplate);
+  // 只回显 SPU 产品级(scope=spu)项——spu.spec_display 已仅含产品级,稳妥再过滤一次。
+  const productSpec = (spuSpec ?? []).filter((s) => s.scope === "spu");
 
   return (
     <Drawer
@@ -352,117 +179,30 @@ export function SkuForm({
       </div>
       <ImageZone title="SKU 图" keys={imageKeys} max={6} onChange={setImageKeys} />
 
+      {/* 产品级规格在 SPU 上维护,这里只读回显,避免运营误以为要重填。 */}
       <Divider titlePlacement="left" plain style={{ marginTop: 8 }}>
-        规格(按类目模板铺开,留空不提交)
+        产品级规格(继承自 SPU,只读)
       </Divider>
+      <div style={{ fontSize: 13, color: colors.muted }}>
+        {productSpec.length ? specDisplayText(productSpec) : "该 SPU 暂无产品级规格,可在 SPU 编辑页补充。"}
+      </div>
 
-      {templateRows.length === 0 && customRows.length === 0 && (
-        <Text type="secondary">该类目暂无规格模板,可用下方「新增属性」手动补充。</Text>
-      )}
-
-      <Space direction="vertical" size={10} style={{ width: "100%" }}>
-        {templateRows.map((r) => (
-          <div key={r.key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 132, flex: "none", color: colors.muted, fontSize: 13 }}>
-              {r.label}
-              {r.unit ? <Text type="secondary"> [{r.unit}]</Text> : null}
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              {r.valueType === "enum" ? (
-                <EnumCell row={r} onChange={(enumMode) => updateTemplate(r.key, { enumMode })} />
-              ) : r.valueType === "number" ? (
-                <InputNumber
-                  style={{ width: "100%" }}
-                  value={r.num ?? undefined}
-                  addonAfter={r.unit || undefined}
-                  onChange={(num) => updateTemplate(r.key, { num: num as number | null })}
-                />
-              ) : (
-                <Input
-                  value={r.str ?? ""}
-                  onChange={(e) => updateTemplate(r.key, { str: e.target.value })}
-                />
-              )}
-            </div>
-          </div>
-        ))}
-
-        {customRows.map((r) => (
-          <div key={r.localId} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Input
-              style={{ width: 120 }}
-              placeholder="属性名(中文)"
-              value={r.labelZh}
-              onChange={(e) => updateCustom(r.localId, { labelZh: e.target.value })}
-            />
-            <Input
-              style={{ width: 96 }}
-              placeholder="英文(选填)"
-              value={r.labelEn}
-              onChange={(e) => updateCustom(r.localId, { labelEn: e.target.value })}
-            />
-            <Input
-              style={{ flex: 1 }}
-              placeholder="值"
-              value={r.value}
-              onChange={(e) => updateCustom(r.localId, { value: e.target.value })}
-            />
-            <Input
-              style={{ width: 80 }}
-              placeholder="单位"
-              value={r.unit}
-              onChange={(e) => updateCustom(r.localId, { unit: e.target.value })}
-            />
-            <Button type="text" danger icon={<DeleteOutlined />} onClick={() => removeCustom(r.localId)} />
-          </div>
-        ))}
-      </Space>
-
-      <Button type="dashed" icon={<PlusOutlined />} onClick={addCustom} style={{ marginTop: 12 }}>
-        新增属性(类目缺轴时用)
-      </Button>
+      <Divider titlePlacement="left" plain style={{ marginTop: 8 }}>
+        变体规格(本 SKU 独有,按类目模板铺开,留空不提交)
+      </Divider>
+      <SpecEditor
+        ref={specRef}
+        open={open}
+        categoryCode={categoryCode}
+        scope="sku"
+        initialSpec={source?.spec_jsonb}
+        addHint="类目缺轴时用"
+      />
+      <div style={{ marginTop: 8 }}>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          变体规格用于区分同一商品下的不同 SKU(如管径、壁厚)。
+        </Text>
+      </div>
     </Drawer>
   );
-}
-
-function buildRows(suggestions: SpecSuggestion[], sku?: SkuOut): Row[] {
-  const byKey = new Map<string, SkuOut["spec_jsonb"][number]>();
-  (sku?.spec_jsonb ?? []).forEach((i) => byKey.set(i.key, i));
-
-  const rows: Row[] = suggestions.map((s) => {
-    const existing = byKey.get(s.key);
-    byKey.delete(s.key);
-    const base: TemplateRow = {
-      fromTemplate: true,
-      key: s.key,
-      label: display(s.label_i18n) || s.key,
-      valueType: s.value_type,
-      unit: s.unit || "",
-      options: s.options ?? [],
-    };
-    if (!existing) return base;
-    if (s.value_type === "enum") {
-      base.enumMode = { kind: "existing", code: toValueString(existing.value) };
-    } else if (s.value_type === "number") {
-      base.num = Number(existing.value);
-    } else {
-      base.str = toValueString(existing.value);
-    }
-    return base;
-  });
-
-  // 模板里没有、但 SKU 已存的 key(极少):作只读字符串行保留,避免编辑保存时丢值。
-  byKey.forEach((item, key) => {
-    rows.push({
-      fromTemplate: true,
-      key,
-      label: key,
-      valueType: "string",
-      unit: "",
-      options: [],
-      str: toValueString(item.value),
-    });
-  });
-
-  return rows;
 }

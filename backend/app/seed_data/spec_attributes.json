@@ -1,0 +1,1580 @@
+{
+  "_format": "分类规格属性种子(唯一源头)。形态:{ code: { note: 编辑提示(不入库,分类名唯一源头是 categories 表), attributes: [ {key, label_i18n, value_type: string|number|enum, unit?, options?:[{code,label_i18n}]} ] } }。属性按'产品族'挂在其适用的最高分类层:通用属性挂大类,材质/工艺特有属性挂子类;叶子建 SKU 时由 get_suggestions 沿祖先链继承为并集(深覆浅)。key/option.code 为稳定 ASCII 机器码,禁中文;label 走 i18n。sort_order 由 upsert 按列表顺序自动分配,勿手写。首批覆盖:金属管道30/塑胶管道28/紧固件08/电线电缆12。",
+  "30": {
+    "note": "金属管道(L1 通用:凡金属管/管件都有)",
+    "attributes": [
+      {
+        "key": "dn",
+        "label_i18n": {
+          "zh": "公称直径"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "conn",
+        "label_i18n": {
+          "zh": "连接方式"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "weld",
+            "label_i18n": {
+              "zh": "焊接"
+            }
+          },
+          {
+            "code": "thread",
+            "label_i18n": {
+              "zh": "螺纹/丝接"
+            }
+          },
+          {
+            "code": "flange",
+            "label_i18n": {
+              "zh": "法兰"
+            }
+          },
+          {
+            "code": "groove",
+            "label_i18n": {
+              "zh": "沟槽/卡箍"
+            }
+          },
+          {
+            "code": "press",
+            "label_i18n": {
+              "zh": "卡压"
+            }
+          },
+          {
+            "code": "socket",
+            "label_i18n": {
+              "zh": "承插"
+            }
+          }
+        ]
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "30.001": {
+    "note": "铸铁排水管道(重力排水,无压力)",
+    "attributes": [
+      {
+        "key": "material",
+        "label_i18n": {
+          "zh": "材质"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "cast_iron",
+            "label_i18n": {
+              "zh": "铸铁"
+            }
+          }
+        ]
+      },
+      {
+        "key": "pipe_type",
+        "label_i18n": {
+          "zh": "管型"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "type_a",
+            "label_i18n": {
+              "zh": "A型"
+            }
+          },
+          {
+            "code": "type_b",
+            "label_i18n": {
+              "zh": "B型"
+            }
+          },
+          {
+            "code": "type_w",
+            "label_i18n": {
+              "zh": "W型"
+            }
+          },
+          {
+            "code": "type_w1",
+            "label_i18n": {
+              "zh": "W1型"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "30.002": {
+    "note": "碳钢管道(压力管道)",
+    "attributes": [
+      {
+        "key": "material",
+        "label_i18n": {
+          "zh": "材质"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "carbon_steel",
+            "label_i18n": {
+              "zh": "碳钢"
+            }
+          }
+        ]
+      },
+      {
+        "key": "pn",
+        "label_i18n": {
+          "zh": "公称压力"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "pn10",
+            "label_i18n": {
+              "zh": "PN10"
+            }
+          },
+          {
+            "code": "pn16",
+            "label_i18n": {
+              "zh": "PN16"
+            }
+          },
+          {
+            "code": "pn25",
+            "label_i18n": {
+              "zh": "PN25"
+            }
+          },
+          {
+            "code": "pn40",
+            "label_i18n": {
+              "zh": "PN40"
+            }
+          }
+        ]
+      },
+      {
+        "key": "wall",
+        "label_i18n": {
+          "zh": "壁厚/管系列"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "surface",
+        "label_i18n": {
+          "zh": "表面处理"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "galvanized",
+            "label_i18n": {
+              "zh": "镀锌"
+            }
+          },
+          {
+            "code": "black",
+            "label_i18n": {
+              "zh": "黑管"
+            }
+          },
+          {
+            "code": "epoxy_coated",
+            "label_i18n": {
+              "zh": "涂塑/衬塑"
+            }
+          },
+          {
+            "code": "anticorrosive_3pe",
+            "label_i18n": {
+              "zh": "3PE防腐"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "30.003": {
+    "note": "不锈钢管道",
+    "attributes": [
+      {
+        "key": "material",
+        "label_i18n": {
+          "zh": "材质"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "ss201",
+            "label_i18n": {
+              "zh": "201"
+            }
+          },
+          {
+            "code": "ss304",
+            "label_i18n": {
+              "zh": "304"
+            }
+          },
+          {
+            "code": "ss304l",
+            "label_i18n": {
+              "zh": "304L"
+            }
+          },
+          {
+            "code": "ss316",
+            "label_i18n": {
+              "zh": "316"
+            }
+          },
+          {
+            "code": "ss316l",
+            "label_i18n": {
+              "zh": "316L"
+            }
+          }
+        ]
+      },
+      {
+        "key": "pn",
+        "label_i18n": {
+          "zh": "公称压力"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "pn10",
+            "label_i18n": {
+              "zh": "PN10"
+            }
+          },
+          {
+            "code": "pn16",
+            "label_i18n": {
+              "zh": "PN16"
+            }
+          },
+          {
+            "code": "pn25",
+            "label_i18n": {
+              "zh": "PN25"
+            }
+          }
+        ]
+      },
+      {
+        "key": "surface",
+        "label_i18n": {
+          "zh": "表面处理"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "polished",
+            "label_i18n": {
+              "zh": "抛光"
+            }
+          },
+          {
+            "code": "pickled",
+            "label_i18n": {
+              "zh": "酸洗"
+            }
+          },
+          {
+            "code": "brushed",
+            "label_i18n": {
+              "zh": "拉丝"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "30.006": {
+    "note": "球墨给水管道",
+    "attributes": [
+      {
+        "key": "material",
+        "label_i18n": {
+          "zh": "材质"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "ductile_iron",
+            "label_i18n": {
+              "zh": "球墨铸铁"
+            }
+          }
+        ]
+      },
+      {
+        "key": "pressure_class",
+        "label_i18n": {
+          "zh": "压力等级"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "k9",
+            "label_i18n": {
+              "zh": "K9"
+            }
+          },
+          {
+            "code": "c25",
+            "label_i18n": {
+              "zh": "C25"
+            }
+          },
+          {
+            "code": "c30",
+            "label_i18n": {
+              "zh": "C30"
+            }
+          },
+          {
+            "code": "c40",
+            "label_i18n": {
+              "zh": "C40"
+            }
+          }
+        ]
+      },
+      {
+        "key": "joint",
+        "label_i18n": {
+          "zh": "接口形式"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "push_on_t",
+            "label_i18n": {
+              "zh": "T型/滑入式"
+            }
+          },
+          {
+            "code": "mechanical_n1",
+            "label_i18n": {
+              "zh": "N1型/机械式"
+            }
+          },
+          {
+            "code": "self_anchored",
+            "label_i18n": {
+              "zh": "自锚式"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "28": {
+    "note": "塑胶管道(L1 通用)",
+    "attributes": [
+      {
+        "key": "dn",
+        "label_i18n": {
+          "zh": "公称外径 dn"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "conn",
+        "label_i18n": {
+          "zh": "连接方式"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "hot_melt",
+            "label_i18n": {
+              "zh": "热熔"
+            }
+          },
+          {
+            "code": "socket_glue",
+            "label_i18n": {
+              "zh": "承插粘接"
+            }
+          },
+          {
+            "code": "electrofusion",
+            "label_i18n": {
+              "zh": "电熔"
+            }
+          },
+          {
+            "code": "rubber_ring",
+            "label_i18n": {
+              "zh": "胶圈承插"
+            }
+          },
+          {
+            "code": "thread",
+            "label_i18n": {
+              "zh": "螺纹"
+            }
+          },
+          {
+            "code": "flange",
+            "label_i18n": {
+              "zh": "法兰"
+            }
+          }
+        ]
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "28.003": {
+    "note": "PVC管道",
+    "attributes": [
+      {
+        "key": "material",
+        "label_i18n": {
+          "zh": "材质"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "pvc_u",
+            "label_i18n": {
+              "zh": "PVC-U"
+            }
+          },
+          {
+            "code": "pvc_m",
+            "label_i18n": {
+              "zh": "PVC-M"
+            }
+          },
+          {
+            "code": "pvc_o",
+            "label_i18n": {
+              "zh": "PVC-O"
+            }
+          }
+        ]
+      },
+      {
+        "key": "pn",
+        "label_i18n": {
+          "zh": "公称压力"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "pn0_6",
+            "label_i18n": {
+              "zh": "0.6MPa"
+            }
+          },
+          {
+            "code": "pn1_0",
+            "label_i18n": {
+              "zh": "1.0MPa"
+            }
+          },
+          {
+            "code": "pn1_25",
+            "label_i18n": {
+              "zh": "1.25MPa"
+            }
+          },
+          {
+            "code": "pn1_6",
+            "label_i18n": {
+              "zh": "1.6MPa"
+            }
+          }
+        ]
+      },
+      {
+        "key": "application",
+        "label_i18n": {
+          "zh": "用途"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "water_supply",
+            "label_i18n": {
+              "zh": "给水"
+            }
+          },
+          {
+            "code": "drainage",
+            "label_i18n": {
+              "zh": "排水"
+            }
+          },
+          {
+            "code": "electrical",
+            "label_i18n": {
+              "zh": "电工穿线"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "28.008": {
+    "note": "PE管道",
+    "attributes": [
+      {
+        "key": "material",
+        "label_i18n": {
+          "zh": "材质"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "pe80",
+            "label_i18n": {
+              "zh": "PE80"
+            }
+          },
+          {
+            "code": "pe100",
+            "label_i18n": {
+              "zh": "PE100"
+            }
+          }
+        ]
+      },
+      {
+        "key": "sdr",
+        "label_i18n": {
+          "zh": "SDR系列"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "sdr11",
+            "label_i18n": {
+              "zh": "SDR11"
+            }
+          },
+          {
+            "code": "sdr13_6",
+            "label_i18n": {
+              "zh": "SDR13.6"
+            }
+          },
+          {
+            "code": "sdr17",
+            "label_i18n": {
+              "zh": "SDR17"
+            }
+          },
+          {
+            "code": "sdr21",
+            "label_i18n": {
+              "zh": "SDR21"
+            }
+          },
+          {
+            "code": "sdr26",
+            "label_i18n": {
+              "zh": "SDR26"
+            }
+          }
+        ]
+      },
+      {
+        "key": "application",
+        "label_i18n": {
+          "zh": "用途"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "water_supply",
+            "label_i18n": {
+              "zh": "给水"
+            }
+          },
+          {
+            "code": "drainage",
+            "label_i18n": {
+              "zh": "排水"
+            }
+          },
+          {
+            "code": "gas",
+            "label_i18n": {
+              "zh": "燃气"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "28.013": {
+    "note": "PPR管道",
+    "attributes": [
+      {
+        "key": "material",
+        "label_i18n": {
+          "zh": "材质"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "ppr",
+            "label_i18n": {
+              "zh": "PPR"
+            }
+          }
+        ]
+      },
+      {
+        "key": "pipe_series",
+        "label_i18n": {
+          "zh": "管系列 S"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "s5_pn1_25",
+            "label_i18n": {
+              "zh": "S5/PN1.25"
+            }
+          },
+          {
+            "code": "s4_pn1_6",
+            "label_i18n": {
+              "zh": "S4/PN1.6"
+            }
+          },
+          {
+            "code": "s3_2_pn2_0",
+            "label_i18n": {
+              "zh": "S3.2/PN2.0"
+            }
+          },
+          {
+            "code": "s2_5_pn2_5",
+            "label_i18n": {
+              "zh": "S2.5/PN2.5"
+            }
+          }
+        ]
+      },
+      {
+        "key": "application",
+        "label_i18n": {
+          "zh": "用途"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "cold_water",
+            "label_i18n": {
+              "zh": "冷水"
+            }
+          },
+          {
+            "code": "hot_water",
+            "label_i18n": {
+              "zh": "热水"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "08": {
+    "note": "紧固件(L1 通用:凡紧固件都有)",
+    "attributes": [
+      {
+        "key": "material",
+        "label_i18n": {
+          "zh": "材质"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "carbon_steel",
+            "label_i18n": {
+              "zh": "碳钢"
+            }
+          },
+          {
+            "code": "alloy_steel",
+            "label_i18n": {
+              "zh": "合金钢"
+            }
+          },
+          {
+            "code": "ss304",
+            "label_i18n": {
+              "zh": "不锈钢304"
+            }
+          },
+          {
+            "code": "ss316",
+            "label_i18n": {
+              "zh": "不锈钢316"
+            }
+          },
+          {
+            "code": "brass",
+            "label_i18n": {
+              "zh": "黄铜"
+            }
+          },
+          {
+            "code": "nylon",
+            "label_i18n": {
+              "zh": "尼龙"
+            }
+          }
+        ]
+      },
+      {
+        "key": "surface",
+        "label_i18n": {
+          "zh": "表面处理"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "zinc_plated",
+            "label_i18n": {
+              "zh": "镀锌(蓝白锌)"
+            }
+          },
+          {
+            "code": "hot_dip_galv",
+            "label_i18n": {
+              "zh": "热镀锌"
+            }
+          },
+          {
+            "code": "black_oxide",
+            "label_i18n": {
+              "zh": "发黑"
+            }
+          },
+          {
+            "code": "dacromet",
+            "label_i18n": {
+              "zh": "达克罗"
+            }
+          },
+          {
+            "code": "nickel_plated",
+            "label_i18n": {
+              "zh": "镀镍"
+            }
+          },
+          {
+            "code": "plain",
+            "label_i18n": {
+              "zh": "本色"
+            }
+          }
+        ]
+      },
+      {
+        "key": "spec",
+        "label_i18n": {
+          "zh": "规格"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "08.005": {
+    "note": "螺栓",
+    "attributes": [
+      {
+        "key": "property_class",
+        "label_i18n": {
+          "zh": "性能等级"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "pc_4_8",
+            "label_i18n": {
+              "zh": "4.8"
+            }
+          },
+          {
+            "code": "pc_6_8",
+            "label_i18n": {
+              "zh": "6.8"
+            }
+          },
+          {
+            "code": "pc_8_8",
+            "label_i18n": {
+              "zh": "8.8"
+            }
+          },
+          {
+            "code": "pc_10_9",
+            "label_i18n": {
+              "zh": "10.9"
+            }
+          },
+          {
+            "code": "pc_12_9",
+            "label_i18n": {
+              "zh": "12.9"
+            }
+          }
+        ]
+      },
+      {
+        "key": "thread",
+        "label_i18n": {
+          "zh": "螺纹规格"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "length",
+        "label_i18n": {
+          "zh": "长度"
+        },
+        "value_type": "number",
+        "scope": "sku",
+        "unit": "mm"
+      },
+      {
+        "key": "bolt_type",
+        "label_i18n": {
+          "zh": "类型"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "hex",
+            "label_i18n": {
+              "zh": "六角头"
+            }
+          },
+          {
+            "code": "hex_flange",
+            "label_i18n": {
+              "zh": "法兰面"
+            }
+          },
+          {
+            "code": "socket_cap",
+            "label_i18n": {
+              "zh": "内六角圆柱头"
+            }
+          },
+          {
+            "code": "carriage",
+            "label_i18n": {
+              "zh": "马车/半圆头"
+            }
+          },
+          {
+            "code": "u_bolt",
+            "label_i18n": {
+              "zh": "U型"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "08.004": {
+    "note": "螺母",
+    "attributes": [
+      {
+        "key": "property_class",
+        "label_i18n": {
+          "zh": "性能等级"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "ng_4",
+            "label_i18n": {
+              "zh": "4"
+            }
+          },
+          {
+            "code": "ng_5",
+            "label_i18n": {
+              "zh": "5"
+            }
+          },
+          {
+            "code": "ng_6",
+            "label_i18n": {
+              "zh": "6"
+            }
+          },
+          {
+            "code": "ng_8",
+            "label_i18n": {
+              "zh": "8"
+            }
+          },
+          {
+            "code": "ng_10",
+            "label_i18n": {
+              "zh": "10"
+            }
+          },
+          {
+            "code": "ng_12",
+            "label_i18n": {
+              "zh": "12"
+            }
+          }
+        ]
+      },
+      {
+        "key": "thread",
+        "label_i18n": {
+          "zh": "螺纹规格"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "nut_type",
+        "label_i18n": {
+          "zh": "类型"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "hex",
+            "label_i18n": {
+              "zh": "六角"
+            }
+          },
+          {
+            "code": "lock_nylon",
+            "label_i18n": {
+              "zh": "尼龙锁紧"
+            }
+          },
+          {
+            "code": "flange",
+            "label_i18n": {
+              "zh": "法兰"
+            }
+          },
+          {
+            "code": "wing",
+            "label_i18n": {
+              "zh": "蝶形"
+            }
+          },
+          {
+            "code": "cap",
+            "label_i18n": {
+              "zh": "盖形"
+            }
+          },
+          {
+            "code": "coupling",
+            "label_i18n": {
+              "zh": "连接/长"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "08.007": {
+    "note": "螺钉",
+    "attributes": [
+      {
+        "key": "thread",
+        "label_i18n": {
+          "zh": "螺纹/直径"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "length",
+        "label_i18n": {
+          "zh": "长度"
+        },
+        "value_type": "number",
+        "scope": "sku",
+        "unit": "mm"
+      },
+      {
+        "key": "drive",
+        "label_i18n": {
+          "zh": "槽型"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "phillips",
+            "label_i18n": {
+              "zh": "十字"
+            }
+          },
+          {
+            "code": "slotted",
+            "label_i18n": {
+              "zh": "一字"
+            }
+          },
+          {
+            "code": "hex_socket",
+            "label_i18n": {
+              "zh": "内六角"
+            }
+          },
+          {
+            "code": "torx",
+            "label_i18n": {
+              "zh": "梅花/星形"
+            }
+          },
+          {
+            "code": "pozidriv",
+            "label_i18n": {
+              "zh": "米字"
+            }
+          }
+        ]
+      },
+      {
+        "key": "head",
+        "label_i18n": {
+          "zh": "头型"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "pan",
+            "label_i18n": {
+              "zh": "盘头"
+            }
+          },
+          {
+            "code": "flat",
+            "label_i18n": {
+              "zh": "沉头"
+            }
+          },
+          {
+            "code": "round",
+            "label_i18n": {
+              "zh": "半圆头"
+            }
+          },
+          {
+            "code": "hex_washer",
+            "label_i18n": {
+              "zh": "六角华司头"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "08.008": {
+    "note": "垫圈",
+    "attributes": [
+      {
+        "key": "washer_type",
+        "label_i18n": {
+          "zh": "类型"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "flat",
+            "label_i18n": {
+              "zh": "平垫"
+            }
+          },
+          {
+            "code": "spring",
+            "label_i18n": {
+              "zh": "弹簧垫"
+            }
+          },
+          {
+            "code": "lock_tooth",
+            "label_i18n": {
+              "zh": "齿形锁紧"
+            }
+          },
+          {
+            "code": "sealing",
+            "label_i18n": {
+              "zh": "密封垫"
+            }
+          }
+        ]
+      },
+      {
+        "key": "inner_dia",
+        "label_i18n": {
+          "zh": "内径/适用螺纹"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      }
+    ]
+  },
+  "08.011": {
+    "note": "金属胀栓锚栓",
+    "attributes": [
+      {
+        "key": "anchor_type",
+        "label_i18n": {
+          "zh": "类型"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "wedge",
+            "label_i18n": {
+              "zh": "楔形/膨胀"
+            }
+          },
+          {
+            "code": "sleeve",
+            "label_i18n": {
+              "zh": "套管"
+            }
+          },
+          {
+            "code": "drop_in",
+            "label_i18n": {
+              "zh": "内爆/敲击"
+            }
+          },
+          {
+            "code": "chemical",
+            "label_i18n": {
+              "zh": "化学锚栓"
+            }
+          }
+        ]
+      },
+      {
+        "key": "thread",
+        "label_i18n": {
+          "zh": "螺纹规格"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "drill_dia",
+        "label_i18n": {
+          "zh": "钻孔直径"
+        },
+        "value_type": "number",
+        "scope": "sku",
+        "unit": "mm"
+      }
+    ]
+  },
+  "12": {
+    "note": "电线电缆(L1 通用)",
+    "attributes": [
+      {
+        "key": "rated_voltage",
+        "label_i18n": {
+          "zh": "额定电压"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "v300_500",
+            "label_i18n": {
+              "zh": "300/500V"
+            }
+          },
+          {
+            "code": "v450_750",
+            "label_i18n": {
+              "zh": "450/750V"
+            }
+          },
+          {
+            "code": "v0_6_1kv",
+            "label_i18n": {
+              "zh": "0.6/1kV"
+            }
+          },
+          {
+            "code": "v8_7_15kv",
+            "label_i18n": {
+              "zh": "8.7/15kV"
+            }
+          },
+          {
+            "code": "v26_35kv",
+            "label_i18n": {
+              "zh": "26/35kV"
+            }
+          }
+        ]
+      },
+      {
+        "key": "conductor",
+        "label_i18n": {
+          "zh": "导体材质"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "copper",
+            "label_i18n": {
+              "zh": "铜"
+            }
+          },
+          {
+            "code": "aluminum",
+            "label_i18n": {
+              "zh": "铝"
+            }
+          },
+          {
+            "code": "copper_clad_al",
+            "label_i18n": {
+              "zh": "铜包铝"
+            }
+          },
+          {
+            "code": "tinned_copper",
+            "label_i18n": {
+              "zh": "镀锡铜"
+            }
+          }
+        ]
+      },
+      {
+        "key": "cores",
+        "label_i18n": {
+          "zh": "芯数"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "section",
+        "label_i18n": {
+          "zh": "标称截面 mm²"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "12.002": {
+    "note": "电力电缆",
+    "attributes": [
+      {
+        "key": "insulation",
+        "label_i18n": {
+          "zh": "绝缘"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "xlpe",
+            "label_i18n": {
+              "zh": "交联聚乙烯 XLPE"
+            }
+          },
+          {
+            "code": "pvc",
+            "label_i18n": {
+              "zh": "聚氯乙烯 PVC"
+            }
+          },
+          {
+            "code": "epr",
+            "label_i18n": {
+              "zh": "乙丙橡胶 EPR"
+            }
+          }
+        ]
+      },
+      {
+        "key": "sheath",
+        "label_i18n": {
+          "zh": "护套"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "pvc",
+            "label_i18n": {
+              "zh": "PVC"
+            }
+          },
+          {
+            "code": "pe",
+            "label_i18n": {
+              "zh": "PE"
+            }
+          },
+          {
+            "code": "lszh",
+            "label_i18n": {
+              "zh": "低烟无卤 LSZH"
+            }
+          }
+        ]
+      },
+      {
+        "key": "armor",
+        "label_i18n": {
+          "zh": "铠装"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "none",
+            "label_i18n": {
+              "zh": "无"
+            }
+          },
+          {
+            "code": "steel_tape",
+            "label_i18n": {
+              "zh": "钢带"
+            }
+          },
+          {
+            "code": "steel_wire",
+            "label_i18n": {
+              "zh": "钢丝"
+            }
+          }
+        ]
+      },
+      {
+        "key": "fire_class",
+        "label_i18n": {
+          "zh": "阻燃/耐火"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "zr",
+            "label_i18n": {
+              "zh": "阻燃 ZR"
+            }
+          },
+          {
+            "code": "nh",
+            "label_i18n": {
+              "zh": "耐火 NH"
+            }
+          },
+          {
+            "code": "wdz",
+            "label_i18n": {
+              "zh": "低烟无卤阻燃 WDZ"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "12.001": {
+    "note": "电气装备用电线电缆(建筑布线)",
+    "attributes": [
+      {
+        "key": "wire_type",
+        "label_i18n": {
+          "zh": "型号"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "bv",
+            "label_i18n": {
+              "zh": "BV 单股硬线"
+            }
+          },
+          {
+            "code": "bvr",
+            "label_i18n": {
+              "zh": "BVR 多股软线"
+            }
+          },
+          {
+            "code": "rv",
+            "label_i18n": {
+              "zh": "RV 连接软线"
+            }
+          },
+          {
+            "code": "bvvb",
+            "label_i18n": {
+              "zh": "BVVB 护套线"
+            }
+          },
+          {
+            "code": "rvv",
+            "label_i18n": {
+              "zh": "RVV 软护套线"
+            }
+          }
+        ]
+      },
+      {
+        "key": "insulation",
+        "label_i18n": {
+          "zh": "绝缘"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "pvc",
+            "label_i18n": {
+              "zh": "PVC"
+            }
+          },
+          {
+            "code": "xlpe",
+            "label_i18n": {
+              "zh": "XLPE"
+            }
+          },
+          {
+            "code": "rubber",
+            "label_i18n": {
+              "zh": "橡胶"
+            }
+          }
+        ]
+      },
+      {
+        "key": "fire_class",
+        "label_i18n": {
+          "zh": "阻燃/耐火"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "zr",
+            "label_i18n": {
+              "zh": "阻燃 ZR"
+            }
+          },
+          {
+            "code": "nh",
+            "label_i18n": {
+              "zh": "耐火 NH"
+            }
+          },
+          {
+            "code": "wdz",
+            "label_i18n": {
+              "zh": "低烟无卤阻燃 WDZ"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

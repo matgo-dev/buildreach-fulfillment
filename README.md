@@ -41,6 +41,18 @@
   - **规格属性正规化**:`category_spec_attributes`(一属性一行,`UNIQUE(category_code,key)` + 4 个 CHECK,
     `value_type`/`options⇔enum`);运营 inline 新增属性/enum 选项由后端生成随机稳定 key(`a_`/`v_` + base62),
     中文只进 `label_i18n`,绝不进 key 列(身份≠展示)。
+  - **规格属性按产品族继承**:属性按"通用挂大类、特有挂子类"落在其适用的最高分类层;叶子建 SKU 时
+    `get_suggestions` 沿点分祖先链把整条链的属性**并集**返回(同 key 深覆浅,子类可覆盖父类),对齐
+    PIM/ERP 的分类-属性继承(Akeneo family / SAP class)。inline 新增 enum 选项写回属性**归属层**(可能是祖先),
+    对该层所有后代叶子共享。属性种子唯一源头 = `app/seed_data/spec_attributes.json`(`app/seed.py::seed_spec_templates`
+    读取,幂等 upsert;分类未导入则对应条目跳过,导入后重跑补齐)。首批覆盖金属管道/塑胶管道/紧固件/电线电缆。
+  - **SPU/SKU 规格分层(scope)**:`category_spec_attributes.scope`(`spu` 产品级 / `sku` 变体轴,挂在
+    (category_code,key) 行,同 key 跨品类可不同、同继承链须一致)。产品级值住 `spus.spec_jsonb`(SPU 填一次),
+    变体轴住 `skus.spec_jsonb`;**键不重叠、读时并集**(`spec_display` 后端单一解析,详情/报价共用)。写入按 scope
+    守卫(投错门 400);SPU 有规格或子 SKU 时**改分类锁定**(409)。对齐 Akeneo common/axis、管家婆属性组合。
+  - **两层搜索**:`spus.search_text`(名+品牌+产品级规格,pg_trgm)找**商品**,`list_spus` 关键词走它;
+    `skus.search_text` = SPU 名/品牌/产品级规格 ∪ SKU 名/轴 + code(denormalize,找**变体**,供后续报价选货)。
+    SPU 名/品牌/产品级规格变更级联重算子 SKU search_text。enum 值解析成 label 入索引(搜中文材质词命中)。
   - **售卖单位专表**:`units`(`code` 做 PK + `label_i18n`,主数据独立迁移),`skus.unit` 收编为 FK
     `units.code`(`ON DELETE RESTRICT`);单位种子唯一源头 = `app/seed.py::seed_units`。
   - **品类子树过滤**:`GET /api/v1/spus?category_code=...&include_descendants=1` 走 `text_pattern_ops` 前缀索引。

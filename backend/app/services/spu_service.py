@@ -12,10 +12,12 @@ from app.audit.logger import write_audit
 from app.core.codegen import NumberScope, format_code
 from app.core.exceptions import (ConflictError, IllegalStatusTransitionError, NotFoundError,
                                  ProductIncompleteError, ProductNotEditableError)
+from app.core.search_text import build_spu_search_text, build_sku_search_text
 from app.db.models.category import Category
 from app.db.models.sku import Sku, SkuStatus
 from app.db.models.spu import Spu, SpuStatus
 from app.services import image_service
+from app.services import spec_template_service as tmpl
 from app.services.numbering import allocate
 
 
@@ -41,6 +43,35 @@ async def has_active_sku(db: AsyncSession, spu_id: int) -> bool:
         Sku.spu_id == spu_id, Sku.status == SkuStatus.ACTIVE,
         Sku.deleted_at.is_(None)))).scalar_one()
     return n > 0
+
+
+async def _count_live_skus(db: AsyncSession, spu_id: int) -> int:
+    return (await db.execute(select(func.count()).select_from(Sku).where(
+        Sku.spu_id == spu_id, Sku.deleted_at.is_(None)))).scalar_one()
+
+
+async def _spu_search_text(db: AsyncSession, spu: Spu) -> str:
+    tmpl_map = await tmpl.suggestions_by_key(db, spu.category_code)
+    return build_spu_search_text(
+        name_i18n=spu.name_i18n, brand=spu.brand, spec=spu.spec_jsonb,
+        spu_code=spu.spu_code, suggestions_by_key=tmpl_map)
+
+
+async def _recompute_children_search_text(db: AsyncSession, spu: Spu) -> None:
+    """SPU 名/品牌/产品级规格变更 → 级联重算所有未软删子 SKU 的 search_text(方案 A)。
+
+    SKU search_text 里 denormalize 了 SPU 名/品牌/规格快照,SPU 改了就旧;SKU 数有限,
+    同事务循环重算。含停用(INACTIVE)未删 SKU(默认搜索可返回停用),只排软删。
+    """
+    tmpl_map = await tmpl.suggestions_by_key(db, spu.category_code)
+    skus = (await db.execute(select(Sku).where(
+        Sku.spu_id == spu.id, Sku.deleted_at.is_(None)))).scalars().all()
+    for sku in skus:
+        sku.search_text = build_sku_search_text(
+            spu_name_i18n=spu.name_i18n, spu_brand=spu.brand, spu_spec=spu.spec_jsonb,
+            sku_name_i18n=sku.name_i18n, sku_spec=sku.spec_jsonb, sku_code=sku.sku_code,
+            suggestions_by_key=tmpl_map)
+    await db.flush()
 
 
 async def _get_leaf_category(db: AsyncSession, code: str) -> Category:
@@ -77,13 +108,17 @@ async def get_spu_for_update(db: AsyncSession, spu_id: int) -> Spu:
 
 
 async def create_spu(db: AsyncSession, *, category_code, name_i18n, image_refs,
-                     brand=None, description=None, hs_code=None,
+                     brand=None, description=None, hs_code=None, spec_items=None,
                      actor_user_id, actor_user_email, request: Request | None = None) -> Spu:
     await _get_leaf_category(db, category_code)
+    # 产品级规格(scope='spu'):按品类模板(含继承)解析,落 spus.spec_jsonb。
+    spec_jsonb = await tmpl.resolve_spec(
+        db, category_code, [i for i in (spec_items or [])], scope="spu")
     spu_code = format_code(NumberScope.SPU, await allocate(db, NumberScope.SPU))
     spu = Spu(spu_code=spu_code, category_code=category_code, name_i18n=name_i18n,
-              brand=brand, description=description, hs_code=hs_code,
-              created_by=actor_user_id)
+              brand=brand, description=description, hs_code=hs_code, spec_jsonb=spec_jsonb,
+              search_text="", created_by=actor_user_id)
+    spu.search_text = await _spu_search_text(db, spu)  # 名+品牌+产品级规格(SPU 维度搜索)
     db.add(spu)
     await db.flush()
     await image_service.reconcile_spu_images(db, spu.id, image_refs)
@@ -95,11 +130,16 @@ async def create_spu(db: AsyncSession, *, category_code, name_i18n, image_refs,
 
 
 async def update_spu(db: AsyncSession, *, spu_id, name_i18n=None, category_code=None,
-                     image_refs=None, brand=None, description=None, hs_code=None,
+                     image_refs=None, brand=None, description=None, hs_code=None, spec_items=None,
                      actor_user_id, actor_user_email, request: Request | None = None) -> Spu:
     spu = await get_spu_for_update(db, spu_id)  # 锁聚合根,串行化并发写
     ensure_spu_editable(spu)
-    if category_code is not None:
+    if category_code is not None and category_code != spu.category_code:
+        # 改分类锁(评审 P1-#2):本系统 category=属性 schema 驱动,改分类=改 schema。
+        # 有规格或子 SKU 时旧 key 可能不属新类/scope 相反 → 拒绝,先清空规格/删 SKU。
+        if spu.spec_jsonb or await _count_live_skus(db, spu.id) > 0:
+            raise ConflictError(
+                "category_locked: SPU 已有规格或子 SKU,不可改分类;请先清空规格 / 删除 SKU")
         await _get_leaf_category(db, category_code)
         spu.category_code = category_code
     if name_i18n is not None:
@@ -110,9 +150,18 @@ async def update_spu(db: AsyncSession, *, spu_id, name_i18n=None, category_code=
         spu.description = description
     if hs_code is not None:
         spu.hs_code = hs_code
+    if spec_items is not None:
+        spu.spec_jsonb = await tmpl.resolve_spec(
+            db, spu.category_code, [i for i in spec_items], scope="spu")
+    # SKU search_text denormalize 了 SPU 名/品牌/规格,这三者(或分类)任一变都要重算:
+    # SPU 自身 search_text + 级联所有子 SKU 的 search_text。
+    search_stale = any(x is not None for x in (name_i18n, brand, spec_items, category_code))
     removed_keys: list[str] = []
     if image_refs is not None:
         removed_keys = await image_service.reconcile_spu_images(db, spu.id, image_refs)
+    if search_stale:
+        spu.search_text = await _spu_search_text(db, spu)
+        await _recompute_children_search_text(db, spu)  # 名/品牌/规格变→级联重算子 SKU
     await write_audit(db, resource_type=AuditResourceType.SPU, action=AuditAction.UPDATE,
                       user_id=actor_user_id, user_email=actor_user_email,
                       resource_id=spu.id, request=request, commit=False)
@@ -177,11 +226,9 @@ async def list_spus(db: AsyncSession, *, category_code=None, status=None, keywor
     if status:
         conds.append(Spu.status == status)
     if keyword:
-        # 已知限制:SPU 列表关键词只匹配中文名(name_i18n['zh'])+ spu_code;缺 zh 的记录
-        # 静默不匹配。中文运营期足够;多语言上线前再扩(SKU 搜索走 search_text 已覆盖全语言,
-        # SPU 无 search_text 去规范化字段,故此处直取 zh)。
-        like = f"%{keyword}%"
-        conds.append((Spu.name_i18n["zh"].astext.ilike(like)) | (Spu.spu_code.ilike(like)))
+        # SPU 维度搜索走 search_text(名全语言 + 品牌 + 产品级规格,pg_trgm GIN),
+        # 让"碳钢/GB-T706/品牌"等产品级词也能搜到商品(方案 A:SPU 找商品、SKU 找变体)。
+        conds.append(Spu.search_text.ilike(f"%{keyword}%"))
     total = (await db.execute(select(func.count()).select_from(Spu).where(*conds))).scalar_one()
     rows = (await db.execute(select(Spu).where(*conds)
             .order_by(Spu.created_at.desc()).offset((page - 1) * size).limit(size))).scalars().all()

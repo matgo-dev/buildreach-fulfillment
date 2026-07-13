@@ -10,12 +10,11 @@ from starlette.requests import Request
 from app.audit.constants import AuditAction, AuditResourceType
 from app.audit.logger import write_audit
 from app.core.codegen import NumberScope, format_code
-from app.core.exceptions import NotFoundError, SpecContractError
-from app.core.search_text import build_search_text
+from app.core.exceptions import NotFoundError
+from app.core.search_text import build_sku_search_text
 from app.db.models.sku import Sku, SkuStatus
 from app.db.models.spu import Spu, SpuStatus
 from app.db.models.unit import Unit
-from app.schemas.sku import validate_spec_items
 from app.services import image_service
 from app.services import spec_template_service as tmpl
 from app.services.numbering import allocate
@@ -36,57 +35,17 @@ async def _validate_unit(db: AsyncSession, code: str) -> None:
         raise NotFoundError(f"售卖单位不存在或已停用: {code}")
 
 
-async def _resolve_spec(db: AsyncSession, category_code: str, spec_items: list[dict]) -> list[dict]:
-    """校验 + 新属性生成稳定键回写模板;返回落库用的 spec_jsonb(仅 key/value)。
+async def _sku_search_text(db: AsyncSession, spu: Spu, sku: Sku) -> str:
+    """SKU search_text = SPU 名+品牌+产品级规格 ∪ SKU 名+轴规格 + sku_code(方案 A)。
 
-    身份≠展示铁律:key 在模板里 → 直接用该 key;不在模板 → 绝不拿用户提交的 key
-    (可能是中文原文)直接当 key,而是后端生成独立随机稳定键 `a_<8位 base62>`
-    (见 tmpl.create_new_attribute),把用户提交的 label_i18n(zh 必填)落回模板,
-    SKU 引用生成键。未知 key 又没带 label_i18n → SpecContractError(新增属性必须带 label_i18n)。
-
-    enum 属性额外校验:填的 value 必须是模板 options 里的 code;value 的 code 不在
-    options 内、但 item 带 label_i18n → 视为"inline 新增选项"请求(与"新增属性"同构的
-    逃生口,如"材质"缺"铝合金"):后端生成新 code(见 tmpl.add_enum_option)、行锁追加
-    进模板 options、SKU 落库用该新 code(此时提交的 value 可空/忽略)。既不在 options
-    又没带 label_i18n → 仍 SpecContractError,不静默接受未知值。
-
-    计量单位归位(spec §11 Part B):单位是属性的固有元数据,只住模板
-    category_spec_attributes.unit,spec_jsonb 永不落 unit。用户提交的 `item["unit"]`
-    仅在"新增属性"分支被消费,作为该新属性模板行的计量单位录一次(如新增"长度"
-    顺手给 unit=mm);对已存在的 key,提交的 unit 一律忽略——不接受某个 SKU 单独
-    覆盖模板单位。
+    denormalize SPU 上下文进 SKU,故搜 SPU 名/材质/标准都能命中该 SKU(报价等 SKU 级操作)。
+    enum 值解析成 label 入索引,搜中文材质词也命中。SPU 名/品牌/规格变→级联重算(见 spu_service)。
     """
-    known = await tmpl.suggestions_by_key(db, category_code)
-    resolved: list[dict] = []
-    for item in spec_items:
-        key = item.get("key")
-        tmpl_row = known.get(key) if key else None
-        value = item.get("value")
-        if tmpl_row is None:
-            label_i18n = item.get("label_i18n")
-            if not label_i18n or not label_i18n.get("zh"):
-                raise SpecContractError(
-                    f"未知属性 key={key!r}:模板中不存在,新增属性须带 label_i18n(zh 必填)")
-            tmpl_row = await tmpl.create_new_attribute(
-                db, category_code, label_i18n=label_i18n, value_type="string",
-                unit=item.get("unit") or None)
-            key = tmpl_row["key"]
-            known[key] = tmpl_row
-        elif tmpl_row.get("value_type") == "enum":
-            codes = {opt["code"] for opt in (tmpl_row.get("options") or [])}
-            if not (isinstance(value, str) and value in codes):
-                label_i18n = item.get("label_i18n")
-                if not label_i18n or not label_i18n.get("zh"):
-                    raise SpecContractError(
-                        f"属性 '{key}' 的值 {value!r} 不在允许的 enum code 集 {sorted(codes)} 内")
-                new_code = await tmpl.add_enum_option(db, category_code, key, label_i18n)
-                tmpl_row["options"] = [*(tmpl_row.get("options") or []),
-                                       {"code": new_code, "label_i18n": label_i18n}]
-                known[key] = tmpl_row
-                value = new_code
-        resolved.append({"key": key, "value": value})
-    parsed = validate_spec_items(resolved)
-    return [p.model_dump(exclude_none=True) for p in parsed]
+    tmpl_map = await tmpl.suggestions_by_key(db, spu.category_code)
+    return build_sku_search_text(
+        spu_name_i18n=spu.name_i18n, spu_brand=spu.brand, spu_spec=spu.spec_jsonb,
+        sku_name_i18n=sku.name_i18n, sku_spec=sku.spec_jsonb, sku_code=sku.sku_code,
+        suggestions_by_key=tmpl_map)
 
 
 async def _spu_category(db: AsyncSession, spu_id: int) -> tuple[Spu, str]:
@@ -215,13 +174,13 @@ async def create_sku(db: AsyncSession, *, spu_id, unit, reference_price, name_i1
     spu, category_code = await _spu_category(db, spu_id)
     ensure_spu_editable(spu)  # 父 SPU 启用中不可加 SKU,先停用
     await _validate_unit(db, unit)
-    spec_jsonb = await _resolve_spec(db, category_code, [i for i in spec_items])
+    spec_jsonb = await tmpl.resolve_spec(db, category_code, [i for i in spec_items], scope="sku")
     sku_code = format_code(NumberScope.SKU, await allocate(db, NumberScope.SKU))
     sku = Sku(spu_id=spu_id, sku_code=sku_code, unit=unit, reference_price=reference_price,
               spec_jsonb=spec_jsonb, name_i18n=name_i18n,
               weight_kg=weight_kg, length_cm=length_cm, width_cm=width_cm, height_cm=height_cm,
-              search_text=build_search_text(name_i18n, spec_jsonb, sku_code),
-              created_by=actor_user_id)
+              search_text="", created_by=actor_user_id)
+    sku.search_text = await _sku_search_text(db, spu, sku)  # 名 + (SPU∪SKU)规格 + code
     db.add(sku)
     await db.flush()
     await image_service.reconcile_sku_images(db, spu_id, sku.id, image_refs or [])
@@ -259,9 +218,10 @@ async def update_sku(db: AsyncSession, *, sku_id, name_i18n=None, unit=None,
     if image_refs is not None:
         removed_keys = await image_service.reconcile_sku_images(db, sku.spu_id, sku.id, image_refs)
     if spec_items is not None:
-        sku.spec_jsonb = await _resolve_spec(db, category_code, [i for i in spec_items])
-    # 写路径单一入口:任何影响面重算 search_text
-    sku.search_text = build_search_text(sku.name_i18n, sku.spec_jsonb, sku.sku_code)
+        sku.spec_jsonb = await tmpl.resolve_spec(
+            db, category_code, [i for i in spec_items], scope="sku")
+    # 写路径单一入口:任何影响面重算 search_text(名/规格改了都要),用 SPU∪SKU 并集
+    sku.search_text = await _sku_search_text(db, spu, sku)
     await db.flush()
     await write_audit(db, resource_type=AuditResourceType.SKU, action=AuditAction.UPDATE,
                       user_id=actor_user_id, user_email=actor_user_email,

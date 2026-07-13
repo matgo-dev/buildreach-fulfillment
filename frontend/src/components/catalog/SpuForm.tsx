@@ -1,9 +1,11 @@
 "use client";
-import { useEffect, useState } from "react";
-import { Drawer, Form, Input, TreeSelect, Button, Space, App } from "antd";
+import { useEffect, useRef, useState } from "react";
+import { Drawer, Form, Input, TreeSelect, Button, Space, Divider, App } from "antd";
 import { catalogApi, CategoryNode, ImageRefIn, SpuDetail } from "@/lib/catalog";
 import { display } from "@/lib/i18n";
 import { SpuImageManager } from "@/components/catalog/ImageManager";
+import { SpecEditor, SpecEditorHandle } from "@/components/catalog/SpecEditor";
+import { colors } from "@/lib/tokens";
 
 interface CatTreeNode {
   value: string;
@@ -44,8 +46,10 @@ export function SpuForm({
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [cats, setCats] = useState<CatTreeNode[]>([]);
+  const [catCode, setCatCode] = useState<string | undefined>(undefined);
   const [images, setImages] = useState<ImageRefIn[]>([]);
   const [saving, setSaving] = useState(false);
+  const specRef = useRef<SpecEditorHandle>(null);
 
   useEffect(() => {
     if (open) catalogApi.categoriesTree().then((r) => setCats(buildTreeSelect(r.items)));
@@ -53,6 +57,7 @@ export function SpuForm({
 
   useEffect(() => {
     if (!open) return;
+    setCatCode(spu?.category_code);
     form.setFieldsValue(
       spu
         ? {
@@ -81,6 +86,8 @@ export function SpuForm({
       message.error("请至少上传一张主图(封面)");
       return;
     }
+    const spec_items = specRef.current?.collect();
+    if (spec_items === null) return; // 手输行缺标签 → 阻断(collect 返回 null)
     setSaving(true);
     try {
       const body = {
@@ -89,6 +96,7 @@ export function SpuForm({
         brand: v.brand?.trim() || null,
         hs_code: v.hs_code?.trim() || null,
         description: v.description?.trim() || null,
+        spec_items: spec_items ?? [],
         images,
       };
       if (spu) await catalogApi.updateSpu(spu.id, body);
@@ -131,6 +139,7 @@ export function SpuForm({
             placeholder="选择分类"
             allowClear
             style={{ maxWidth: 360 }}
+            onChange={(v) => setCatCode(v)}
           />
         </Form.Item>
         <Form.Item
@@ -162,6 +171,25 @@ export function SpuForm({
           />
         </Form.Item>
       </Form>
+
+      <Divider titlePlacement="left" plain style={{ marginTop: 8 }}>
+        产品级规格(整个商品一致,如材质/执行标准;区分变体的规格放 SKU)
+      </Divider>
+      {catCode ? (
+        <SpecEditor
+          ref={specRef}
+          open={open}
+          categoryCode={catCode}
+          scope="spu"
+          initialSpec={spu?.spec_jsonb}
+        />
+      ) : (
+        <div style={{ fontSize: 13, color: colors.muted }}>先选分类,再维护产品级规格。</div>
+      )}
+
+      <Divider titlePlacement="left" plain style={{ marginTop: 16 }}>
+        图片
+      </Divider>
       <SpuImageManager value={images} onChange={setImages} />
     </Drawer>
   );

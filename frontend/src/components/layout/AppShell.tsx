@@ -1,7 +1,7 @@
 "use client";
 import { ReactNode, useState } from "react";
 import { Layout, Menu, Breadcrumb, Dropdown, Avatar } from "antd";
-import { AppstoreOutlined, TagsOutlined, UserOutlined, LogoutOutlined } from "@ant-design/icons";
+import { AppstoreOutlined, UserOutlined, LogoutOutlined } from "@ant-design/icons";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuthStore } from "@/stores/authStore";
 import { authApi } from "@/lib/auth";
@@ -12,9 +12,9 @@ const { Header, Sider, Content } = Layout;
 // 侧栏暗色底 = DESIGN §1.1 sidebar(与 AntD 默认 #001529 的有意偏离)。
 const SIDER_BG = colors.sidebar;
 
+// SKU 维度搜索能力(/catalog/skus 路由仍在)留给「报价」等 SKU 级操作,不在目录侧栏单列入口。
 const MENU_ITEMS = [
   { key: "/catalog/spus", icon: <AppstoreOutlined />, label: "商品目录" },
-  { key: "/catalog/skus", icon: <TagsOutlined />, label: "SKU 搜索" },
 ];
 
 export function AppShell({ children, breadcrumb = [] }: { children: ReactNode; breadcrumb?: string[] }) {

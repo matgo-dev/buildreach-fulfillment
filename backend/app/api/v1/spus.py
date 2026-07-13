@@ -13,6 +13,7 @@ from app.schemas.common import StatusPatchIn
 from app.schemas.spu import SpuCreateIn, SpuOut, SpuUpdateIn
 from app.schemas.sku import sku_out
 from app.services import category_service, image_service, sku_service, spu_service
+from app.services import spec_template_service as tmpl
 
 router = APIRouter(prefix="/spus", tags=["spus"])
 
@@ -61,11 +62,15 @@ async def get_spu(
     for s in skus:
         d = sku_out(s, include_cost=include_cost, images=images_by_sku.get(s.id, []))
         d["available"] = sku_service.sku_available(s, spu)
+        # SKU 完整规格 = SPU 产品级 ∪ SKU 轴(读时并集,后端单一解析,见评审 P2-#4)
+        d["spec_display"] = await tmpl.resolve_spec_display(
+            db, spu.category_code, list(spu.spec_jsonb or []) + list(s.spec_jsonb or []))
         sku_dicts.append(d)
     cat_names = await category_service.names_by_code(db, [spu.category_code])
     return success({
         **SpuOut.model_validate(spu, from_attributes=True).model_dump(),
         "category_name_i18n": cat_names.get(spu.category_code),
+        "spec_display": await tmpl.resolve_spec_display(db, spu.category_code, spu.spec_jsonb),
         "images": await image_service.list_spu_images(db, spu_id),
         "has_available_sku": any(x["available"] for x in sku_dicts),
         "skus": sku_dicts,
@@ -74,6 +79,7 @@ async def get_spu(
 
 async def _spu_with_images(db: AsyncSession, spu) -> dict:
     return {**SpuOut.model_validate(spu, from_attributes=True).model_dump(),
+            "spec_display": await tmpl.resolve_spec_display(db, spu.category_code, spu.spec_jsonb),
             "images": await image_service.list_spu_images(db, spu.id)}
 
 
@@ -87,6 +93,7 @@ async def create_spu(
     spu = await spu_service.create_spu(
         db, category_code=body.category_code, name_i18n=body.name_i18n,
         brand=body.brand, description=body.description, hs_code=body.hs_code,
+        spec_items=[i.model_dump() for i in body.spec_items],
         image_refs=[i.model_dump() for i in body.images],
         actor_user_id=current.id, actor_user_email=current.email, request=request)
     return success(await _spu_with_images(db, spu))
@@ -103,6 +110,8 @@ async def update_spu(
     spu = await spu_service.update_spu(
         db, spu_id=spu_id, name_i18n=body.name_i18n, category_code=body.category_code,
         brand=body.brand, description=body.description, hs_code=body.hs_code,
+        spec_items=([i.model_dump() for i in body.spec_items]
+                    if body.spec_items is not None else None),
         image_refs=([i.model_dump() for i in body.images] if body.images is not None else None),
         actor_user_id=current.id, actor_user_email=current.email, request=request)
     return success(await _spu_with_images(db, spu))

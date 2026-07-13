@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { Card, Descriptions, Table, Button, Tag, Space, Popconfirm, Spin, App } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { catalogApi, SkuDetailItem, SpuDetail, specText } from "@/lib/catalog";
+import { catalogApi, SkuDetailItem, SpuDetail, specDisplayText } from "@/lib/catalog";
 import { display } from "@/lib/i18n";
 import { imageUrl } from "@/lib/image";
 import { colors } from "@/lib/tokens";
@@ -94,7 +94,12 @@ export default function SpuDetailPage() {
           } as const,
         ]
       : []),
-    { title: "规格", dataIndex: "spec_jsonb", render: (v) => specText(v) || "—" },
+    {
+      title: "规格",
+      key: "spec",
+      // spec_display = SPU 产品级 ∪ SKU 轴(后端读时并集、单一解析),非仅 SKU 自身 spec_jsonb。
+      render: (_, r) => specDisplayText(r.spec_display) || "—",
+    },
     {
       title: "重量/尺寸",
       key: "physical",
@@ -236,6 +241,12 @@ export default function SpuDetailPage() {
                 label: "在售 SKU",
                 children: `${spu.skus.filter((s) => s.status === "ACTIVE").length} / 共 ${spu.skus.length} 个`,
               },
+              {
+                key: "ps",
+                label: "产品级规格",
+                span: 2,
+                children: specDisplayText(spu.spec_display) || "—",
+              },
               { key: "d", label: "描述", span: 2, children: spu.description || "—" },
             ]}
           />
@@ -272,6 +283,7 @@ export default function SpuDetailPage() {
           open
           spuId={spu.id}
           categoryCode={spu.category_code}
+          spuSpec={spu.spec_display}
           sku={skuForm.sku}
           copyFrom={skuForm.copyFrom}
           onClose={() => setSkuForm({ open: false })}

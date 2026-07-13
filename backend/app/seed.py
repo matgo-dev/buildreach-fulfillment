@@ -1,7 +1,9 @@
 """基座种子:仅引导管理员(env 注入,must_change_password=True)。"""
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,24 +38,29 @@ _UNIT_SEEDS: list[tuple[str, dict, int]] = [
     ("pair", {"zh": "双", "en": "pair"}, 110),
 ]
 
-_SPEC_TEMPLATE_SEEDS: dict[str, list[dict]] = {
-    # category_code: 属性列表(种子;仅 zh,英/斯按需后补)。sort_order 由 upsert_attribute
-    # 按列表顺序自动递增分配,此处无需手写。
-    "10": [
-        {"key": "material", "label_i18n": {"zh": "材质"}, "value_type": "enum", "options": [
-            {"code": "carbon_steel", "label_i18n": {"zh": "碳钢"}},
-            {"code": "stainless_steel", "label_i18n": {"zh": "不锈钢"}},
-            {"code": "galvanized", "label_i18n": {"zh": "镀锌"}},
-        ]},
-        {"key": "dn", "label_i18n": {"zh": "公称通径"}, "value_type": "string"},
-        {"key": "pressure", "label_i18n": {"zh": "压力等级"}, "value_type": "number", "unit": "MPa"},
-        {"key": "conn", "label_i18n": {"zh": "连接方式"}, "value_type": "enum", "options": [
-            {"code": "flange", "label_i18n": {"zh": "法兰"}},
-            {"code": "thread", "label_i18n": {"zh": "螺纹"}},
-            {"code": "weld", "label_i18n": {"zh": "焊接"}},
-        ]},
-    ],
-}
+# 分类规格属性种子的**唯一源头** = 同目录 seed_data/spec_attributes.json。
+# 属性按"产品族"维度挂在其**适用的最高分类层**(通用属性挂大类、特有属性挂子类),
+# 叶子建 SKU 时由 spec_template_service.get_suggestions 沿祖先链继承为并集。
+# 迁移只建空表,种子只走这里(单一源头,可不改代码增改属性)。
+_SPEC_SEEDS_PATH = Path(__file__).parent / "seed_data" / "spec_attributes.json"
+
+
+def _load_spec_template_seeds() -> dict[str, list[dict]]:
+    """读 seed_data/spec_attributes.json,返回 {category_code: [attr, ...]}。
+
+    文件形态:`{ code: {"note": 编辑提示(不入库), "attributes": [attr...] }, ... }`;
+    `_` 开头的顶层键(如 `_format`)是文档,跳过。note 仅编辑可读,分类名唯一源头
+    是 categories 表,不从这里入库。文件缺失则空种子(测试/最小环境安全)。
+    """
+    if not _SPEC_SEEDS_PATH.exists():
+        logger.info("Seed: %s 不存在,跳过规格属性种子", _SPEC_SEEDS_PATH.name)
+        return {}
+    raw = json.loads(_SPEC_SEEDS_PATH.read_text(encoding="utf-8"))
+    return {
+        code: entry["attributes"]
+        for code, entry in raw.items()
+        if not code.startswith("_")
+    }
 
 
 async def seed_bootstrap_admin(db: AsyncSession) -> None:
@@ -107,11 +114,10 @@ async def seed_spec_templates(db: AsyncSession) -> None:
 
     幂等:分类不存在则跳过该分类;upsert_attribute 内部 ON CONFLICT(category_code,key)
     DO NOTHING,已存在的 key 原样保留不覆盖。
-    注:种子挂在 category_code="10"——需与真实导入的分类 code 对齐;若导入数据
-    无 "10",种子会跳过(幂等安全),运营导入真实分类后可调整种子 code 或改用
-    upsert 服务补。
+    注:属性挂在真实分类 code 上(见 seed_data/spec_attributes.json);分类未导入时
+    对应条目跳过(幂等安全),导入后重跑种子即补齐。
     """
-    for category_code, attrs in _SPEC_TEMPLATE_SEEDS.items():
+    for category_code, attrs in _load_spec_template_seeds().items():
         cat = (await db.execute(
             select(Category).where(Category.code == category_code))).scalar_one_or_none()
         if cat is None:
@@ -121,7 +127,8 @@ async def seed_spec_templates(db: AsyncSession) -> None:
             await tmpl.upsert_attribute(
                 db, category_code, key=attr["key"], label_i18n=attr["label_i18n"],
                 value_type=attr.get("value_type", "string"), unit=attr.get("unit"),
-                options=attr.get("options"), source=SuggestionSource.SEED)
+                options=attr.get("options"), scope=attr.get("scope", "sku"),
+                source=SuggestionSource.SEED)
     await db.commit()
 
 
