@@ -4,7 +4,7 @@ from decimal import Decimal
 
 @pytest.mark.asyncio
 async def test_end_to_end_build_search_quote(
-    client, superadmin_headers, product_operator_headers, db_session
+    client, superadmin_headers, product_operator_headers, sales_headers, db_session
 ):
     from scripts.import_categories import import_categories
     await import_categories(
@@ -32,14 +32,14 @@ async def test_end_to_end_build_search_quote(
                              json={"status": "ACTIVE"})
     assert act.status_code == 200, act.text
 
-    # 建报价(整单:表头 + 行一次提交)
-    order = (await client.post("/api/v1/quotations", headers=superadmin_headers,
+    # 建报价(整单:表头 + 行一次提交;报价须 SALES 角色)
+    order = (await client.post("/api/v1/quotations", headers=sales_headers,
              json={"customer_id": cust["id"], "currency": "USD",
                    "lines": [{"sku_id": sku["id"], "unit_price": 150.0, "qty": 2}]})).json()["data"]
     assert order["language"] == "en"
     assert Decimal(str(order["total_amount"])) == Decimal("300.00")   # 150*2
     line = (await client.get(f"/api/v1/quotations/{order['id']}",
-            headers=superadmin_headers)).json()["data"]["lines"][0]
+            headers=sales_headers)).json()["data"]["lines"][0]
     # unit_snapshot 冻结展示 label:order.language=en → units.label_i18n.en("pc"),非 code("piece")
     assert line["unit_snapshot"] == "pc"
     assert line["name_snapshot"]  # 非空快照

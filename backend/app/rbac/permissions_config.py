@@ -29,15 +29,21 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         Permissions.PERMISSION_MANAGE,
         Permissions.SYSTEM_CONFIG,
         Permissions.SYSTEM_AUDIT,
-        # M1 履约:customer/quote 管理(暂由 ADMIN 兼管);product 只留 read 过渡桥,
-        # manage 已拆给 PRODUCT_OPERATOR 专职角色(职责分离)
+        # 履约:customer 管理暂由 ADMIN 兼管(客户尚无专职角色);product 只留 read 过渡桥,
+        # manage 已拆给 PRODUCT_OPERATOR。quote:manage 已归位到 SALES(Q25 职责分离),ADMIN 不再持有。
         Permissions.CUSTOMER_MANAGE,
         Permissions.PRODUCT_READ,
-        Permissions.QUOTE_MANAGE,
     ],
     "PRODUCT_OPERATOR": [
         *_AUTH_BASE,
         Permissions.PRODUCT_READ,
         Permissions.PRODUCT_MANAGE,
+    ],
+    # 销售:报价单全生命周期 + 读客户(选客户)+ 读商品(选料)。不碰主数据写、不碰系统域。
+    "SALES": [
+        *_AUTH_BASE,
+        Permissions.QUOTE_MANAGE,
+        Permissions.CUSTOMER_READ,
+        Permissions.PRODUCT_READ,
     ],
 }

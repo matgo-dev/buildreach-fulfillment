@@ -28,9 +28,9 @@ async def _seed_active(db):
 
 
 @pytest.mark.asyncio
-async def test_quotation_full_lifecycle_api(client, superadmin_headers, db_session):
+async def test_quotation_full_lifecycle_api(client, sales_headers, db_session):
     cust, sku = await _seed_active(db_session)
-    H = superadmin_headers
+    H = sales_headers
 
     # create(整单:表头 + 2 行)
     r = await client.post("/api/v1/quotations", headers=H, json={
@@ -41,7 +41,7 @@ async def test_quotation_full_lifecycle_api(client, superadmin_headers, db_sessi
     order = r.json()["data"]
     oid = order["id"]
     assert str(order["total_amount"]) in ("250.00", "250.0") or float(order["total_amount"]) == 250
-    assert order["salesperson_id"] == 1 and order["summary"] == "Q3 钢材"
+    assert order["salesperson_id"] and order["summary"] == "Q3 钢材"  # 报价人默认=建单销售
 
     # get
     g = (await client.get(f"/api/v1/quotations/{oid}", headers=H)).json()["data"]
@@ -75,12 +75,12 @@ async def test_quotation_full_lifecycle_api(client, superadmin_headers, db_sessi
 
 
 @pytest.mark.asyncio
-async def test_create_language_defaults_from_customer(client, superadmin_headers, db_session):
+async def test_create_language_defaults_from_customer(client, sales_headers, db_session):
     _, sku = await _seed_active(db_session)
     cust = Customer(code="CA00002", name_i18n={"zh": "斯语客户"}, quote_language="sw")
     db_session.add(cust)
     await db_session.commit()
-    r = await client.post("/api/v1/quotations", headers=superadmin_headers, json={
+    r = await client.post("/api/v1/quotations", headers=sales_headers, json={
         "customer_id": cust.id, "currency": "USD",
         "lines": [{"sku_id": sku.id, "unit_price": 10, "qty": 1}]})
     assert r.status_code == 200, r.text
@@ -88,9 +88,9 @@ async def test_create_language_defaults_from_customer(client, superadmin_headers
 
 
 @pytest.mark.asyncio
-async def test_delete_only_draft(client, superadmin_headers, db_session):
+async def test_delete_only_draft(client, sales_headers, db_session):
     cust, sku = await _seed_active(db_session)
-    H = superadmin_headers
+    H = sales_headers
     oid = (await client.post("/api/v1/quotations", headers=H, json={
         "customer_id": cust.id, "currency": "USD",
         "lines": [{"sku_id": sku.id, "unit_price": 10, "qty": 1}]})).json()["data"]["id"]
