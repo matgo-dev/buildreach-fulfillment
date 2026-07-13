@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.common import validate_i18n
+from app.schemas.sku import SkuSpecItemIn  # 产品级规格输入形状与 SKU 一致(scope 由端点区分)
 
 
 class ImageRefIn(BaseModel):
@@ -34,6 +35,10 @@ def validate_spu_image_refs(images: list[ImageRefIn]) -> list[ImageRefIn]:
 class SpuCreateIn(BaseModel):
     category_code: str = Field(..., max_length=50)
     name_i18n: dict
+    brand: str | None = Field(default=None, max_length=100)
+    description: str | None = None
+    hs_code: str | None = Field(default=None, max_length=20)
+    spec_items: list[SkuSpecItemIn] = []  # 产品级规格(scope='spu' 属性)
     images: list[ImageRefIn]
 
     _v = field_validator("name_i18n")(validate_i18n)
@@ -45,6 +50,10 @@ class SpuOut(BaseModel):
     spu_code: str
     category_code: str
     name_i18n: dict
+    brand: str | None
+    description: str | None
+    hs_code: str | None
+    spec_jsonb: list  # 产品级规格值(仅 key/value);展示投影另见 spec_display(端点组装)
     status: str
     created_by: int
     created_at: datetime
@@ -56,6 +65,10 @@ class SpuOut(BaseModel):
 class SpuUpdateIn(BaseModel):
     name_i18n: dict | None = None
     category_code: str | None = Field(default=None, max_length=50)
+    brand: str | None = Field(default=None, max_length=100)
+    description: str | None = None
+    hs_code: str | None = Field(default=None, max_length=20)
+    spec_items: list[SkuSpecItemIn] | None = None
     images: list[ImageRefIn] | None = None
 
     @field_validator("name_i18n")

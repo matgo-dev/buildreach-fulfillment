@@ -1,9 +1,10 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
-import { useParams, useSearchParams } from "next/navigation";
-import { Card, Descriptions, Table, Button, Tag, Space, Popconfirm, Spin, App } from "antd";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { Card, Descriptions, Table, Button, Tag, Space, Popconfirm, Spin, Image, App } from "antd";
+import { ArrowLeftOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
-import { catalogApi, SkuDetailItem, SpuDetail, specText } from "@/lib/catalog";
+import { catalogApi, SkuDetailItem, SpuDetail, UnitOut, specDisplayText } from "@/lib/catalog";
 import { display } from "@/lib/i18n";
 import { imageUrl } from "@/lib/image";
 import { colors } from "@/lib/tokens";
@@ -21,13 +22,24 @@ import {
 
 export default function SpuDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const editParam = useSearchParams().get("edit");
   const { message } = App.useApp();
   const canManage = useAuthStore((s) => s.hasPermission("product:manage"));
   const [spu, setSpu] = useState<SpuDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [editSpu, setEditSpu] = useState(false);
-  const [skuForm, setSkuForm] = useState<{ open: boolean; sku?: SkuDetailItem }>({ open: false });
+  const [skuForm, setSkuForm] = useState<{ open: boolean; sku?: SkuDetailItem; copyFrom?: SkuDetailItem }>({ open: false });
+  const [units, setUnits] = useState<UnitOut[]>([]);
+
+  useEffect(() => {
+    catalogApi.units().then((r) => setUnits(r.items)).catch(() => setUnits([]));
+  }, []);
+  // 售卖单位 code → 中文 label(SKU 存 code,展示走 units 主数据 i18n,不显裸 code)。
+  const unitMap = useMemo(
+    () => Object.fromEntries(units.map((u) => [u.code, display(u.label_i18n) || u.code])),
+    [units],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -83,30 +95,49 @@ export default function SpuDetailPage() {
   const columns: ColumnsType<SkuDetailItem> = [
     { title: "编码", dataIndex: "sku_code", width: 150 },
     { title: "名称", dataIndex: "name_i18n", render: (v) => display(v) },
-    { title: "单位", dataIndex: "unit", width: 80 },
+    { title: "单位", dataIndex: "unit", width: 80, render: (v: string) => unitMap[v] ?? v },
     ...(canManage
       ? [
           {
             title: "参考价",
             dataIndex: "reference_price",
             width: 100,
+            // 数值列可排序(DESIGN §7);脱敏 null 归 0 参与比较。
+            sorter: (a: SkuDetailItem, b: SkuDetailItem) =>
+              (Number(a.reference_price) || 0) - (Number(b.reference_price) || 0),
             render: (v: string | number | null) => v ?? "—",
           } as const,
         ]
       : []),
-    { title: "规格", dataIndex: "spec_jsonb", render: (v) => specText(v) || "—" },
     {
-      title: "可售",
-      dataIndex: "available",
-      width: 80,
-      render: (v: boolean) => (
-        <Tag color={v ? "success" : "default"}>{v ? "可售" : "不可售"}</Tag>
-      ),
+      title: "规格",
+      key: "spec",
+      // spec_display = SPU 产品级 ∪ SKU 轴(后端读时并集、单一解析),非仅 SKU 自身 spec_jsonb。
+      render: (_, r) => specDisplayText(r.spec_display) || "—",
+    },
+    {
+      title: "重量/尺寸",
+      key: "physical",
+      width: 150,
+      render: (_, r) => {
+        const parts: string[] = [];
+        if (r.weight_kg != null) parts.push(`${r.weight_kg}kg`);
+        if (r.length_cm != null && r.width_cm != null && r.height_cm != null)
+          parts.push(`${r.length_cm}×${r.width_cm}×${r.height_cm}cm`);
+        return parts.length ? parts.join(" · ") : "—";
+      },
     },
     {
       title: "状态",
       dataIndex: "status",
       width: 90,
+      // 枚举列下拉单选筛选(DESIGN §7);filterMultiple:false → radio 单选,重置=全部。
+      filters: [
+        { text: SKU_STATUS_META["ACTIVE"]?.label ?? "在售", value: "ACTIVE" },
+        { text: SKU_STATUS_META["INACTIVE"]?.label ?? "停售", value: "INACTIVE" },
+      ],
+      filterMultiple: false,
+      onFilter: (value, r) => r.status === value,
       render: (v: string) => (
         <Tag color={SKU_STATUS_META[v]?.color}>{SKU_STATUS_META[v]?.label ?? v}</Tag>
       ),
@@ -122,6 +153,11 @@ export default function SpuDetailPage() {
             {spuEditable(spu.status) && (
               <Button size="small" type="link" onClick={() => setSkuForm({ open: true, sku: r })}>
                 编辑
+              </Button>
+            )}
+            {spuEditable(spu.status) && (
+              <Button size="small" type="link" onClick={() => setSkuForm({ open: true, copyFrom: r })}>
+                复制
               </Button>
             )}
             <Button size="small" type="link" onClick={() => toggleSku(r)}>
@@ -151,7 +187,18 @@ export default function SpuDetailPage() {
     <>
       <Card
         size="small"
-        title={`SPU ${spu.spu_code}`}
+        title={
+          <Space size={8}>
+            <Button
+              type="text"
+              size="small"
+              icon={<ArrowLeftOutlined />}
+              onClick={() => router.push("/catalog/spus")}
+              aria-label="返回列表"
+            />
+            <span>SPU {spu.spu_code}</span>
+          </Space>
+        }
         style={{ marginBottom: 16 }}
         extra={
           <Can perm="product:manage">
@@ -176,37 +223,54 @@ export default function SpuDetailPage() {
             if (!cover) return null;
             const rest = spu.images.filter((i) => i.image_key !== cover);
             return (
-              <div style={{ flex: "none" }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={imageUrl(cover, 400)}
-                  alt="主图"
-                  style={{ width: 160, height: 160, objectFit: "cover", borderRadius: 8 }}
-                />
-                {rest.length > 0 && (
-                  <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap", maxWidth: 160 }}>
-                    {rest.map((g) => (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        key={g.id}
-                        src={imageUrl(g.image_key, 120)}
-                        alt=""
-                        title={g.image_type === "DETAIL" ? "详情图" : "轮播图"}
-                        style={{
-                          width: 36, height: 36, objectFit: "cover", borderRadius: 4,
-                          border: `1px solid ${colors.line}`,
-                        }}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
+              <Image.PreviewGroup>
+                <div style={{ flex: "none" }}>
+                  <Image
+                    src={imageUrl(cover, 400)}
+                    preview={{ src: imageUrl(cover, 1600) }}
+                    alt="主图"
+                    width={160}
+                    height={160}
+                    style={{ objectFit: "cover", borderRadius: 8, cursor: "pointer" }}
+                  />
+                  {rest.length > 0 && (
+                    <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap", maxWidth: 160 }}>
+                      {rest.map((g) => (
+                        <Image
+                          key={g.id}
+                          src={imageUrl(g.image_key, 120)}
+                          preview={{ src: imageUrl(g.image_key, 1600) }}
+                          alt=""
+                          width={36}
+                          height={36}
+                          style={{
+                            objectFit: "cover",
+                            borderRadius: 4,
+                            border: `1px solid ${colors.line}`,
+                            cursor: "pointer",
+                          }}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </Image.PreviewGroup>
             );
           })()}
           <Descriptions size="small" column={2} style={{ flex: 1 }}
             items={[
               { key: "n", label: "名称", children: display(spu.name_i18n) },
-              { key: "c", label: "分类", children: spu.category_code },
+              {
+                key: "c",
+                label: "分类",
+                children: spu.category_path?.length
+                  ? spu.category_path.map((c) => display(c.name_i18n)).join(" / ")
+                  : spu.category_name_i18n
+                    ? display(spu.category_name_i18n)
+                    : spu.category_code,
+              },
+              { key: "b", label: "品牌", children: spu.brand || "—" },
+              { key: "h", label: "HS 编码", children: spu.hs_code || "—" },
               {
                 key: "s",
                 label: "状态",
@@ -218,9 +282,16 @@ export default function SpuDetailPage() {
               },
               {
                 key: "a",
-                label: "可用 SKU",
-                children: spu.has_available_sku ? "有" : "无",
+                label: "在售 SKU",
+                children: `${spu.skus.filter((s) => s.status === "ACTIVE").length} / 共 ${spu.skus.length} 个`,
               },
+              {
+                key: "ps",
+                label: "产品级规格",
+                span: 2,
+                children: specDisplayText(spu.spec_display) || "—",
+              },
+              { key: "d", label: "描述", span: 2, children: spu.description || "—" },
             ]}
           />
         </div>
@@ -256,7 +327,9 @@ export default function SpuDetailPage() {
           open
           spuId={spu.id}
           categoryCode={spu.category_code}
+          spuSpec={spu.spec_display}
           sku={skuForm.sku}
+          copyFrom={skuForm.copyFrom}
           onClose={() => setSkuForm({ open: false })}
           onSaved={load}
         />

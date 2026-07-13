@@ -1,5 +1,6 @@
 import pytest
 
+from app.core.exceptions import SpecContractError
 from app.db.models.category import Category
 from app.services import spec_template_service as svc
 
@@ -135,3 +136,180 @@ async def test_add_enum_option_rejects_non_enum_attribute(db_session):
     await svc.upsert_attribute(db_session, "10", key="dn", label_i18n={"zh": "公称通径"})
     with pytest.raises(Exception):
         await svc.add_enum_option(db_session, "10", "dn", {"zh": "新值"})
+
+
+# ── 分类-属性继承:叶子拿到整条祖先链的并集(通用挂高层、特有挂低层)──
+
+async def _seed_chain(db):
+    """建一条真实形态的点分祖先链:30(金属管道 L1)→ 30.002(碳钢管道 L2)
+    → 30.002.002(焊接钢管 L3,叶子)。parent_code 自引用 FK,父须先于子。"""
+    db.add(Category(code="30", parent_code=None, name_i18n={"zh": "金属管道"},
+                    level=1, is_leaf=False, sort_order=0))
+    await db.flush()
+    db.add(Category(code="30.002", parent_code="30", name_i18n={"zh": "碳钢管道"},
+                    level=2, is_leaf=False, sort_order=0))
+    await db.flush()
+    db.add(Category(code="30.002.002", parent_code="30.002", name_i18n={"zh": "焊接钢管"},
+                    level=3, is_leaf=True, sort_order=0))
+    await db.flush()
+
+
+@pytest.mark.asyncio
+async def test_get_suggestions_inherits_whole_ancestor_chain(db_session):
+    """叶子的建议 = 自身 + 所有上级属性的并集,按"通用→特有"顺序(祖先在前)。"""
+    await _seed_chain(db_session)
+    await svc.upsert_attribute(db_session, "30", key="dn", label_i18n={"zh": "公称直径"})
+    await svc.upsert_attribute(db_session, "30.002", key="pn", label_i18n={"zh": "公称压力"})
+    await svc.upsert_attribute(db_session, "30.002.002", key="wall", label_i18n={"zh": "壁厚"})
+
+    keys = [s["key"] for s in await svc.get_suggestions(db_session, "30.002.002")]
+    assert keys == ["dn", "pn", "wall"]  # 深度排序:L1 → L2 → L3
+
+
+@pytest.mark.asyncio
+async def test_get_suggestions_item_carries_owning_category_code(db_session):
+    """每个建议项带**归属层** category_code——_resolve_spec 追加 enum 选项要写回这一层。"""
+    await _seed_chain(db_session)
+    await svc.upsert_attribute(db_session, "30", key="dn", label_i18n={"zh": "公称直径"})
+    by_key = await svc.suggestions_by_key(db_session, "30.002.002")
+    assert by_key["dn"]["category_code"] == "30"  # 归属在 L1,非叶子
+
+
+@pytest.mark.asyncio
+async def test_child_overrides_parent_same_key(db_session):
+    """子类同名 key 覆盖父类(如把父层宽 enum 在子层收窄);取归属层为子层。"""
+    await _seed_chain(db_session)
+    await svc.upsert_attribute(
+        db_session, "30", key="material", label_i18n={"zh": "材质"}, value_type="enum",
+        options=[{"code": "carbon", "label_i18n": {"zh": "碳钢"}},
+                 {"code": "ss", "label_i18n": {"zh": "不锈钢"}}])
+    await svc.upsert_attribute(
+        db_session, "30.002", key="material", label_i18n={"zh": "材质"}, value_type="enum",
+        options=[{"code": "carbon", "label_i18n": {"zh": "碳钢"}}])  # 碳钢管道 → 收窄为仅碳钢
+
+    by_key = await svc.suggestions_by_key(db_session, "30.002.002")
+    assert by_key["material"]["category_code"] == "30.002"  # 深覆浅
+    assert [o["code"] for o in by_key["material"]["options"]] == ["carbon"]
+
+
+@pytest.mark.asyncio
+async def test_get_suggestions_level1_code_unchanged_behavior(db_session):
+    """传 L1 自身 code:祖先链=[自身],等价旧的精确匹配,不回归。"""
+    await _seed_chain(db_session)
+    await svc.upsert_attribute(db_session, "30", key="dn", label_i18n={"zh": "公称直径"})
+    await svc.upsert_attribute(db_session, "30.002", key="pn", label_i18n={"zh": "公称压力"})
+    keys = [s["key"] for s in await svc.get_suggestions(db_session, "30")]
+    assert keys == ["dn"]  # 只有自身层,不含子层
+
+
+# ── scope 分层:属性归属层(产品级 spu / 变体轴 sku)──
+
+@pytest.mark.asyncio
+async def test_upsert_default_scope_is_sku(db_session):
+    await _seed_cat(db_session)
+    item = await svc.upsert_attribute(db_session, "10", key="dn", label_i18n={"zh": "通径"})
+    assert item["scope"] == "sku"  # 默认变体轴,向后兼容
+
+
+@pytest.mark.asyncio
+async def test_upsert_persists_and_returns_scope(db_session):
+    await _seed_cat(db_session)
+    item = await svc.upsert_attribute(
+        db_session, "10", key="material", label_i18n={"zh": "材质"}, scope="spu")
+    assert item["scope"] == "spu"
+    by_key = await svc.suggestions_by_key(db_session, "10")
+    assert by_key["material"]["scope"] == "spu"
+
+
+@pytest.mark.asyncio
+async def test_create_new_attribute_scope(db_session):
+    await _seed_cat(db_session)
+    item = await svc.create_new_attribute(
+        db_session, "10", label_i18n={"zh": "涂层"}, scope="spu")
+    assert item["scope"] == "spu"
+
+
+@pytest.mark.asyncio
+async def test_chain_scope_conflict_rejected_ancestor(db_session):
+    """父层 material=spu,子层再定义 material=sku → 拒绝(不变式5:链上同 key 单一 scope)。"""
+    await _seed_chain(db_session)
+    await svc.upsert_attribute(db_session, "30", key="material",
+                               label_i18n={"zh": "材质"}, scope="spu")
+    with pytest.raises(SpecContractError):
+        await svc.upsert_attribute(db_session, "30.002", key="material",
+                                   label_i18n={"zh": "材质"}, scope="sku")
+
+
+@pytest.mark.asyncio
+async def test_chain_scope_conflict_rejected_descendant(db_session):
+    """先子层 material=sku,后父层 material=spu(顺序反过来)→ 一样拒绝(查祖先+后代)。"""
+    await _seed_chain(db_session)
+    await svc.upsert_attribute(db_session, "30.002", key="material",
+                               label_i18n={"zh": "材质"}, scope="sku")
+    with pytest.raises(SpecContractError):
+        await svc.upsert_attribute(db_session, "30", key="material",
+                                   label_i18n={"zh": "材质"}, scope="spu")
+
+
+@pytest.mark.asyncio
+async def test_chain_same_scope_override_ok(db_session):
+    """子层可覆盖父层同 key(收窄),只要 scope 一致 → 放行。"""
+    await _seed_chain(db_session)
+    await svc.upsert_attribute(db_session, "30", key="material",
+                               label_i18n={"zh": "材质"}, scope="spu")
+    await svc.upsert_attribute(db_session, "30.002", key="material",
+                               label_i18n={"zh": "材质"}, scope="spu")  # 同 scope,放行
+    by_key = await svc.suggestions_by_key(db_session, "30.002.002")
+    assert by_key["material"]["scope"] == "spu"
+
+
+@pytest.mark.asyncio
+async def test_sibling_same_key_different_scope_ok(db_session):
+    """兄弟品类(非同一血统)同 key 不同 scope 允许——它们永不在同一继承链。"""
+    from app.db.models.category import Category
+    await _seed_chain(db_session)  # 30 / 30.002 / 30.002.002
+    db_session.add(Category(code="30.003", parent_code="30", name_i18n={"zh": "不锈钢管道"},
+                            level=2, is_leaf=True, sort_order=0))
+    await db_session.flush()
+    await svc.upsert_attribute(db_session, "30.002", key="grade",
+                               label_i18n={"zh": "等级"}, scope="spu")
+    # 兄弟 30.003 用同 key 不同 scope,不冲突
+    await svc.upsert_attribute(db_session, "30.003", key="grade",
+                               label_i18n={"zh": "等级"}, scope="sku")
+    assert (await svc.suggestions_by_key(db_session, "30.003"))["grade"]["scope"] == "sku"
+
+
+# ── resolve_spec 的 scope 守卫(键不重叠,不变式1)──
+
+@pytest.mark.asyncio
+async def test_resolve_spec_rejects_cross_scope_key(db_session):
+    """在 SKU(scope=sku)写路径提交一个 spu 属性 → scope_mismatch 拒绝。"""
+    await _seed_cat(db_session)
+    await svc.upsert_attribute(db_session, "10", key="material",
+                               label_i18n={"zh": "材质"}, scope="spu")
+    with pytest.raises(SpecContractError):
+        await svc.resolve_spec(db_session, "10",
+                               [{"key": "material", "value": "x"}], scope="sku")
+
+
+@pytest.mark.asyncio
+async def test_resolve_spec_accepts_matching_scope(db_session):
+    await _seed_cat(db_session)
+    await svc.upsert_attribute(db_session, "10", key="dn",
+                               label_i18n={"zh": "通径"}, scope="sku")
+    out = await svc.resolve_spec(db_session, "10",
+                                 [{"key": "dn", "value": "DN50"}], scope="sku")
+    assert out == [{"key": "dn", "value": "DN50"}]
+
+
+@pytest.mark.asyncio
+async def test_resolve_spec_new_attribute_takes_write_scope(db_session):
+    """内联新增属性(未知 key)落本次写入 scope(SPU 表单→spu)。"""
+    await _seed_cat(db_session)
+    out = await svc.resolve_spec(
+        db_session, "10",
+        [{"key": "抗震", "value": "8度", "label_i18n": {"zh": "抗震等级"}}], scope="spu")
+    new_key = out[0]["key"]
+    assert new_key.startswith("a_")
+    by_key = await svc.suggestions_by_key(db_session, "10")
+    assert by_key[new_key]["scope"] == "spu"

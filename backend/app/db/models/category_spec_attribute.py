@@ -31,6 +31,7 @@ class CategorySpecAttribute(Base, TimestampUpdateMixin):
         CheckConstraint(
             "value_type IN ('string','number','enum')", name="ck_cat_spec_attr_value_type"),
         CheckConstraint("source IN ('seed','operator')", name="ck_cat_spec_attr_source"),
+        CheckConstraint("scope IN ('spu','sku')", name="ck_cat_spec_attr_scope"),
         CheckConstraint("sort_order >= 0", name="ck_cat_spec_attr_sort_nn"),
         CheckConstraint(
             "(value_type = 'enum') = (options IS NOT NULL)",
@@ -53,3 +54,8 @@ class CategorySpecAttribute(Base, TimestampUpdateMixin):
     unit: Mapped[str] = mapped_column(String(20), nullable=False, default="")
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     source: Mapped[str] = mapped_column(String(20), nullable=False)
+    # 属性归属层:'spu' 产品级(一个 SPU 内恒定,SPU 上填一次)/ 'sku' 变体轴(SKU 间区分)。
+    # 默认 'sku' 向后兼容(未标 scope 的既有行为不变=全落 SKU)。同 key 跨品类可不同 scope
+    # (承载在 (category_code,key) 行);但一条叶子的继承链上同 key 各层 scope 必须一致
+    # (不变式5,守卫见 spec_template_service / seed 校验)。
+    scope: Mapped[str] = mapped_column(String(20), nullable=False, default="sku")

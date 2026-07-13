@@ -1,9 +1,11 @@
 "use client";
-import { useEffect, useState } from "react";
-import { Drawer, Form, Input, TreeSelect, Button, Space, App } from "antd";
+import { useEffect, useRef, useState } from "react";
+import { Drawer, Form, Input, TreeSelect, Button, Space, Divider, App } from "antd";
 import { catalogApi, CategoryNode, ImageRefIn, SpuDetail } from "@/lib/catalog";
 import { display } from "@/lib/i18n";
 import { SpuImageManager } from "@/components/catalog/ImageManager";
+import { SpecEditor, SpecEditorHandle } from "@/components/catalog/SpecEditor";
+import { colors } from "@/lib/tokens";
 
 interface CatTreeNode {
   value: string;
@@ -30,22 +32,38 @@ function buildTreeSelect(nodes: CategoryNode[]): CatTreeNode[] {
   return make(null);
 }
 
+// 点分 code 的完整链(各级前缀含自身):"20.003.004" → ["20","20.003","20.003.004"]。
+// 预展开表单分类树到携带的分类,方便从父节点继续下钻到叶子。
+function catChain(code: string): string[] {
+  const parts = code.split(".");
+  return parts.map((_, i) => parts.slice(0, i + 1).join("."));
+}
+
 export function SpuForm({
   open,
   spu,
+  defaultCategoryCode,
+  defaultCategoryIsLeaf,
   onClose,
   onSaved,
 }: {
   open: boolean;
   spu?: SpuDetail;
+  /** 新建时列表左树选中的分类(来自 ?category=)。编辑时忽略,以 spu 自身分类为准。 */
+  defaultCategoryCode?: string;
+  /** 上面那个分类是否叶子:叶子→直接预填为值;父节点→只把表单树预展开到它,引导继续下钻到叶子。 */
+  defaultCategoryIsLeaf?: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [cats, setCats] = useState<CatTreeNode[]>([]);
+  const [catCode, setCatCode] = useState<string | undefined>(undefined);
+  const [treeExpanded, setTreeExpanded] = useState<string[]>([]);
   const [images, setImages] = useState<ImageRefIn[]>([]);
   const [saving, setSaving] = useState(false);
+  const specRef = useRef<SpecEditorHandle>(null);
 
   useEffect(() => {
     if (open) catalogApi.categoriesTree().then((r) => setCats(buildTreeSelect(r.items)));
@@ -53,10 +71,21 @@ export function SpuForm({
 
   useEffect(() => {
     if (!open) return;
+    // 携带的分类:叶子→作为值预填(TreeSelect 只接受叶子);父节点→不填值,仅预展开引导下钻。
+    const carried = spu?.category_code ?? defaultCategoryCode;
+    const preValue = spu?.category_code ?? (defaultCategoryIsLeaf ? defaultCategoryCode : undefined);
+    setCatCode(preValue);
+    setTreeExpanded(carried ? catChain(carried) : []);
     form.setFieldsValue(
       spu
-        ? { category_code: spu.category_code, name_zh: display(spu.name_i18n) }
-        : { category_code: undefined, name_zh: "" },
+        ? {
+            category_code: spu.category_code,
+            name_zh: display(spu.name_i18n),
+            brand: spu.brand ?? "",
+            hs_code: spu.hs_code ?? "",
+            description: spu.description ?? "",
+          }
+        : { category_code: preValue, name_zh: "", brand: "", hs_code: "", description: "" },
     );
     setImages(
       spu
@@ -67,7 +96,7 @@ export function SpuForm({
           }))
         : [],
     );
-  }, [open, spu, form]);
+  }, [open, spu, defaultCategoryCode, defaultCategoryIsLeaf, form]);
 
   async function onSubmit() {
     const v = await form.validateFields();
@@ -75,11 +104,17 @@ export function SpuForm({
       message.error("请至少上传一张主图(封面)");
       return;
     }
+    const spec_items = specRef.current?.collect();
+    if (spec_items === null) return; // 手输行缺标签 → 阻断(collect 返回 null)
     setSaving(true);
     try {
       const body = {
         category_code: v.category_code,
         name_i18n: { zh: v.name_zh.trim() },
+        brand: v.brand?.trim() || null,
+        hs_code: v.hs_code?.trim() || null,
+        description: v.description?.trim() || null,
+        spec_items: spec_items ?? [],
         images,
       };
       if (spu) await catalogApi.updateSpu(spu.id, body);
@@ -119,10 +154,12 @@ export function SpuForm({
             treeData={cats}
             showSearch
             treeNodeFilterProp="title"
-            treeDefaultExpandAll
             placeholder="选择分类"
             allowClear
             style={{ maxWidth: 360 }}
+            treeExpandedKeys={treeExpanded}
+            onTreeExpand={(keys) => setTreeExpanded(keys as string[])}
+            onChange={(v) => setCatCode(v)}
           />
         </Form.Item>
         <Form.Item
@@ -138,7 +175,41 @@ export function SpuForm({
         >
           <Input placeholder="如:镀锌钢管" maxLength={120} style={{ maxWidth: 360 }} />
         </Form.Item>
+        <Form.Item name="brand" label="品牌(选填)">
+          <Input placeholder="如:海螺" maxLength={100} style={{ maxWidth: 360 }} />
+        </Form.Item>
+        <Form.Item name="hs_code" label="HS 编码(选填)">
+          <Input placeholder="海关归类码,如 2523290000" maxLength={20} style={{ maxWidth: 360 }} />
+        </Form.Item>
+        <Form.Item name="description" label="描述(选填)">
+          <Input.TextArea
+            placeholder="商品说明(非内部备注)"
+            rows={3}
+            maxLength={1000}
+            showCount
+            style={{ maxWidth: 480 }}
+          />
+        </Form.Item>
       </Form>
+
+      <Divider titlePlacement="left" plain style={{ marginTop: 8 }}>
+        产品级规格(整个商品一致,如材质/执行标准;区分变体的规格放 SKU)
+      </Divider>
+      {catCode ? (
+        <SpecEditor
+          ref={specRef}
+          open={open}
+          categoryCode={catCode}
+          scope="spu"
+          initialSpec={spu?.spec_jsonb}
+        />
+      ) : (
+        <div style={{ fontSize: 13, color: colors.muted }}>先选分类,再维护产品级规格。</div>
+      )}
+
+      <Divider titlePlacement="left" plain style={{ marginTop: 16 }}>
+        图片
+      </Divider>
       <SpuImageManager value={images} onChange={setImages} />
     </Drawer>
   );

@@ -34,6 +34,7 @@ export default function SpuListPage() {
   const [keyword, setKeyword] = useState("");
   const [status, setStatus] = useState<string>("ALL");
   const [category, setCategory] = useState<string | undefined>();
+  const [categoryLeaf, setCategoryLeaf] = useState(false); // 选中是叶子时,「新建 SPU」预填该分类
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
@@ -88,17 +89,23 @@ export default function SpuListPage() {
       render: (v, r) => (
         <Space>
           <span>{display(v)}</span>
-          {!r.has_available_sku && (
-            <Tooltip title="该商品下无可上架/可售 SKU">
+          {!r.has_active_sku && (
+            <Tooltip title="该商品下无在售 SKU,无法启用 / 被报价选用">
               <Tag icon={<WarningOutlined />} color="warning">
-                无可用 SKU
+                无在售 SKU
               </Tag>
             </Tooltip>
           )}
         </Space>
       ),
     },
-    { title: "分类", dataIndex: "category_code", width: 130 },
+    {
+      title: "分类",
+      dataIndex: "category_name_i18n",
+      width: 150,
+      render: (v: SpuListItem["category_name_i18n"], r) =>
+        v ? display(v) : r.category_code,
+    },
     {
       title: "状态",
       dataIndex: "status",
@@ -109,13 +116,10 @@ export default function SpuListPage() {
     },
     {
       title: "操作",
-      width: 260,
+      width: 200,
       className: "whitespace-nowrap",
       render: (_, r) => (
-        <Space size="small">
-          <Button size="small" type="link" onClick={() => router.push(`/catalog/spus/${r.id}`)}>
-            查看 SKU
-          </Button>
+        <Space size="small" onClick={(e) => e.stopPropagation()}>
           <Can perm="product:manage">
             {/* 编辑/删除仅 DRAFT/INACTIVE 可见(ACTIVE 锁,先停用);启用/停用随状态互斥。 */}
             {spuEditable(r.status) && (
@@ -155,8 +159,9 @@ export default function SpuListPage() {
       <Col flex="240px">
         <Card size="small" title="分类">
           <CategoryTree
-            onSelect={(c) => {
+            onSelect={(c, isLeaf) => {
               setCategory(c);
+              setCategoryLeaf(isLeaf);
               setPage(1);
             }}
           />
@@ -191,7 +196,13 @@ export default function SpuListPage() {
               <Button
                 type="primary"
                 icon={<PlusOutlined />}
-                onClick={() => router.push("/catalog/spus/new")}
+                onClick={() =>
+                  router.push(
+                    category
+                      ? `/catalog/spus/new?category=${encodeURIComponent(category)}&leaf=${categoryLeaf ? 1 : 0}`
+                      : "/catalog/spus/new",
+                  )
+                }
               >
                 新建 SPU
               </Button>
@@ -202,6 +213,10 @@ export default function SpuListPage() {
             loading={loading}
             columns={columns}
             dataSource={rows}
+            onRow={(r) => ({
+              onClick: () => router.push(`/catalog/spus/${r.id}`),
+              style: { cursor: "pointer" },
+            })}
             pagination={{
               current: page,
               total,

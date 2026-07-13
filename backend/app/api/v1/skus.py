@@ -11,7 +11,8 @@ from app.rbac.constants import Permissions
 from app.rbac.guards import require_permission
 from app.schemas.common import StatusPatchIn
 from app.schemas.sku import SkuCreateIn, SkuUpdateIn, sku_out
-from app.services import image_service, sku_service
+from app.services import image_service, sku_service, spu_service
+from app.services import spec_template_service as tmpl
 
 router = APIRouter(prefix="/skus", tags=["skus"])
 
@@ -34,9 +35,18 @@ async def search_skus(
     return success({"items": items, "total": total, "page": page, "size": size})
 
 
+async def _sku_spec_display(db: AsyncSession, sku) -> list[dict]:
+    """SKU 完整规格展示 = SPU 产品级 ∪ SKU 轴(读时并集,后端单一解析)。"""
+    spu = await spu_service.get_spu(db, sku.spu_id)  # 活 SKU 必属活 SPU(不变式)
+    merged = list(spu.spec_jsonb or []) + list(sku.spec_jsonb or [])
+    return await tmpl.resolve_spec_display(db, spu.category_code, merged)
+
+
 async def _sku_with_images(db: AsyncSession, sku, *, include_cost: bool) -> dict:
-    return sku_out(sku, include_cost=include_cost,
-                   images=await image_service.list_sku_images(db, sku.id))
+    d = sku_out(sku, include_cost=include_cost,
+                images=await image_service.list_sku_images(db, sku.id))
+    d["spec_display"] = await _sku_spec_display(db, sku)
+    return d
 
 
 @router.post("", summary="加 SKU")
@@ -49,6 +59,8 @@ async def create_sku(
     sku = await sku_service.create_sku(
         db, spu_id=body.spu_id, unit=body.unit, reference_price=body.reference_price,
         name_i18n=body.name_i18n, spec_items=[i.model_dump() for i in body.spec_items],
+        weight_kg=body.weight_kg, length_cm=body.length_cm,
+        width_cm=body.width_cm, height_cm=body.height_cm,
         image_refs=[i.model_dump() for i in body.images],
         actor_user_id=current.id, actor_user_email=current.email, request=request)
     return success(await _sku_with_images(db, sku, include_cost=True))
@@ -67,6 +79,8 @@ async def update_sku(
     sku = await sku_service.update_sku(
         db, sku_id=sku_id, name_i18n=body.name_i18n, unit=body.unit,
         reference_price=body.reference_price, spec_items=spec_items,
+        weight_kg=body.weight_kg, length_cm=body.length_cm,
+        width_cm=body.width_cm, height_cm=body.height_cm,
         image_refs=([i.model_dump() for i in body.images] if body.images is not None else None),
         actor_user_id=current.id, actor_user_email=current.email, request=request)
     return success(await _sku_with_images(db, sku, include_cost=True))

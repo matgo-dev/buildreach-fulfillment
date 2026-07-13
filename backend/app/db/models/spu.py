@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -46,6 +46,9 @@ class Spu(Base, TimestampUpdateMixin, SoftDeleteMixin):
         # 模型在此声明 = 迁移创建 = create_all 建表,三者单一源头,不再靠迁移单方面偷偷加。
         Index("ix_spus_category_code_prefix", "category_code",
               postgresql_ops={"category_code": "text_pattern_ops"}),
+        # SPU 维度搜索:pg_trgm GIN 加速 search_text ILIKE(名+品牌+产品级规格),同 skus。
+        Index("ix_spus_search_text_trgm", "search_text",
+              postgresql_using="gin", postgresql_ops={"search_text": "gin_trgm_ops"}),
         # 状态 DB 兜底(纵深防御,与 category_spec_attributes 的 value_type/source CHECK 同纪律)
         CheckConstraint("status IN ('DRAFT','ACTIVE','INACTIVE')", name="ck_spus_status"),
     )
@@ -56,6 +59,19 @@ class Spu(Base, TimestampUpdateMixin, SoftDeleteMixin):
     category_code: Mapped[str] = mapped_column(
         String(50), ForeignKey("categories.code", ondelete="RESTRICT"), nullable=False, index=True)
     name_i18n: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    # 主数据补全(商品概念层,跨 SKU 变体一致):
+    #   brand 可选品牌文本(值非枚举,可中文;不同品牌本就拆成不同 SPU,故一 SPU 一品牌);
+    #   description 中性商品描述(≠红线内部备注);hs_code 海关归类(标准码,展示原样)。
+    # 原产地不在此:来源侧属性(同一 SPU 不同供应商产地不同),归采购/批次/报关层。
+    brand: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    hs_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # 产品级规格值(scope='spu' 的属性),形状同 skus.spec_jsonb:[{key, value}, ...],
+    # 只存 key+value(label/unit 回模板取)。SKU 完整规格 = 本列 ∪ sku.spec_jsonb(读时并集,
+    # 不落库合并)。默认 [] 兼容既有行(见迁移 0013 server_default)。
+    spec_jsonb: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    # SPU 维度搜索文本(名+品牌+产品级规格,写路径重算,见 spu_service._spu_search_text)。
+    search_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=SpuStatus.DRAFT)
     # 图片已规范化到 product_images 表(封面=MAIN 行 / 轮播=GALLERY / 详情=DETAIL);此处不再挂图列。
     # 创建人(商品运营录入归属):一等业务字段,展示/筛"我的"/按人统计录入量直接用,

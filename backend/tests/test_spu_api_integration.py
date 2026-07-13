@@ -39,7 +39,7 @@ async def test_spu_crud_flow(client, product_operator_headers, db_session):
     assert page["page"] == 1
     assert page["size"] == 20
     row = next(x for x in page["items"] if x["id"] == sid)
-    assert row["has_available_sku"] is False
+    assert row["has_active_sku"] is False
 
     # 改(DRAFT 可编辑)
     r_upd = await client.put(f"/api/v1/spus/{sid}", headers=h,
@@ -58,6 +58,32 @@ async def test_spu_crud_flow(client, product_operator_headers, db_session):
 async def test_spu_list_read_allowed_for_admin(client, superadmin_headers):
     r = await client.get("/api/v1/spus", headers=superadmin_headers)
     assert r.status_code == 200  # ADMIN 有 product:read
+
+
+@pytest.mark.asyncio
+async def test_spu_detail_category_full_path(client, product_operator_headers, db_session):
+    """详情分类返回根→叶完整路径,从 categories 树 parent_code 链派生(不落 SPU)。
+
+    深树里叶名会重名(真实品类 4 层、多处重名),故详情须给完整路径消歧。
+    """
+    h = product_operator_headers
+    db_session.add(Category(code="30", parent_code=None, name_i18n={"zh": "建材"},
+                            level=1, is_leaf=False, sort_order=0))
+    db_session.add(Category(code="30.001", parent_code="30", name_i18n={"zh": "门窗"},
+                            level=2, is_leaf=False, sort_order=0))
+    db_session.add(Category(code="30.001.002", parent_code="30.001", name_i18n={"zh": "窗配件"},
+                            level=3, is_leaf=True, sort_order=0))
+    await db_session.commit()
+    r = await client.post("/api/v1/spus", headers=h,
+                          json={"category_code": "30.001.002", "name_i18n": {"zh": "推拉窗滑轮"},
+                                "images": [{"image_key": "img/w.jpg", "image_type": "MAIN", "sort_order": 0}]})
+    sid = r.json()["data"]["id"]
+    body = (await client.get(f"/api/v1/spus/{sid}", headers=h)).json()["data"]
+    # 完整路径按根→叶有序
+    assert [p["code"] for p in body["category_path"]] == ["30", "30.001", "30.001.002"]
+    assert [p["name_i18n"]["zh"] for p in body["category_path"]] == ["建材", "门窗", "窗配件"]
+    # 叶名(category_name_i18n)= 路径末级,单一派生不再单独查
+    assert body["category_name_i18n"]["zh"] == "窗配件"
 
 
 @pytest.mark.asyncio
@@ -107,10 +133,10 @@ async def test_spu_derived_availability(client, product_operator_headers, db_ses
     assert sku1["available"] is True
     assert sku1["status"] == "ACTIVE"
 
-    # 列表也带 has_available_sku=True
+    # 列表带 has_active_sku=True(有在售 SKU;完备性口径,不叠加 SPU 状态)
     lst1 = await client.get("/api/v1/spus?keyword=钢", headers=h)
     row1 = next(x for x in lst1.json()["data"]["items"] if x["id"] == sid)
-    assert row1["has_available_sku"] is True
+    assert row1["has_active_sku"] is True
 
     # SPU 下架 → has_available_sku=False,SKU.available=False,但 SKU.status 不级联(仍 ACTIVE)
     await client.patch(f"/api/v1/spus/{sid}/status", headers=h, json={"status": "INACTIVE"})
@@ -121,9 +147,12 @@ async def test_spu_derived_availability(client, product_operator_headers, db_ses
     assert sku2["available"] is False
     assert sku2["status"] == "ACTIVE"  # 不级联
 
+    # 列表 has_active_sku 只看 SKU 状态:SPU 虽下架,SKU 仍 ACTIVE → 仍 True。
+    # 与详情 has_available_sku=False 有意不同 —— 列表是"完备性/能否被启用"口径,
+    # 详情是"当前是否可售"口径(叠加了 SPU 状态)。两口径各服务其场景,不合并。
     lst2 = await client.get("/api/v1/spus?keyword=钢", headers=h)
     row2 = next(x for x in lst2.json()["data"]["items"] if x["id"] == sid)
-    assert row2["has_available_sku"] is False
+    assert row2["has_active_sku"] is True
 
     # SPU 恢复上架 + SKU 自身下架(走 PATCH /skus/{id}/status 端点)→ available=False(SKU 侧原因)
     await client.patch(f"/api/v1/spus/{sid}/status", headers=h, json={"status": "ACTIVE"})
