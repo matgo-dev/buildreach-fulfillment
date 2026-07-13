@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     SUPER_ADMIN_EMAIL: str = "superadmin@fulfillment.local"
     SUPER_ADMIN_INITIAL_PASSWORD: str = "Aa123456789"
 
+    # bcrypt 工作因子。生产默认 12(安全基线不变);测试环境降到 4 提速(见 conftest.py)。
+    BCRYPT_ROUNDS: int = 12
+
     LOG_LEVEL: str = "INFO"
 
     # CORS

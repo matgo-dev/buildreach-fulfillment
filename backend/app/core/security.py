@@ -9,7 +9,9 @@ from passlib.context import CryptContext
 
 from app.core.config import settings
 
-_pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+_pwd_ctx = CryptContext(
+    schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=settings.BCRYPT_ROUNDS
+)
 
 # 全局密码规则:6-20 位,仅字母和数字(对齐阿里国际站)。
 PASSWORD_MIN_LENGTH = 6
