@@ -27,7 +27,7 @@ export default function SpuDetailPage() {
   const [spu, setSpu] = useState<SpuDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [editSpu, setEditSpu] = useState(false);
-  const [skuForm, setSkuForm] = useState<{ open: boolean; sku?: SkuDetailItem }>({ open: false });
+  const [skuForm, setSkuForm] = useState<{ open: boolean; sku?: SkuDetailItem; copyFrom?: SkuDetailItem }>({ open: false });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -122,6 +122,11 @@ export default function SpuDetailPage() {
             {spuEditable(spu.status) && (
               <Button size="small" type="link" onClick={() => setSkuForm({ open: true, sku: r })}>
                 编辑
+              </Button>
+            )}
+            {spuEditable(spu.status) && (
+              <Button size="small" type="link" onClick={() => setSkuForm({ open: true, copyFrom: r })}>
+                复制
               </Button>
             )}
             <Button size="small" type="link" onClick={() => toggleSku(r)}>
@@ -264,6 +269,7 @@ export default function SpuDetailPage() {
           spuId={spu.id}
           categoryCode={spu.category_code}
           sku={skuForm.sku}
+          copyFrom={skuForm.copyFrom}
           onClose={() => setSkuForm({ open: false })}
           onSaved={load}
         />

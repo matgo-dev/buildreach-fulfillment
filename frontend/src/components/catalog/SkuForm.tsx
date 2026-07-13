@@ -145,6 +145,7 @@ export function SkuForm({
   spuId,
   categoryCode,
   sku,
+  copyFrom,
   onClose,
   onSaved,
 }: {
@@ -152,6 +153,7 @@ export function SkuForm({
   spuId: number;
   categoryCode: string;
   sku?: SkuWithImages;
+  copyFrom?: SkuWithImages;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -166,28 +168,29 @@ export function SkuForm({
   useEffect(() => {
     if (!open) return;
     catalogApi.units().then((r) => setUnits(r.items)).catch(() => setUnits([]));
+    const source = sku ?? copyFrom;
     form.setFieldsValue(
-      sku
+      source
         ? {
-            name_zh: display(sku.name_i18n),
-            unit: sku.unit,
-            reference_price: sku.reference_price ?? undefined,
-            weight_kg: sku.weight_kg ?? undefined,
-            length_cm: sku.length_cm ?? undefined,
-            width_cm: sku.width_cm ?? undefined,
-            height_cm: sku.height_cm ?? undefined,
+            name_zh: display(source.name_i18n) + (copyFrom && !sku ? " 副本" : ""),
+            unit: source.unit,
+            reference_price: source.reference_price ?? undefined,
+            weight_kg: source.weight_kg ?? undefined,
+            length_cm: source.length_cm ?? undefined,
+            width_cm: source.width_cm ?? undefined,
+            height_cm: source.height_cm ?? undefined,
           }
         : { name_zh: "", unit: undefined, reference_price: undefined,
             weight_kg: undefined, length_cm: undefined, width_cm: undefined, height_cm: undefined },
     );
-    setImageKeys(sku ? sku.images.map((i) => i.image_key) : []);
+    setImageKeys(sku ? sku.images.map((i) => i.image_key) : []); // 复制不带图片
 
     // 模板全量铺开:每个 attribute 一行,已有值回填。
     catalogApi
       .specSuggestions(categoryCode)
-      .then((r) => setRows(buildRows(r.items, sku)))
-      .catch(() => setRows(buildRows([], sku)));
-  }, [open, sku, categoryCode, form]);
+      .then((r) => setRows(buildRows(r.items, source)))
+      .catch(() => setRows(buildRows([], source)));
+  }, [open, sku, copyFrom, categoryCode, form]);
 
   function updateTemplate(key: string, patch: Partial<TemplateRow>) {
     setRows((rs) =>
@@ -288,7 +291,7 @@ export function SkuForm({
       open={open}
       onClose={onClose}
       width={680}
-      title={sku ? "编辑 SKU" : "新建 SKU"}
+      title={sku ? "编辑 SKU" : copyFrom ? "复制 SKU" : "新建 SKU"}
       extra={
         <Space>
           <Button onClick={onClose}>取消</Button>
