@@ -1,7 +1,7 @@
 """报价草稿服务:建草稿(language 默认由客户偏好映射)+ 逐行录入带快照。"""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from sqlalchemy import func, or_, select
@@ -302,7 +302,9 @@ async def list_orders(db: AsyncSession, *, status=None, customer_id=None, salesp
     if created_from:
         conds.append(QuotationOrder.created_at >= created_from)
     if created_to:
-        conds.append(QuotationOrder.created_at <= created_to)
+        # created_to 是 date;若用 <= 会被当成当天 00:00:00,漏掉当天白天创建的报价。
+        # 改为 < 次日零点,含 created_to 当天全天(半开区间 [created_from, created_to+1))。
+        conds.append(QuotationOrder.created_at < created_to + timedelta(days=1))
     if keyword:
         like = f"%{keyword}%"
         conds.append(or_(QuotationOrder.no.ilike(like),

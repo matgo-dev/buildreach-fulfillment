@@ -1,4 +1,6 @@
 """T7 列表查询:筛选/排序/分页 + display 投影(service 层)。"""
+from datetime import date, timedelta
+
 import pytest
 
 from app.db.models.category import Category
@@ -72,6 +74,20 @@ async def test_list_projection_fields(db_session):
     assert r["line_count"] == 1
     assert {"id", "no", "summary", "currency", "total_amount", "valid_until",
             "created_at"} <= set(r)
+
+
+@pytest.mark.asyncio
+async def test_created_to_includes_same_day(db_session):
+    # 回归:created_to 是 date,曾用 <= 会漏掉当天白天创建的报价。半开区间 [.., created_to+1)
+    # 应含 created_to 当天;前一天则不含。
+    cust, sku = await _seed(db_session)
+    o = await _mk(db_session, cust, sku, 100)
+    today = date.today()
+    rows, total = await svc.list_orders(db_session, created_to=today, page=1, size=20)
+    assert total == 1 and rows[0]["id"] == o.id
+    _, total_yesterday = await svc.list_orders(
+        db_session, created_to=today - timedelta(days=1), page=1, size=20)
+    assert total_yesterday == 0
 
 
 @pytest.mark.asyncio
