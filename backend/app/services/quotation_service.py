@@ -236,14 +236,15 @@ def _assert_transition(current: str, target: str) -> None:
 
 
 async def _transition(db: AsyncSession, order_id: int, target: str, audit_action: AuditAction,
-                      *, actor_user_id, actor_user_email, request: Request | None) -> QuotationOrder:
+                      *, actor_user_id, actor_user_email, request: Request | None,
+                      extra: dict | None = None) -> QuotationOrder:
     order = await get_order_for_update(db, order_id)
     _assert_transition(order.status, target)
     order.status = target
     await db.flush()
     await write_audit(db, resource_type=AuditResourceType.QUOTATION, action=audit_action,
                       user_id=actor_user_id, user_email=actor_user_email,
-                      resource_id=order.id, request=request, commit=False)
+                      resource_id=order.id, request=request, extra=extra, commit=False)
     await db.commit()
     await db.refresh(order)
     return order
@@ -284,7 +285,7 @@ async def void_order(db: AsyncSession, *, order_id, reason=None, actor_user_id, 
         raise QuotationCannotVoidError()
     return await _transition(db, order_id, QuotationStatus.VOID, AuditAction.VOID,
                              actor_user_id=actor_user_id, actor_user_email=actor_user_email,
-                             request=request)
+                             request=request, extra={"reason": reason} if reason else None)
 
 
 async def list_orders(db: AsyncSession, *, status=None, customer_id=None, salesperson_id=None,

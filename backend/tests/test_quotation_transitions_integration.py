@@ -1,12 +1,15 @@
 """T6 状态跃迁:锁档/解锁/作废 + 转移矩阵门禁(service 层)。"""
 import pytest
+from sqlalchemy import select
 
+from app.audit.constants import AuditAction
 from app.core.exceptions import (
     QuotationCannotUnlockConvertedError,
     QuotationCannotVoidError,
     QuotationEmptyLinesError,
     QuotationInvalidTransitionError,
 )
+from app.db.models.audit_log import AuditLog
 from app.db.models.category import Category
 from app.db.models.customer import Customer
 from app.db.models.quotation import QuotationStatus
@@ -96,6 +99,28 @@ async def test_void_already_void_rejected(db_session):
     await svc.void_order(db_session, order_id=order.id, **_ACTOR)
     with pytest.raises(QuotationCannotVoidError):
         await svc.void_order(db_session, order_id=order.id, **_ACTOR)
+
+
+@pytest.mark.asyncio
+async def test_void_reason_lands_in_audit(db_session):
+    # 作废原因必须落审计(留痕带业务原因),不能被丢弃。
+    cust, sku = await _seed(db_session)
+    order = await _draft(db_session, cust, sku)
+    await svc.void_order(db_session, order_id=order.id, reason="客户取消", **_ACTOR)
+    rows = (await db_session.execute(
+        select(AuditLog).where(AuditLog.action == AuditAction.VOID))).scalars().all()
+    assert len(rows) == 1 and rows[0].extra == {"reason": "客户取消"}
+
+
+@pytest.mark.asyncio
+async def test_void_without_reason_no_extra(db_session):
+    # 不填原因 → extra 为 None(不写空壳 {"reason": null})。
+    cust, sku = await _seed(db_session)
+    order = await _draft(db_session, cust, sku)
+    await svc.void_order(db_session, order_id=order.id, **_ACTOR)
+    rows = (await db_session.execute(
+        select(AuditLog).where(AuditLog.action == AuditAction.VOID))).scalars().all()
+    assert len(rows) == 1 and rows[0].extra is None
 
 
 @pytest.mark.asyncio
