@@ -122,14 +122,20 @@ export default function SalesOrderDetailPage() {
           <Descriptions.Item label="币种">{order.currency}</Descriptions.Item>
           <Descriptions.Item label="来源报价">
             {order.source_quotation_no ? (
-              <Button
-                type="link"
-                size="small"
-                style={{ padding: 0 }}
-                onClick={() => router.push(`/sales/quotations/${order.source_quotation_id}`)}
+              // 无 quote:manage(报价段路由门)→ 降级纯文本,不点撞 403(DESIGN §7 单据链接降级)。
+              <Can
+                perm={Permissions.QUOTE_MANAGE}
+                fallback={<span>{order.source_quotation_no}</span>}
               >
-                {order.source_quotation_no}
-              </Button>
+                <Button
+                  type="link"
+                  size="small"
+                  style={{ padding: 0 }}
+                  onClick={() => router.push(`/sales/quotations/${order.source_quotation_id}`)}
+                >
+                  {order.source_quotation_no}
+                </Button>
+              </Can>
             ) : (
               "—"
             )}

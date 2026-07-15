@@ -164,14 +164,20 @@ export default function PurchaseOrderDetailPage() {
           <Descriptions.Item label="币种">{order.currency}</Descriptions.Item>
           <Descriptions.Item label="来源销售单">
             {order.source_sales_order_no ? (
-              <Button
-                type="link"
-                size="small"
-                style={{ padding: 0 }}
-                onClick={() => router.push(`/sales/orders/${order.source_sales_order_id}`)}
+              // 无 sales:read(销售单段路由门)→ 降级纯文本(如将来入库仓库角色)。DESIGN §7。
+              <Can
+                perm={Permissions.SALES_READ}
+                fallback={<span>{order.source_sales_order_no}</span>}
               >
-                {order.source_sales_order_no}
-              </Button>
+                <Button
+                  type="link"
+                  size="small"
+                  style={{ padding: 0 }}
+                  onClick={() => router.push(`/sales/orders/${order.source_sales_order_id}`)}
+                >
+                  {order.source_sales_order_no}
+                </Button>
+              </Can>
             ) : (
               "—"
             )}

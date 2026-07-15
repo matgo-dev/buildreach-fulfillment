@@ -85,17 +85,23 @@ export default function PurchaseOrderListPage() {
       width: 150,
       render: (v: string | null, r) =>
         v ? (
-          <Button
-            type="link"
-            size="small"
-            style={{ padding: 0 }}
-            onClick={(e) => {
-              e.stopPropagation();
-              router.push(`/sales/orders/${r.source_sales_order_id}`);
-            }}
+          // 无 sales:read → 降级纯文本(DESIGN §7);fallback 也 stopPropagation,免点单号误触发行下钻。
+          <Can
+            perm={Permissions.SALES_READ}
+            fallback={<span onClick={(e) => e.stopPropagation()}>{v}</span>}
           >
-            {v}
-          </Button>
+            <Button
+              type="link"
+              size="small"
+              style={{ padding: 0 }}
+              onClick={(e) => {
+                e.stopPropagation();
+                router.push(`/sales/orders/${r.source_sales_order_id}`);
+              }}
+            >
+              {v}
+            </Button>
+          </Can>
         ) : (
           "—"
         ),
