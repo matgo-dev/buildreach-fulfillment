@@ -16,6 +16,8 @@ class AuditResourceType(str, Enum):
     SKU = "sku"
     QUOTATION = "quotation"
     SALES_ORDER = "sales_order"
+    SUPPLIER = "supplier"
+    PURCHASE_ORDER = "purchase_order"
 
 
 class AuditAction(str, Enum):
@@ -23,11 +25,17 @@ class AuditAction(str, Enum):
     UPDATE = "UPDATE"
     DELETE = "DELETE"
     DISABLE = "DISABLE"
+    # 主数据 ACTIVE/INACTIVE 状态切换(供应商启停;将来客户复用同机制)
+    ACTIVATE = "ACTIVATE"
+    DEACTIVATE = "DEACTIVATE"
     # 报价状态跃迁(归属走 audit,不上业务列)
     LOCK = "LOCK"
     UNLOCK = "UNLOCK"
     VOID = "VOID"
     CONVERT = "CONVERT"       # 报价 LOCKED→CONVERTED(转销售单)
+    # 采购单状态跃迁:DRAFT→CONFIRMED(下单)/ →CANCELLED
+    CONFIRM = "CONFIRM"
+    CANCEL = "CANCEL"
     LOGIN_SUCCESS = "LOGIN_SUCCESS"
     LOGIN_FAILED = "LOGIN_FAILED"
     LOGIN_LOCKED = "LOGIN_LOCKED"

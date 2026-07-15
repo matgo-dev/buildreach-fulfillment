@@ -15,11 +15,13 @@ class NumberScope(str, Enum):
     (DB 写入 / 比较 / f-string / allocate 入参)。每行 = (身份键, 前缀, 补零位宽, periodic):
     periodic=True 时序号前插 period(年月),供单据人工识别/归档/降跨期冲突;主数据 periodic=False。
     """
-    SKU         = "SKU",         "SKU", 8, False
-    SPU         = "SPU",         "SPU", 8, False
-    CUSTOMER    = "CUSTOMER",    "C",   6, False
-    QUOTATION   = "QUOTATION",   "Q",   4, True
-    SALES_ORDER = "SALES_ORDER", "SO",  4, True
+    SKU            = "SKU",            "SKU", 8, False
+    SPU            = "SPU",            "SPU", 8, False
+    CUSTOMER       = "CUSTOMER",       "C",   6, False
+    SUPPLIER       = "SUPPLIER",       "V",   6, False  # 供应商主数据全局号,中性不透明(同 CUSTOMER 档次)
+    QUOTATION      = "QUOTATION",      "Q",   4, True
+    SALES_ORDER    = "SALES_ORDER",    "SO",  4, True
+    PURCHASE_ORDER = "PURCHASE_ORDER", "PO",  4, True   # 采购单:前缀+年月+期内序号,PO{YYYYMM}{seq:04d}
 
     def __new__(cls, value: str, prefix: str, pad: int, periodic: bool):
         obj = str.__new__(cls, value)

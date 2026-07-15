@@ -116,8 +116,23 @@ async def resolve_order_parties(db: AsyncSession, so: SalesOrder) -> dict:
 
 
 async def list_orders(db: AsyncSession, *, status=None, customer_id=None, salesperson_id=None,
-                      sort="created_at", dir="desc", page: int = 1, size: int = 20) -> tuple[list[dict], int]:
-    """销售单列表:筛选(状态/客户/报价人)+ 排序(created_at|total_amount,asc|desc)+ 分页。"""
+                      no=None, purchase_progress=None, purchasable_only=False,
+                      sort="created_at", dir="desc",
+                      page: int = 1, size: int = 20) -> tuple[list[dict], int]:
+    """销售单列表:筛选(状态/客户/报价人/采购进度)+ 排序(created_at|total_amount,asc|desc)+ 分页。
+
+    采购进度=派生值(轴2),按是否**按它筛选**分两条路,别让筛选场景的代价压到热路径:
+    - **无进度筛选**(默认热路径):进度只是徽标,DB 直接 count+offset/limit 分页,进度**仅对当前页**派生。
+    - **按进度筛选**(purchase_progress 指定单态,或 purchasable_only 排除已采完):派生值须先于分页参与,
+      否则踩分页空洞 + total 失真(§2.6)。故物化候选 → 全量算进度(共用 purchase_order_service 单一
+      口径)→ 过滤 → count → 切片。内部 SO 千级、方案B 毫秒级;升级触发点(十万级)→ 方案C 落冗余列。
+
+    purchasable_only:采购台选单入口用——只列**可发起采购**的 SO(排除 FULLY_ORDERED);
+    与 purchase_progress 并存时以 purchase_progress(更具体)为准。
+    """
+    from app.db.models.purchase_order import PurchaseProgress
+    from app.services import purchase_order_service
+
     conds = []
     if status:
         conds.append(SalesOrder.status == status)
@@ -125,26 +140,48 @@ async def list_orders(db: AsyncSession, *, status=None, customer_id=None, salesp
         conds.append(SalesOrder.customer_id == customer_id)
     if salesperson_id:
         conds.append(SalesOrder.salesperson_id == salesperson_id)
-
-    total = (await db.execute(
-        select(func.count(SalesOrder.id)).where(*conds))).scalar_one()
+    if no:
+        # 销售单号模糊搜(采购台选单入口按 SO 号找),镜像采购单列表 source_sales_order_no。
+        conds.append(SalesOrder.no.ilike(f"%{no}%"))
 
     line_count = (select(func.count(SalesOrderLine.id))
                   .where(SalesOrderLine.sales_order_id == SalesOrder.id)
                   .scalar_subquery())
     sort_field = SalesOrder.total_amount if sort == "total_amount" else SalesOrder.created_at
     order_col = sort_field.asc() if dir == "asc" else sort_field.desc()
-    rows = (await db.execute(
-        select(SalesOrder, Customer.name, User.name, line_count.label("lc"))
-        .join(Customer, Customer.id == SalesOrder.customer_id)
-        .join(User, User.id == SalesOrder.salesperson_id)
-        .where(*conds).order_by(order_col)
-        .offset((page - 1) * size).limit(size))).all()
+    base = (select(SalesOrder, Customer.name, User.name, line_count.label("lc"))
+            .join(Customer, Customer.id == SalesOrder.customer_id)
+            .join(User, User.id == SalesOrder.salesperson_id)
+            .where(*conds).order_by(order_col))
 
-    items = [{
-        "id": o.id, "no": o.no, "summary": o.summary,
-        "customer_display": cust_name, "salesperson_display": sp_name,
-        "status": o.status, "currency": o.currency, "total_amount": o.total_amount,
-        "line_count": lc, "created_at": o.created_at,
-    } for (o, cust_name, sp_name, lc) in rows]
-    return items, total
+    def _item(o, cust_name, sp_name, lc, progress):
+        return {
+            "id": o.id, "no": o.no, "summary": o.summary,
+            "customer_display": cust_name, "salesperson_display": sp_name,
+            "status": o.status, "currency": o.currency, "total_amount": o.total_amount,
+            "line_count": lc, "created_at": o.created_at, "purchase_progress": progress,
+        }
+
+    # 无派生筛选:DB 分页,进度仅对当前页派生(不全表物化)。
+    if not purchase_progress and not purchasable_only:
+        total = (await db.execute(
+            select(func.count(SalesOrder.id)).where(*conds))).scalar_one()
+        rows = (await db.execute(base.offset((page - 1) * size).limit(size))).all()
+        prog = await purchase_order_service.progress_for_sales_orders(
+            db, [o.id for (o, *_) in rows])
+        return [_item(o, c, s, lc, prog.get(o.id)) for (o, c, s, lc) in rows], total
+
+    # 按进度筛选:物化候选 → 全量算进度 → 过滤 → count → 切片(派生值先于分页)。
+    rows = (await db.execute(base)).all()
+    prog = await purchase_order_service.progress_for_sales_orders(db, [o.id for (o, *_) in rows])
+
+    def _keep(pid) -> bool:
+        p = prog.get(pid)
+        if purchase_progress:  # 指定单态优先(更具体)
+            return p == purchase_progress
+        return p != PurchaseProgress.FULLY_ORDERED  # purchasable_only:排除已采完
+
+    items = [_item(o, c, s, lc, prog.get(o.id)) for (o, c, s, lc) in rows if _keep(o.id)]
+    total = len(items)
+    start = (page - 1) * size
+    return items[start:start + size], total

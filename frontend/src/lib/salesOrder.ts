@@ -1,6 +1,7 @@
 // 销售单前端类型 + API。对齐后端 schemas/sales_order.py。本增量只读(创建走报价 convert)。
 import { api } from "./api";
 import type { Page } from "./catalog";
+import type { PurchaseProgress, RelatedPurchaseOrder } from "./purchaseOrder";
 
 // 本增量仅初始态;完整 SO 状态机(→采购中…)留给转采购增量。
 export type SalesOrderStatus = "CONFIRMED";
@@ -20,6 +21,8 @@ export interface SalesOrderLineOut {
   remark: string | null;
   language: string;
   sort_order: number;
+  // 采购增量扩展:该行已被采购覆盖的数量(非红线,始终可见)。剩余 = qty − covered_qty。
+  covered_qty?: number | string;
 }
 
 export interface SalesOrderOut {
@@ -39,6 +42,10 @@ export interface SalesOrderOut {
   customer_display?: string;
   salesperson_display?: string;
   source_quotation_no?: string | null;
+  // 采购增量扩展:采购进度(详情/列表均附带)。
+  purchase_progress?: PurchaseProgress;
+  // 关联采购单:仅 purchase:read 者的详情响应附带;SALES 无此字段(不渲染该区块)。
+  related_purchase_orders?: RelatedPurchaseOrder[];
 }
 
 export interface SalesOrderListItem {
@@ -52,12 +59,18 @@ export interface SalesOrderListItem {
   total_amount: number | string;
   line_count: number;
   created_at: string;
+  // 采购增量扩展:采购进度徽标(列表附带)。
+  purchase_progress?: PurchaseProgress;
 }
 
 export interface SalesOrderListFilters {
   status?: string;
   customer_id?: number;
   salesperson_id?: number;
+  no?: string;
+  purchase_progress?: string;
+  // 采购台选单入口:只列可发起采购的 SO(排除已采完)。
+  purchasable_only?: boolean;
   sort?: "created_at" | "total_amount";
   dir?: "asc" | "desc";
   page?: number;

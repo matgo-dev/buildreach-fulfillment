@@ -33,6 +33,15 @@ class Permissions:
     QUOTE_MANAGE = "quote:manage"
     SALES_READ = "sales:read"
 
+    # ----- 履约:supplier(供应商主数据) / purchase(采购单)-----
+    SUPPLIER_MANAGE = "supplier:manage"
+    SUPPLIER_READ = "supplier:read"
+    PURCHASE_MANAGE = "purchase:manage"
+    PURCHASE_READ = "purchase:read"
+    # 🔴红线开关:采购价/金额可见;无此权限则后端置 null。独立拆出为入库步预埋轴
+    # (入库仓库角色将持 purchase:read 见 PO/供应商/数量,但无 read_cost 不见成本)。
+    PURCHASE_READ_COST = "purchase:read_cost"
+
 
 # auth:* 是系统底层会话权限,不归任何资源域(供启动同步识别,不进矩阵)
 SYSTEM_RESERVED_CODES = frozenset({
@@ -67,6 +76,12 @@ PERMISSION_META: dict[str, dict[str, str]] = {
     Permissions.PRODUCT_MANAGE: {"name": "商品管理", "module": ModuleLabel.FULFILLMENT},
     Permissions.QUOTE_MANAGE: {"name": "报价管理", "module": ModuleLabel.FULFILLMENT},
     Permissions.SALES_READ: {"name": "销售单查看", "module": ModuleLabel.FULFILLMENT},
+
+    Permissions.SUPPLIER_MANAGE: {"name": "供应商管理", "module": ModuleLabel.FULFILLMENT},
+    Permissions.SUPPLIER_READ: {"name": "供应商查看", "module": ModuleLabel.FULFILLMENT},
+    Permissions.PURCHASE_MANAGE: {"name": "采购管理", "module": ModuleLabel.FULFILLMENT},
+    Permissions.PURCHASE_READ: {"name": "采购查看", "module": ModuleLabel.FULFILLMENT},
+    Permissions.PURCHASE_READ_COST: {"name": "采购成本查看", "module": ModuleLabel.FULFILLMENT},
 }
 
 
@@ -74,4 +89,5 @@ ROLE_META: dict[str, dict[str, str]] = {
     "ADMIN": {"name": "系统管理员", "description": "系统级管理员,不触业务数据(Q25)"},
     "PRODUCT_OPERATOR": {"name": "商品运营", "description": "商品 SPU/SKU 增改上下架"},
     "SALES": {"name": "销售", "description": "报价单全生命周期;读客户/商品选料"},
+    "PURCHASER": {"name": "采购员", "description": "供应商主数据 + 基于销售单发起采购单(建/确认/取消);见采购成本"},
 }

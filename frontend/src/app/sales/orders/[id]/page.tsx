@@ -3,7 +3,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { App, Button, Card, Descriptions, Space, Spin, Table, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { ArrowLeftOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, ShoppingCartOutlined } from "@ant-design/icons";
+import { Can } from "@/components/common/Can";
+import { Permissions } from "@/config/permission-matrix";
 import {
   formatMoney,
   formatQty,
@@ -12,6 +14,12 @@ import {
   type SalesOrderOut,
 } from "@/lib/salesOrder";
 import { SALES_ORDER_STATUS_META } from "@/lib/salesOrderStatus";
+import { formatCost, type RelatedPurchaseOrder } from "@/lib/purchaseOrder";
+import {
+  PURCHASE_ORDER_STATUS_META,
+  PURCHASE_PROGRESS_META,
+} from "@/lib/purchaseOrderStatus";
+import { PurchaseOrderBuilder } from "@/components/purchasing/PurchaseOrderBuilder";
 
 export default function SalesOrderDetailPage() {
   const params = useParams();
@@ -22,6 +30,7 @@ export default function SalesOrderDetailPage() {
   const [order, setOrder] = useState<SalesOrderOut | null>(null);
   const [lines, setLines] = useState<SalesOrderLineOut[]>([]);
   const [loading, setLoading] = useState(true);
+  const [purchasing, setPurchasing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -47,6 +56,21 @@ export default function SalesOrderDetailPage() {
       { title: "规格", dataIndex: "spec_text_snapshot", ellipsis: true, render: (v) => v || "—" },
       { title: "单位", dataIndex: "unit_snapshot", width: 70 },
       { title: "数量", dataIndex: "qty", width: 90, align: "right", render: formatQty },
+      // 采购覆盖度(非红线,始终可见)。已采=covered_qty;剩余=qty−covered。
+      {
+        title: "已采",
+        key: "covered",
+        width: 80,
+        align: "right",
+        render: (_, r) => formatQty(r.covered_qty ?? 0),
+      },
+      {
+        title: "剩余",
+        key: "remaining",
+        width: 80,
+        align: "right",
+        render: (_, r) => formatQty(Number(r.qty) - Number(r.covered_qty ?? 0)),
+      },
       { title: "单价", dataIndex: "unit_price", width: 110, align: "right", render: formatMoney },
       { title: "金额", dataIndex: "line_total", width: 120, align: "right", render: formatMoney },
       { title: "备注", dataIndex: "remark", ellipsis: true, render: (v) => v || "—" },
@@ -57,6 +81,8 @@ export default function SalesOrderDetailPage() {
   if (loading || !order) return <Spin style={{ display: "block", marginTop: 80 }} />;
 
   const meta = SALES_ORDER_STATUS_META[order.status];
+  const progressMeta = order.purchase_progress ? PURCHASE_PROGRESS_META[order.purchase_progress] : null;
+  const relatedPOs = order.related_purchase_orders; // undefined = 无 purchase:read,不渲染区块
 
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
@@ -72,7 +98,18 @@ export default function SalesOrderDetailPage() {
             />
             <span>{order.no}</span>
             <Tag color={meta.color}>{meta.label}</Tag>
+            {progressMeta && <Tag color={progressMeta.color}>{progressMeta.label}</Tag>}
           </Space>
+        }
+        extra={
+          // 发起采购:有 purchase:manage 且未全部下单时可见。
+          order.purchase_progress !== "FULLY_ORDERED" && (
+            <Can perm={Permissions.PURCHASE_MANAGE}>
+              <Button type="primary" icon={<ShoppingCartOutlined />} onClick={() => setPurchasing(true)}>
+                发起采购
+              </Button>
+            </Can>
+          )
         }
       >
         <Descriptions column={2} size="small" bordered>
@@ -85,14 +122,20 @@ export default function SalesOrderDetailPage() {
           <Descriptions.Item label="币种">{order.currency}</Descriptions.Item>
           <Descriptions.Item label="来源报价">
             {order.source_quotation_no ? (
-              <Button
-                type="link"
-                size="small"
-                style={{ padding: 0 }}
-                onClick={() => router.push(`/sales/quotations/${order.source_quotation_id}`)}
+              // 无 quote:manage(报价段路由门)→ 降级纯文本,不点撞 403(DESIGN §7 单据链接降级)。
+              <Can
+                perm={Permissions.QUOTE_MANAGE}
+                fallback={<span>{order.source_quotation_no}</span>}
               >
-                {order.source_quotation_no}
-              </Button>
+                <Button
+                  type="link"
+                  size="small"
+                  style={{ padding: 0 }}
+                  onClick={() => router.push(`/sales/quotations/${order.source_quotation_id}`)}
+                >
+                  {order.source_quotation_no}
+                </Button>
+              </Can>
             ) : (
               "—"
             )}
@@ -114,9 +157,69 @@ export default function SalesOrderDetailPage() {
           columns={columns}
           dataSource={lines}
           pagination={false}
-          scroll={{ x: 900 }}
+          scroll={{ x: 1060 }}
         />
       </Card>
+
+      {/* 关联采购单:仅 purchase:read 者的响应带 related_purchase_orders;SALES 无字段则整块不渲染。 */}
+      {relatedPOs && (
+        <Card title="关联采购单">
+          <Table<RelatedPurchaseOrder>
+            rowKey="id"
+            size="small"
+            columns={[
+              {
+                title: "采购单号",
+                dataIndex: "no",
+                width: 160,
+                render: (v: string, r) => (
+                  <Button
+                    type="link"
+                    size="small"
+                    style={{ padding: 0 }}
+                    onClick={() => router.push(`/purchasing/orders/${r.id}`)}
+                  >
+                    {v}
+                  </Button>
+                ),
+              },
+              {
+                title: "状态",
+                dataIndex: "status",
+                width: 100,
+                render: (s: RelatedPurchaseOrder["status"]) => {
+                  const m = PURCHASE_ORDER_STATUS_META[s];
+                  return <Tag color={m.color}>{m.label}</Tag>;
+                },
+              },
+              { title: "供应商", dataIndex: "supplier_display", ellipsis: true },
+              { title: "币种", dataIndex: "currency", width: 70 },
+              {
+                title: "金额",
+                dataIndex: "total_amount",
+                width: 130,
+                align: "right",
+                render: (v) => formatCost(v),
+              },
+            ]}
+            dataSource={relatedPOs}
+            pagination={false}
+            scroll={{ x: 720 }}
+            locale={{ emptyText: "暂无关联采购单" }}
+          />
+        </Card>
+      )}
+
+      <PurchaseOrderBuilder
+        open={purchasing}
+        mode="create"
+        sourceSalesOrderId={order.id}
+        onClose={() => setPurchasing(false)}
+        onSaved={() => {
+          setPurchasing(false);
+          load();
+        }}
+      />
     </Space>
   );
 }

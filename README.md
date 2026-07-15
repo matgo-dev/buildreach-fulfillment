@@ -122,6 +122,33 @@
     来源报价链接 + 明细表)。报价详情页加「转销售单」危险确认动作(锁档态)+「查看销售单」出口(已转态)。菜单按
     `sales:read` 显隐加「销售单」;`/sales` 段权限下沉到 quotations/orders 各自 layout。迁移 `0016_sales_order`。
 
+- **采购(主流程第三步,分支 `feat/purchase-order`)**:**按单采购**——基于某张 `CONFIRMED` 销售单(SO)独立发起采购单(PO),
+  **无「转」语义**(SO 自身状态不变,只被约束 SKU 范围与数量上限)。参照 SAP MM / Odoo Purchase / NetSuite 共性。
+  - **两条正交轴**:轴1 单据生命周期(人驱动管门禁)PO `DRAFT→CONFIRMED→CANCELLED`(草稿可编辑/硬删,已确认锁定只能取消,
+    不设 SENT/RECEIVED——到货留入库步);轴2 流程进度(机器派生)SO 的 `purchase_progress`(未/部分/已全部下单)**不落列、
+    不进 SO 主状态机**,列表 JOIN 派生(方案B)。**SO 表本步零改动**。
+  - **SO:PO = 1:N**(按供应商拆单):`purchase_orders.source_sales_order_id`(FK RESTRICT,index,**不 UNIQUE**);PO 行
+    `source_sales_order_line_id`(FK RESTRICT,**不单列 UNIQUE**,入复合 `UNIQUE(purchase_order_id, source_sales_order_line_id)`
+    = PO 内唯一,跨 PO 允许分批/换供应商/取消重下)。
+  - **超采守卫(单一口径)**:`compute_covered_qty`(SO 行 covered = Σ 非 CANCELLED PO 行 qty,**含 DRAFT**)被守卫/列表进度/
+    详情三处共用;`assert_within_so_line_quota` 同事务内 `SELECT ... FOR UPDATE` 锁 SO 行再读聚合再写入(并发双草稿不能合计超额,
+    否则 `41603`)。金额走 `Decimal(str())` 精度(镜像报价)。
+  - **红线(全仓首个字段级脱敏)**:采购价 `unit_price` / 行额 `line_total` / 单头金额 `total_amount` = 成本红线,对无
+    `purchase:read_cost` 者**后端置 null**(非仅前端隐藏)。脱敏下沉到响应 schema 构造工厂(`schemas/purchase_order.py` 的
+    `*.build(..., can_see_cost=)` 单点经 `rbac/redaction.py::redact_cost`),覆盖列表/详情行/SO 关联 PO 区三处出口。供应商身份
+    是另一条红线,由端点级 `purchase:read` 门控(SO 详情 `related_purchase_orders` 仅 `purchase:read` 者下发)。
+  - **主数据**:`suppliers`(独立表,照 customers 档次 + `default_currency` + 启停 toggle;号 `NumberScope.SUPPLIER`=`V######`)。
+  - **RBAC**:新增角色 `PURCHASER`(采购员),权限点 `supplier:manage/read` + `purchase:manage/read` + `purchase:read_cost`
+    (红线开关,独立拆出为入库步预埋轴)+ 复用 `sales:read`(发起采购读 SO)+ `product:read`。审计加 `CONFIRM`/`CANCEL`/
+    `ACTIVATE`/`DEACTIVATE` 动作 + `supplier`/`purchase_order` 资源类型。
+  - **端点**:供应商 CRUD + `activate`/`deactivate`(守 `supplier:*`);采购单 `POST /purchase-orders`、列表/详情、`PUT`(整单对账+乐观锁,
+    仅草稿)、`DELETE`、`confirm`、`cancel`(守 `purchase:*`)、`GET /purchase-orders/purchasable-lines`(建单器数据源:剩余额度 +
+    建议价);SO 列表增补 `purchase_progress` 徽标 + 筛选,SO 详情增补每行 `covered_qty` + 进度徽标 + 关联 PO 区。单号
+    `NumberScope.PURCHASE_ORDER`(`PO{YYYYMM}####`)。错误码段 15(供应商 `415xx`)/ 16(采购单 `416xx`)。
+  - **前端**(`/purchasing/{suppliers,orders}`):供应商列表/详情/表单(启停);采购单列表 / 详情(状态门禁动作)/ 建单器(SO 详情
+    「发起采购」入口→选供应商→可采行录量价→建草稿 PO);SO 详情/列表采购进度扩展。金额列为红线:对无 `purchase:read_cost` 者后端置
+    null、前端显「—」(当前 `PURCHASER` 全看,此脱敏为入库仓库角色预埋)。迁移 `0017_supplier` + `0018_purchase_order`。
+
 ## 本地开发
 
 本地开发**复用现有 brew PostgreSQL**(`@ :5433`),不用下面 `docker-compose.yml` 里的 `db` 服务
