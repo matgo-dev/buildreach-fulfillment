@@ -29,6 +29,7 @@ export const Permissions = {
   PRODUCT_READ: "product:read",
   PRODUCT_MANAGE: "product:manage",
   QUOTE_MANAGE: "quote:manage",
+  SALES_READ: "sales:read",
 } as const;
 
 export type PermissionCode = (typeof Permissions)[keyof typeof Permissions];

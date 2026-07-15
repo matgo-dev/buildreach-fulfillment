@@ -1,7 +1,8 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
-    attachments, auth, categories, customers, quotations, skus, spus, units, uploads, users,
+    attachments, auth, categories, customers, quotations, sales_orders, skus, spus,
+    units, uploads, users,
 )
 
 api_router = APIRouter(prefix="/api/v1")
@@ -13,5 +14,6 @@ api_router.include_router(spus.router)
 api_router.include_router(skus.router)
 api_router.include_router(units.router)
 api_router.include_router(quotations.router)
+api_router.include_router(sales_orders.router)
 api_router.include_router(users.router)
 api_router.include_router(uploads.router)

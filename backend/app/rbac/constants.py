@@ -31,6 +31,7 @@ class Permissions:
     PRODUCT_READ = "product:read"
     PRODUCT_MANAGE = "product:manage"
     QUOTE_MANAGE = "quote:manage"
+    SALES_READ = "sales:read"
 
 
 # auth:* 是系统底层会话权限,不归任何资源域(供启动同步识别,不进矩阵)
@@ -65,6 +66,7 @@ PERMISSION_META: dict[str, dict[str, str]] = {
     Permissions.PRODUCT_READ: {"name": "商品查看", "module": ModuleLabel.FULFILLMENT},
     Permissions.PRODUCT_MANAGE: {"name": "商品管理", "module": ModuleLabel.FULFILLMENT},
     Permissions.QUOTE_MANAGE: {"name": "报价管理", "module": ModuleLabel.FULFILLMENT},
+    Permissions.SALES_READ: {"name": "销售单查看", "module": ModuleLabel.FULFILLMENT},
 }
 
 

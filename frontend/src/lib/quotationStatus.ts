@@ -18,6 +18,7 @@ export const quotationDeletable = (s: QuotationStatus): boolean => s === "DRAFT"
 /** 镜像可作废集(草稿/锁档,未转销售前)。 */
 export const quotationVoidable = (s: QuotationStatus): boolean => s === "DRAFT" || s === "LOCKED";
 
-/** 详情页状态门禁动作(镜像转移矩阵):锁档=草稿→锁;解锁=锁→草稿。 */
+/** 详情页状态门禁动作(镜像转移矩阵):锁档=草稿→锁;解锁=锁→草稿;转销售=锁档→已转。 */
 export const quotationLockable = (s: QuotationStatus): boolean => s === "DRAFT";
 export const quotationUnlockable = (s: QuotationStatus): boolean => s === "LOCKED";
+export const quotationConvertible = (s: QuotationStatus): boolean => s === "LOCKED";

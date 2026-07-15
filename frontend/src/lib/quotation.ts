@@ -1,6 +1,7 @@
 // 报价单前端类型 + API。对齐后端 schemas/quotation.py。
 import { api } from "./api";
 import type { Page } from "./catalog";
+import type { SalesOrderOut } from "./salesOrder";
 
 export type QuotationStatus = "DRAFT" | "LOCKED" | "CONVERTED" | "VOID";
 
@@ -37,6 +38,8 @@ export interface QuotationOrderOut {
   // create/update 响应不含,故可选。
   customer_display?: string;
   salesperson_display?: string;
+  // 反查出口:已转销售(CONVERTED)时带生成的销售单 {id,no},供「已转→跳销售单」;未转为 null。
+  sales_order?: { id: number; no: string } | null;
 }
 
 export interface QuotationListItem {
@@ -116,5 +119,7 @@ export const quotationApi = {
   unlock: (id: number) => api.post<QuotationOrderOut>(`/api/v1/quotations/${id}/unlock`),
   void: (id: number, reason?: string) =>
     api.post<QuotationOrderOut>(`/api/v1/quotations/${id}/void`, { reason }),
+  // 转销售单:LOCKED 报价→建销售单 + 报价置 CONVERTED(终态)。返回新建销售单。
+  convert: (id: number) => api.post<SalesOrderOut>(`/api/v1/quotations/${id}/convert`),
   usersSelectable: () => api.get<SelectableUser[]>("/api/v1/users/selectable"),
 };
