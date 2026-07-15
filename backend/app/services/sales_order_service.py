@@ -116,8 +116,17 @@ async def resolve_order_parties(db: AsyncSession, so: SalesOrder) -> dict:
 
 
 async def list_orders(db: AsyncSession, *, status=None, customer_id=None, salesperson_id=None,
-                      sort="created_at", dir="desc", page: int = 1, size: int = 20) -> tuple[list[dict], int]:
-    """销售单列表:筛选(状态/客户/报价人)+ 排序(created_at|total_amount,asc|desc)+ 分页。"""
+                      purchase_progress=None, sort="created_at", dir="desc",
+                      page: int = 1, size: int = 20) -> tuple[list[dict], int]:
+    """销售单列表:筛选(状态/客户/报价人/采购进度)+ 排序(created_at|total_amount,asc|desc)+ 分页。
+
+    **采购进度=派生值,须在分页前参与**(§2.6 硬约束):算进度 → 过滤 → count → limit/offset,
+    严禁「先分页取N条→内存算这N条→过滤」(会踩分页空洞 + total 失真)。故 base 过滤缩小候选集后
+    **一次性物化候选**(内部 SO 千级、方案B 毫秒级),对全候选算进度(共用 purchase_order_service
+    单一口径),过滤后再 count + 切片。升级触发点(十万级)→ 方案C 落冗余列,契约不变。
+    """
+    from app.services import purchase_order_service
+
     conds = []
     if status:
         conds.append(SalesOrder.status == status)
@@ -126,25 +135,29 @@ async def list_orders(db: AsyncSession, *, status=None, customer_id=None, salesp
     if salesperson_id:
         conds.append(SalesOrder.salesperson_id == salesperson_id)
 
-    total = (await db.execute(
-        select(func.count(SalesOrder.id)).where(*conds))).scalar_one()
-
     line_count = (select(func.count(SalesOrderLine.id))
                   .where(SalesOrderLine.sales_order_id == SalesOrder.id)
                   .scalar_subquery())
     sort_field = SalesOrder.total_amount if sort == "total_amount" else SalesOrder.created_at
     order_col = sort_field.asc() if dir == "asc" else sort_field.desc()
+    # 物化 base 候选(已排序),不在此处 limit —— 进度过滤须先于分页。
     rows = (await db.execute(
         select(SalesOrder, Customer.name, User.name, line_count.label("lc"))
         .join(Customer, Customer.id == SalesOrder.customer_id)
         .join(User, User.id == SalesOrder.salesperson_id)
-        .where(*conds).order_by(order_col)
-        .offset((page - 1) * size).limit(size))).all()
+        .where(*conds).order_by(order_col))).all()
 
+    prog = await purchase_order_service.progress_for_sales_orders(db, [o.id for (o, *_ ) in rows])
     items = [{
         "id": o.id, "no": o.no, "summary": o.summary,
         "customer_display": cust_name, "salesperson_display": sp_name,
         "status": o.status, "currency": o.currency, "total_amount": o.total_amount,
         "line_count": lc, "created_at": o.created_at,
+        "purchase_progress": prog.get(o.id),
     } for (o, cust_name, sp_name, lc) in rows]
-    return items, total
+
+    if purchase_progress:
+        items = [it for it in items if it["purchase_progress"] == purchase_progress]
+    total = len(items)
+    start = (page - 1) * size
+    return items[start:start + size], total

@@ -207,5 +207,91 @@ class QuotationCannotConvertError(BusinessError):
                          message_key=MessageKey.QUOTATION_CANNOT_CONVERT)
 
 
+# 模块段 15 = 供应商(供应商主数据)。见 db/models/supplier.py SupplierStatus。
+class SupplierNotFoundError(BusinessError):
+    def __init__(self, message: str = "Supplier not found"):
+        super().__init__(status.HTTP_404_NOT_FOUND, 41501, message,
+                         message_key=MessageKey.SUPPLIER_NOT_FOUND)
+
+
+class SupplierCodeConflictError(BusinessError):
+    """code 冲突(理论走发号不冲突,兜底)。"""
+
+    def __init__(self, message: str = "Supplier code conflict"):
+        super().__init__(status.HTTP_409_CONFLICT, 41502, message,
+                         message_key=MessageKey.SUPPLIER_CODE_CONFLICT)
+
+
+class SupplierInactiveError(BusinessError):
+    """停用态供应商不可被新 PO 选用(供应商域自身报错)。"""
+
+    def __init__(self, message: str = "Supplier is inactive"):
+        super().__init__(status.HTTP_409_CONFLICT, 41503, message,
+                         message_key=MessageKey.SUPPLIER_INACTIVE)
+
+
+# 模块段 16 = 采购单(采购单状态机 + 建单/整单对账)。见 db/models/purchase_order.py。
+class PurchaseOrderNotFoundError(BusinessError):
+    def __init__(self, message: str = "Purchase order not found"):
+        super().__init__(status.HTTP_404_NOT_FOUND, 41601, message,
+                         message_key=MessageKey.PURCHASE_ORDER_NOT_FOUND)
+
+
+class PurchaseOrderInvalidTransitionError(BusinessError):
+    """状态转移不在 PURCHASE_ORDER_TRANSITIONS 矩阵。"""
+
+    def __init__(self, message: str = "Illegal purchase order status transition"):
+        super().__init__(status.HTTP_409_CONFLICT, 41602, message,
+                         message_key=MessageKey.PURCHASE_ORDER_INVALID_TRANSITION)
+
+
+class PurchaseOverQuotaError(BusinessError):
+    """超采:累计(非取消 PO 行,含草稿)> 对应 SO 行数量。"""
+
+    def __init__(self, message: str = "Purchase quantity exceeds sales order line remaining"):
+        super().__init__(status.HTTP_409_CONFLICT, 41603, message,
+                         message_key=MessageKey.PURCHASE_ORDER_OVER_PURCHASE)
+
+
+class PurchaseSourceSalesOrderInvalidError(BusinessError):
+    """源 SO 无效:不存在或非 CONFIRMED(采购须基于已确认销售单发起)。"""
+
+    def __init__(self, message: str = "Source sales order not found or not confirmed"):
+        super().__init__(status.HTTP_404_NOT_FOUND, 41604, message,
+                         message_key=MessageKey.PURCHASE_ORDER_SOURCE_INVALID)
+
+
+class PurchaseOrderEditConflictError(BusinessError):
+    """乐观锁:expected_updated_at 与库中不一致(或引用了不存在的行 id)。"""
+
+    def __init__(self, message: str = "Purchase order was modified by someone else"):
+        super().__init__(status.HTTP_409_CONFLICT, 41605, message,
+                         message_key=MessageKey.PURCHASE_ORDER_EDIT_CONFLICT)
+
+
+class PurchaseOrderSupplierInactiveError(BusinessError):
+    """建 PO 选用的供应商为停用态。"""
+
+    def __init__(self, message: str = "Cannot create purchase order for an inactive supplier"):
+        super().__init__(status.HTTP_409_CONFLICT, 41606, message,
+                         message_key=MessageKey.PURCHASE_ORDER_SUPPLIER_INACTIVE)
+
+
+class PurchaseOrderNotDraftError(BusinessError):
+    """对非 DRAFT 采购单执行编辑 / 硬删。"""
+
+    def __init__(self, message: str = "Purchase order is not a draft"):
+        super().__init__(status.HTTP_409_CONFLICT, 41607, message,
+                         message_key=MessageKey.PURCHASE_ORDER_NOT_DRAFT)
+
+
+class PurchaseOrderEmptyError(BusinessError):
+    """空采购单(无行):建单 / 编辑对账后 / 确认前均杜绝。"""
+
+    def __init__(self, message: str = "Purchase order must have at least one line"):
+        super().__init__(status.HTTP_400_BAD_REQUEST, 41608, message,
+                         message_key=MessageKey.PURCHASE_ORDER_EMPTY)
+
+
 def success(data: Any = None, message: str = "ok") -> dict:
     return {"code": 0, "message": message, "data": data}

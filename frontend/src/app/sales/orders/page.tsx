@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { App, Button, Card, Drawer, Input, Popconfirm, Segmented, Space, Switch, Table, Tag } from "antd";
+import { App, Button, Card, Drawer, Input, Popconfirm, Segmented, Select, Space, Switch, Table, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { FileAddOutlined } from "@ant-design/icons";
 import { Can } from "@/components/common/Can";
@@ -10,7 +10,16 @@ import { useAuthStore } from "@/stores/authStore";
 import { quotationApi, type QuotationListItem } from "@/lib/quotation";
 import { formatMoney, salesOrderApi, type SalesOrderListItem } from "@/lib/salesOrder";
 import { SALES_ORDER_STATUS_META } from "@/lib/salesOrderStatus";
+import { PURCHASE_PROGRESS_META } from "@/lib/purchaseOrderStatus";
 import { colors } from "@/lib/tokens";
+
+// 采购进度筛选(采购工作台「未下齐」队列)。
+const PROGRESS_OPTIONS = [
+  { value: "", label: "全部进度" },
+  { value: "NOT_ORDERED", label: "未下单" },
+  { value: "PARTIALLY_ORDERED", label: "部分下单" },
+  { value: "FULLY_ORDERED", label: "已全部下单" },
+];
 
 // 本增量销售单只建初始态,故状态筛选暂只「全部/已确认」;转采购增量扩态后再补。
 const STATUS_TABS = [
@@ -27,6 +36,7 @@ export default function SalesOrderListPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState("");
+  const [purchaseProgress, setPurchaseProgress] = useState("");
   const [mineOnly, setMineOnly] = useState(false);
   const [sort, setSort] = useState<"created_at" | "total_amount">("created_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -43,6 +53,7 @@ export default function SalesOrderListPage() {
     try {
       const res = await salesOrderApi.list({
         status: status || undefined,
+        purchase_progress: purchaseProgress || undefined,
         salesperson_id: mineOnly && userId ? userId : undefined,
         sort,
         dir: sortDir,
@@ -56,7 +67,7 @@ export default function SalesOrderListPage() {
     } finally {
       setLoading(false);
     }
-  }, [status, mineOnly, userId, sort, sortDir, page, message]);
+  }, [status, purchaseProgress, mineOnly, userId, sort, sortDir, page, message]);
 
   useEffect(() => {
     load();
@@ -116,6 +127,16 @@ export default function SalesOrderListPage() {
         return <Tag color={m.color}>{m.label}</Tag>;
       },
     },
+    {
+      title: "采购进度",
+      dataIndex: "purchase_progress",
+      width: 110,
+      render: (p: SalesOrderListItem["purchase_progress"]) => {
+        if (!p) return "—";
+        const m = PURCHASE_PROGRESS_META[p];
+        return <Tag color={m.color}>{m.label}</Tag>;
+      },
+    },
     { title: "币种", dataIndex: "currency", width: 70 },
     {
       title: "总额",
@@ -165,6 +186,15 @@ export default function SalesOrderListPage() {
               setPage(1);
             }}
           />
+          <Select
+            style={{ width: 140 }}
+            value={purchaseProgress}
+            options={PROGRESS_OPTIONS}
+            onChange={(v) => {
+              setPurchaseProgress(v);
+              setPage(1);
+            }}
+          />
           <span>
             <Switch
               size="small"
@@ -188,7 +218,7 @@ export default function SalesOrderListPage() {
         columns={columns}
         dataSource={rows}
         loading={loading}
-        scroll={{ x: 1000 }}
+        scroll={{ x: 1120 }}
         locale={{ emptyText: "暂无销售单" }}
         onRow={(r) => ({
           onClick: () => router.push(`/sales/orders/${r.id}`),

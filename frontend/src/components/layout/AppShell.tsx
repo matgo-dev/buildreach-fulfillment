@@ -1,7 +1,15 @@
 "use client";
 import { ReactNode, useState } from "react";
 import { Layout, Menu, Breadcrumb, Dropdown, Avatar } from "antd";
-import { AppstoreOutlined, FileTextOutlined, ProfileOutlined, UserOutlined, LogoutOutlined } from "@ant-design/icons";
+import {
+  AppstoreOutlined,
+  FileTextOutlined,
+  ProfileOutlined,
+  ShopOutlined,
+  ShoppingCartOutlined,
+  UserOutlined,
+  LogoutOutlined,
+} from "@ant-design/icons";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuthStore } from "@/stores/authStore";
 import { authApi } from "@/lib/auth";
@@ -18,6 +26,8 @@ const MENU_ITEMS = [
   { key: "/catalog/spus", icon: <AppstoreOutlined />, label: "商品目录", perm: Permissions.PRODUCT_READ },
   { key: "/sales/quotations", icon: <FileTextOutlined />, label: "报价管理", perm: Permissions.QUOTE_MANAGE },
   { key: "/sales/orders", icon: <ProfileOutlined />, label: "销售单", perm: Permissions.SALES_READ },
+  { key: "/purchasing/suppliers", icon: <ShopOutlined />, label: "供应商", perm: Permissions.SUPPLIER_READ },
+  { key: "/purchasing/orders", icon: <ShoppingCartOutlined />, label: "采购单", perm: Permissions.PURCHASE_READ },
 ];
 
 export function AppShell({ children, breadcrumb = [] }: { children: ReactNode; breadcrumb?: string[] }) {

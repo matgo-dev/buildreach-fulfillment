@@ -48,3 +48,5 @@ class SalesOrderListItem(BaseModel):
     total_amount: float
     line_count: int
     created_at: datetime
+    # 采购进度(轴2 派生,非红线):NOT_ORDERED/PARTIALLY_ORDERED/FULLY_ORDERED。
+    purchase_progress: str | None = None

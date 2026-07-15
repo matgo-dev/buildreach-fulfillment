@@ -240,3 +240,18 @@ async def sales_headers(client, db_session) -> dict[str, str]:
     r = await client.post("/api/v1/auth/login", json={"identifier": email, "password": pw})
     assert r.status_code == 200, r.text
     return {"Authorization": f"Bearer {r.json()['data']['access_token']}"}
+
+
+@pytest_asyncio.fixture
+async def purchaser_headers(client, db_session) -> dict[str, str]:
+    """PURCHASER 账号 headers。持 supplier:*/purchase:*(含 read_cost)+ sales:read(发起采购)。"""
+    from app.services.user_service import create_internal_user
+
+    email = "purchaser@fulfillment.local"
+    pw = "PurchaseOp123456"
+    await create_internal_user(
+        db_session, email=email, name="采购员", password=pw, role="PURCHASER",
+        must_change_password=False, actor_user_id=0, actor_user_email="system@test")
+    r = await client.post("/api/v1/auth/login", json={"identifier": email, "password": pw})
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['data']['access_token']}"}

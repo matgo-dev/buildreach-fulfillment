@@ -42,7 +42,8 @@ async def is_selectable_salesperson(db: AsyncSession, user_id: int) -> bool:
     stmt = _selectable_salespersons_stmt().where(User.id == user_id)
     return (await db.execute(stmt)).first() is not None
 
-ALLOWED_INTERNAL_ROLES = {RoleCode.ADMIN, RoleCode.PRODUCT_OPERATOR, RoleCode.SALES}
+ALLOWED_INTERNAL_ROLES = {RoleCode.ADMIN, RoleCode.PRODUCT_OPERATOR, RoleCode.SALES,
+                          RoleCode.PURCHASER}
 
 
 async def create_internal_user(

@@ -48,4 +48,17 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         Permissions.CUSTOMER_READ,
         Permissions.PRODUCT_READ,
     ],
+    # 采购员:供应商主数据全管 + 基于销售单发起采购单(建/编辑/确认/取消)。
+    # sales:read = 浏览 SO 发起采购(SO 只对客售价,非红线);read_cost = 采购员当然看采购价;
+    # product:read = 选料溯源。不碰系统域、不碰报价/销售写、不碰其它主数据写。
+    "PURCHASER": [
+        *_AUTH_BASE,
+        Permissions.SUPPLIER_MANAGE,
+        Permissions.SUPPLIER_READ,
+        Permissions.PURCHASE_MANAGE,
+        Permissions.PURCHASE_READ,
+        Permissions.PURCHASE_READ_COST,
+        Permissions.SALES_READ,
+        Permissions.PRODUCT_READ,
+    ],
 }

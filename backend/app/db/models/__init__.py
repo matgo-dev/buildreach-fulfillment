@@ -15,10 +15,13 @@ from app.db.models.sku import Sku  # noqa: F401
 from app.db.models.product_image import ProductImage  # noqa: F401
 from app.db.models.quotation import QuotationOrder, QuotationLine  # noqa: F401
 from app.db.models.sales_order import SalesOrder, SalesOrderLine  # noqa: F401
+from app.db.models.supplier import Supplier  # noqa: F401
+from app.db.models.purchase_order import PurchaseOrder, PurchaseOrderLine  # noqa: F401
 
 __all__ = [
     "User", "Role", "RoleCode", "Permission",
     "UserRole", "RolePermission", "AuditLog", "Category",
     "CategorySpecAttribute", "Customer", "NumberSequence", "Unit", "Spu", "Sku",
     "ProductImage", "QuotationOrder", "QuotationLine", "SalesOrder", "SalesOrderLine",
+    "Supplier", "PurchaseOrder", "PurchaseOrderLine",
 ]

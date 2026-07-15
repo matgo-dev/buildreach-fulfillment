@@ -30,9 +30,17 @@ export const Permissions = {
   PRODUCT_MANAGE: "product:manage",
   QUOTE_MANAGE: "quote:manage",
   SALES_READ: "sales:read",
+
+  // ----- 采购:供应商 / 采购单 -----
+  SUPPLIER_READ: "supplier:read",
+  SUPPLIER_MANAGE: "supplier:manage",
+  PURCHASE_READ: "purchase:read",
+  PURCHASE_MANAGE: "purchase:manage",
+  // 红线:采购价 / 采购金额可见门(后端脱敏为 null,前端仅决定是否显示成本列语义)。
+  PURCHASE_READ_COST: "purchase:read_cost",
 } as const;
 
 export type PermissionCode = (typeof Permissions)[keyof typeof Permissions];
 
-/** 角色。与后端 app/rbac/constants.py ROLE_META 对齐:ADMIN(系统)/ PRODUCT_OPERATOR(商品)/ SALES(报价)。 */
-export const BASE_ROLES: readonly RoleCode[] = ["ADMIN", "PRODUCT_OPERATOR", "SALES"] as const;
+/** 角色。与后端 app/rbac/constants.py ROLE_META 对齐:ADMIN(系统)/ PRODUCT_OPERATOR(商品)/ SALES(报价)/ PURCHASER(采购)。 */
+export const BASE_ROLES: readonly RoleCode[] = ["ADMIN", "PRODUCT_OPERATOR", "SALES", "PURCHASER"] as const;
