@@ -127,3 +127,21 @@ async def test_list_progress_badge_and_filter(client, purchaser_headers, sales_h
     ids = {it["id"] for it in only_unordered["items"]}
     assert so1 in ids and so2 not in ids
     assert only_unordered["total"] == len([1 for p in prog.values() if p == "NOT_ORDERED"])
+
+
+@pytest.mark.asyncio
+async def test_list_purchasable_only_excludes_fully_ordered(client, purchaser_headers,
+                                                            sales_headers, db_session):
+    """?purchasable_only=true:排除已全部下单(FULLY_ORDERED)的 SO,未采完的仍在列表。"""
+    cust, sku = await seed_catalog_and_customer(db_session)
+    so1, _ = await make_confirmed_sales_order(
+        client, sales_headers, cust, sku, lines=[{"unit_price": 100, "qty": 5}])
+    so2, so2_lines = await make_confirmed_sales_order(
+        client, sales_headers, cust, sku, lines=[{"unit_price": 100, "qty": 5}])
+    sup = await create_supplier(client, purchaser_headers)
+    await _po(client, purchaser_headers, so2, sup["id"], so2_lines[0]["id"], 5)
+
+    r = (await client.get("/api/v1/sales-orders?status=CONFIRMED&purchasable_only=true",
+                          headers=purchaser_headers)).json()["data"]
+    ids = {it["id"] for it in r["items"]}
+    assert so1 in ids and so2 not in ids

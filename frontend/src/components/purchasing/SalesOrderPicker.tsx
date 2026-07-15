@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { App, Button, Drawer, Segmented, Space, Table, Tag } from "antd";
+import { App, Button, Drawer, Input, Segmented, Space, Table, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { formatMoney, salesOrderApi, type SalesOrderListItem } from "@/lib/salesOrder";
 import { PURCHASE_PROGRESS_META } from "@/lib/purchaseOrderStatus";
@@ -31,6 +31,7 @@ export function SalesOrderPicker({
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [progress, setProgress] = useState("");
+  const [soNo, setSoNo] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
 
@@ -40,7 +41,9 @@ export function SalesOrderPicker({
     try {
       const res = await salesOrderApi.list({
         status: "CONFIRMED",
+        no: soNo || undefined,
         purchase_progress: progress || undefined,
+        purchasable_only: true, // 只列可发起采购的 SO(已采完的排除,不在此展示)
         page,
         size: 10,
       });
@@ -52,7 +55,7 @@ export function SalesOrderPicker({
     } finally {
       setLoading(false);
     }
-  }, [progress, page, message]);
+  }, [progress, soNo, page, message]);
 
   useEffect(() => {
     if (open) load();
@@ -81,27 +84,34 @@ export function SalesOrderPicker({
     {
       title: "",
       key: "action",
-      width: 88,
+      width: 72,
       fixed: "right",
-      render: (_: unknown, r) => {
-        const done = r.purchase_progress === "FULLY_ORDERED";
-        return (
-          <Button type="link" size="small" disabled={done} onClick={() => onPick(r.id)}>
-            {done ? "已采完" : "选择"}
-          </Button>
-        );
-      },
+      render: (_: unknown, r) => (
+        <Button type="link" size="small" onClick={() => onPick(r.id)}>
+          选择
+        </Button>
+      ),
     },
   ];
 
   return (
     <Drawer title="选择销售单发起采购" width={720} open={open} onClose={onClose} destroyOnClose>
-      <Space style={{ marginBottom: 16 }}>
+      <Space style={{ marginBottom: 16 }} wrap>
         <Segmented
           options={PROGRESS_TABS}
           value={progress}
           onChange={(v) => {
             setProgress(v as string);
+            setPage(1);
+          }}
+        />
+        <Input.Search
+          allowClear
+          placeholder="销售单号"
+          style={{ width: 200 }}
+          defaultValue={soNo}
+          onSearch={(v) => {
+            setSoNo(v.trim());
             setPage(1);
           }}
         />

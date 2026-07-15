@@ -28,8 +28,10 @@ async def list_sales_orders(
     status: str | None = None,
     customer_id: int | None = None,
     salesperson_id: int | None = None,
+    no: str | None = None,
     purchase_progress: str | None = Query(
         None, pattern=r"^(NOT_ORDERED|PARTIALLY_ORDERED|FULLY_ORDERED)$"),
+    purchasable_only: bool = False,
     sort: str = Query("created_at", pattern=r"^(created_at|total_amount)$"),
     dir: str = Query("desc", pattern=r"^(asc|desc)$"),
     page: int = Query(1, ge=1),
@@ -39,7 +41,8 @@ async def list_sales_orders(
 ):
     items, total = await sales_order_service.list_orders(
         db, status=status, customer_id=customer_id, salesperson_id=salesperson_id,
-        purchase_progress=purchase_progress, sort=sort, dir=dir, page=page, size=size)
+        no=no, purchase_progress=purchase_progress, purchasable_only=purchasable_only,
+        sort=sort, dir=dir, page=page, size=size)
     return success({
         "items": [SalesOrderListItem.model_validate(it).model_dump() for it in items],
         "total": total, "page": page, "size": size,

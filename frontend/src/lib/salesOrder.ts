@@ -67,7 +67,10 @@ export interface SalesOrderListFilters {
   status?: string;
   customer_id?: number;
   salesperson_id?: number;
+  no?: string;
   purchase_progress?: string;
+  // 采购台选单入口:只列可发起采购的 SO(排除已采完)。
+  purchasable_only?: boolean;
   sort?: "created_at" | "total_amount";
   dir?: "asc" | "desc";
   page?: number;

@@ -104,6 +104,23 @@ async def test_sales_order_list_read(client, sales_headers, db_session):
 
 
 @pytest.mark.asyncio
+async def test_sales_order_list_filter_by_no(client, sales_headers, db_session):
+    """列表按销售单号模糊搜:no= 参数只返回单号命中该片段的销售单。"""
+    cust, sku = await _seed_active(db_session)
+    H = sales_headers
+    oid1 = await _create_locked_quotation(client, H, cust, sku)
+    so1 = (await client.post(f"/api/v1/quotations/{oid1}/convert", headers=H)).json()["data"]["order"]
+    oid2 = await _create_locked_quotation(client, H, cust, sku)
+    so2 = (await client.post(f"/api/v1/quotations/{oid2}/convert", headers=H)).json()["data"]["order"]
+    assert so1["no"] != so2["no"]
+
+    lst = (await client.get(f"/api/v1/sales-orders?no={so1['no']}", headers=H)).json()["data"]
+    ids = [it["id"] for it in lst["items"]]
+    assert so1["id"] in ids
+    assert so2["id"] not in ids
+
+
+@pytest.mark.asyncio
 async def test_convert_rejected_when_not_locked(client, sales_headers, db_session):
     """草稿(未锁档)报价不可转销售 → 41409。"""
     cust, sku = await _seed_active(db_session)
