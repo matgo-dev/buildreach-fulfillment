@@ -16,7 +16,7 @@ async def _prep_customer_and_sku(client, headers, catalog_headers, db_session):
                                 level=1, is_leaf=True, sort_order=0))
         await db_session.commit()
     cust = (await client.post("/api/v1/customers", headers=headers,
-            json={"name_i18n": {"zh": "客户A"}})).json()["data"]
+            json={"name": "客户A"})).json()["data"]
     spu_id = (await client.post("/api/v1/spus", headers=catalog_headers,
               json={"category_code": "10", "name_i18n": {"zh": "球阀"}, "images": [{"image_key": "img/test.jpg", "image_type": "MAIN", "sort_order": 0}]})).json()["data"]["id"]
     sku = (await client.post("/api/v1/skus", headers=catalog_headers, json={
@@ -83,7 +83,7 @@ async def test_db_check_rejects_bad_category_level(db_session):
 @pytest.mark.asyncio
 async def test_db_check_rejects_bad_customer_status(db_session):
     from app.db.models.customer import Customer
-    db_session.add(Customer(code="C999999", name_i18n={"zh": "x"}, status="PENDING"))
+    db_session.add(Customer(code="C999999", name="x", status="PENDING"))
     with pytest.raises(IntegrityError):
         await db_session.flush()
 
@@ -96,7 +96,7 @@ async def test_db_check_rejects_non_iso4217_currency(db_session, superadmin_head
     from app.db.models.quotation import QuotationOrder
     uid = (await db_session.execute(
         select(User.id).where(User.email == settings.SUPER_ADMIN_EMAIL))).scalar_one()
-    cust = Customer(code="C888888", name_i18n={"zh": "x"}, status="ACTIVE")
+    cust = Customer(code="C888888", name="x", status="ACTIVE")
     db_session.add(cust)
     await db_session.flush()
     # 中文/小写/非三字母币种被 DB 挡住(currency ~ '^[A-Z]{3}$')

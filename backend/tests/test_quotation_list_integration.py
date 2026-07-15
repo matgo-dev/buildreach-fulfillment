@@ -22,7 +22,7 @@ async def _seed(db):
     sku = Sku(spu_id=spu.id, sku_code="SKU9401", unit="ton", name_i18n={"zh": "工字钢200"},
               created_by=1, status="ACTIVE")
     db.add(sku)
-    cust = Customer(code="C940001", name_i18n={"zh": "客户A"})
+    cust = Customer(code="C940001", name="客户A")
     db.add(cust)
     await db.flush()
     return cust, sku

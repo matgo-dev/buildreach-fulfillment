@@ -11,7 +11,7 @@ from app.db.models.spu import Spu
 
 
 async def _seed_customer(db) -> Customer:
-    c = Customer(code="C000001", name_i18n={"zh": "测试客户"})
+    c = Customer(code="C000001", name="测试客户")
     db.add(c)
     await db.flush()
     return c

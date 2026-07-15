@@ -15,7 +15,6 @@ import {
 import type { ColumnsType } from "antd/es/table";
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import { api } from "@/lib/api";
-import { display } from "@/lib/i18n";
 import { Can } from "@/components/common/Can";
 import { Permissions } from "@/config/permission-matrix";
 import { QuotationEditor } from "@/components/quotation/QuotationEditor";
@@ -34,7 +33,7 @@ import {
 
 interface CustomerLite {
   id: number;
-  name_i18n: Record<string, string>;
+  name: string;
 }
 
 function money(v: number | string) {
@@ -66,7 +65,7 @@ export default function QuotationDetailPage() {
         api.get<CustomerLite[]>("/api/v1/customers"),
         quotationApi.usersSelectable(),
       ]);
-      setCustomerName(display(custs.find((c) => c.id === o.customer_id)?.name_i18n ?? {}) || `#${o.customer_id}`);
+      setCustomerName(custs.find((c) => c.id === o.customer_id)?.name ?? `#${o.customer_id}`);
       setSalespersonName(sps.find((s) => s.id === o.salesperson_id)?.name ?? `#${o.salesperson_id}`);
     } catch (e) {
       message.error(e instanceof Error ? e.message : "加载失败");

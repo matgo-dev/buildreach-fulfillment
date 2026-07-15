@@ -36,7 +36,7 @@ const LANGUAGES = [
 
 interface CustomerLite {
   id: number;
-  name_i18n: Record<string, string>;
+  name: string;
 }
 
 /** 编辑器内的行(前端本地态)。_key 稳定 rowKey;id 有值=已存在行(对账更新)。
@@ -286,7 +286,7 @@ export function QuotationEditor({ mode, orderId }: { mode: "create" | "edit"; or
                   showSearch
                   placeholder="选择客户"
                   optionFilterProp="label"
-                  options={customers.map((c) => ({ value: c.id, label: display(c.name_i18n) }))}
+                  options={customers.map((c) => ({ value: c.id, label: c.name }))}
                 />
               </Form.Item>
             </Col>

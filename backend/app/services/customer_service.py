@@ -13,13 +13,13 @@ from app.db.models.customer import Customer
 from app.services.numbering import allocate
 
 
-async def create_customer(db: AsyncSession, *, name_i18n, quote_language=None,
+async def create_customer(db: AsyncSession, *, name, quote_language=None,
                           contact_name=None, contact_phone=None, contact_email=None,
                           address=None, actor_user_id, actor_user_email,
                           request: Request | None = None) -> Customer:
     code = format_code(NumberScope.CUSTOMER, await allocate(db, NumberScope.CUSTOMER))
     customer = Customer(
-        code=code, name_i18n=name_i18n,
+        code=code, name=name,
         quote_language=quote_language, contact_name=contact_name,
         contact_phone=contact_phone, contact_email=contact_email, address=address)
     db.add(customer)

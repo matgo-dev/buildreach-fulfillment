@@ -8,7 +8,7 @@ async def test_sales_can_read_customers_but_not_write(client, sales_headers):
     assert (await client.get("/api/v1/customers", headers=sales_headers)).status_code == 200
     # 写客户:无 customer:manage → 403(脱敏边界:销售不碰客户主数据写)
     r = await client.post("/api/v1/customers", headers=sales_headers,
-                          json={"name_i18n": {"zh": "非法写"}})
+                          json={"name": "非法写"})
     assert r.status_code == 403
 
 
