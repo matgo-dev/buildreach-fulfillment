@@ -69,7 +69,7 @@ export function PurchaseOrderBuilder({
     setLoading(true);
     try {
       const [supRes, purRes] = await Promise.all([
-        supplierApi.list({ status: "ACTIVE", size: 200 }),
+        supplierApi.list({ status: "ACTIVE", size: 100 }),
         purchaseOrderApi.purchasableLines(sourceSalesOrderId),
       ]);
       setSuppliers(supRes.items);

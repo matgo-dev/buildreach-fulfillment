@@ -372,9 +372,11 @@ async def delete_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_
 
 
 async def list_orders(db: AsyncSession, *, status=None, supplier_id=None,
-                      source_sales_order_id=None, page: int = 1, size: int = 20
-                      ) -> tuple[list[dict], int]:
-    """采购单列表:筛选(状态/供应商/来源SO)+ 分页,created_at 降序。投影 supplier_display + 来源SO号 + 行数。"""
+                      source_sales_order_id=None, source_sales_order_no=None,
+                      page: int = 1, size: int = 20) -> tuple[list[dict], int]:
+    """采购单列表:筛选(状态/供应商/来源SO id 或单号部分匹配)+ 分页,created_at 降序。
+    投影 supplier_display + 来源SO号 + 行数。扁平单据列表(非按 SO 分组)——SO 为中心的视图走
+    SO 详情「关联采购单区」;此处来源SO筛选只是在扁平列表内收敛,不破坏排序/分页。"""
     conds = []
     if status:
         conds.append(PurchaseOrder.status == status)
@@ -382,9 +384,16 @@ async def list_orders(db: AsyncSession, *, status=None, supplier_id=None,
         conds.append(PurchaseOrder.supplier_id == supplier_id)
     if source_sales_order_id:
         conds.append(PurchaseOrder.source_sales_order_id == source_sales_order_id)
+    # 来源SO单号部分匹配(用户按 SO 号搜,非内部 id);需 JOIN sales_orders,count 也要带上。
+    need_so_join = bool(source_sales_order_no)
+    if source_sales_order_no:
+        conds.append(SalesOrder.no.ilike(f"%{source_sales_order_no}%"))
 
-    total = (await db.execute(
-        select(func.count(PurchaseOrder.id)).where(*conds))).scalar_one()
+    count_stmt = select(func.count(PurchaseOrder.id))
+    if need_so_join:
+        count_stmt = count_stmt.join(
+            SalesOrder, SalesOrder.id == PurchaseOrder.source_sales_order_id)
+    total = (await db.execute(count_stmt.where(*conds))).scalar_one()
 
     line_count = (select(func.count(PurchaseOrderLine.id))
                   .where(PurchaseOrderLine.purchase_order_id == PurchaseOrder.id)

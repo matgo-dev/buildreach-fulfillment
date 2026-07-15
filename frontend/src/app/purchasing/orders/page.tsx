@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { App, Button, Card, Segmented, Select, Space, Table, Tag } from "antd";
+import { App, Button, Card, Input, Segmented, Select, Space, Table, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { supplierApi, type SupplierListItem } from "@/lib/supplier";
 import {
@@ -30,6 +30,7 @@ export default function PurchaseOrderListPage() {
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState("");
   const [supplierId, setSupplierId] = useState<number | undefined>(undefined);
+  const [soNo, setSoNo] = useState("");
   const [suppliers, setSuppliers] = useState<SupplierListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
@@ -42,6 +43,7 @@ export default function PurchaseOrderListPage() {
         status: status || undefined,
         supplier_id: supplierId,
         source_sales_order_id: sourceSalesOrderId ? Number(sourceSalesOrderId) : undefined,
+        source_sales_order_no: soNo || undefined,
         page,
         size: 20,
       });
@@ -53,7 +55,7 @@ export default function PurchaseOrderListPage() {
     } finally {
       setLoading(false);
     }
-  }, [status, supplierId, sourceSalesOrderId, page, message]);
+  }, [status, supplierId, soNo, sourceSalesOrderId, page, message]);
 
   useEffect(() => {
     load();
@@ -62,7 +64,7 @@ export default function PurchaseOrderListPage() {
   // 供应商筛选下拉数据(启用+停用都要,便于筛历史)。
   useEffect(() => {
     supplierApi
-      .list({ size: 200 })
+      .list({ size: 100 })
       .then((res) => setSuppliers(res.items))
       .catch(() => undefined);
   }, []);
@@ -140,6 +142,16 @@ export default function PurchaseOrderListPage() {
             setPage(1);
           }}
           options={suppliers.map((s) => ({ value: s.id, label: `${s.code} · ${s.name}` }))}
+        />
+        <Input.Search
+          allowClear
+          placeholder="来源销售单号"
+          style={{ width: 200 }}
+          defaultValue={soNo}
+          onSearch={(v) => {
+            setSoNo(v.trim());
+            setPage(1);
+          }}
         />
         {sourceSalesOrderId && (
           <Button size="small" onClick={() => router.push("/purchasing/orders")}>

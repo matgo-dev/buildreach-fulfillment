@@ -144,6 +144,7 @@ export interface PurchaseOrderListFilters {
   status?: string;
   supplier_id?: number;
   source_sales_order_id?: number;
+  source_sales_order_no?: string;
   page?: number;
   size?: number;
 }

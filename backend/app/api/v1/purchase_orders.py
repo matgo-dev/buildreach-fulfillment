@@ -56,11 +56,13 @@ async def create_purchase_order(body: PurchaseOrderCreateIn, request: Request,
 @router.get("", summary="采购单列表(筛选/分页)")
 async def list_purchase_orders(status: str | None = None, supplier_id: int | None = None,
                                source_sales_order_id: int | None = None,
+                               source_sales_order_no: str | None = None,
                                page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
                                current: CurrentUser = _READ, db: AsyncSession = Depends(get_db)):
     items, total = await purchase_order_service.list_orders(
         db, status=status, supplier_id=supplier_id,
-        source_sales_order_id=source_sales_order_id, page=page, size=size)
+        source_sales_order_id=source_sales_order_id,
+        source_sales_order_no=source_sales_order_no, page=page, size=size)
     ccost = _can_see_cost(current)
     return success({
         "items": [PurchaseOrderListItem.build(it, can_see_cost=ccost) for it in items],
