@@ -28,7 +28,7 @@ class Supplier(Base, TimestampUpdateMixin):
     # 供应商名=专有名词(身份),非可翻译展示标签,单列存实际名(同 customers,不建 i18n map)。
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     # 采购默认币种(常≠销售币种);建 PO 带出默认值,采购员可改。
-    default_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    default_currency: Mapped[str | None] = mapped_column(String(10), nullable=True)
     contact_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     contact_phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
     contact_email: Mapped[str | None] = mapped_column(String(255), nullable=True)

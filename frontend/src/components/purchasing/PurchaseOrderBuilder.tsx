@@ -113,6 +113,9 @@ export function PurchaseOrderBuilder({
           };
           byLine.set(l.source_sales_order_line_id, merged);
         });
+      } else {
+        // 建单态:清空表头(供应商/币种/备注),避免复用同一实例连选多张 SO 时残留上次输入。
+        form.resetFields();
       }
       setRows(Array.from(byLine.values()));
     } catch (e) {
@@ -249,8 +252,10 @@ export function PurchaseOrderBuilder({
         <InputNumber
           min={0.001}
           value={r.qty}
-          disabled={!r.selected}
-          onChange={(v) => patchRow(r.source_sales_order_line_id, { qty: Number(v) || 0 })}
+          onChange={(v) =>
+            // 一动数量即自动勾选该行(免去先找左侧复选框);取消勾选仍走复选框。
+            patchRow(r.source_sales_order_line_id, { qty: Number(v) || 0, selected: true })
+          }
           style={{ width: "100%" }}
         />
       ),
@@ -263,9 +268,13 @@ export function PurchaseOrderBuilder({
         <InputNumber
           min={0}
           value={r.unit_price ?? undefined}
-          disabled={!r.selected}
           placeholder="必填"
-          onChange={(v) => patchRow(r.source_sales_order_line_id, { unit_price: v === null ? null : Number(v) })}
+          onChange={(v) =>
+            patchRow(r.source_sales_order_line_id, {
+              unit_price: v === null ? null : Number(v),
+              selected: true,
+            })
+          }
           style={{ width: "100%" }}
         />
       ),
@@ -330,7 +339,7 @@ export function PurchaseOrderBuilder({
           </div>
 
           <div style={{ marginBottom: 8, color: colors.muted, fontSize: 12 }}>
-            勾选可采行、录采购数量与采购价;多供应商请分次提交(一供应商一单)。
+            勾选可采行、录采购数量与采购价。每次提交生成一张采购单(单一供应商);多供应商或同一供应商分批采购,分次提交即可(受剩余额度约束)。
           </div>
           <Table<BuilderRow>
             rowKey="source_sales_order_line_id"

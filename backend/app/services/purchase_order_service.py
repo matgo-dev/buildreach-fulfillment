@@ -204,11 +204,15 @@ async def _assert_supplier_active(db: AsyncSession, supplier_id: int) -> Supplie
 
 
 def _payload_qty_by_soline(lines) -> dict[int, Decimal]:
-    """按 so_line 聚合本 payload 的采购量(挡「逐行不超但合计超采」;PO 内结构性单行由 DB 复合 UNIQUE 兜底)。"""
+    """按 so_line 聚合本 payload 的采购量(挡「逐行不超但合计超采」;PO 内结构性单行由 DB 复合 UNIQUE 兜底)。
+
+    **按 so_line_id 升序返回**:下游三处守卫循环据此逐行 `FOR UPDATE` 锁额度基准,统一锁序 =
+    任意两个并发事务永远同序取锁,消除「事务1锁A等B、事务2锁B等A」的死锁环(全局锁序标准手法)。
+    """
     agg: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
     for ln in lines:
         agg[ln["source_sales_order_line_id"]] += Decimal(str(ln["qty"]))
-    return agg
+    return dict(sorted(agg.items()))
 
 
 async def create_order(db: AsyncSession, *, source_sales_order_id, supplier_id, currency,

@@ -120,10 +120,11 @@ async def list_orders(db: AsyncSession, *, status=None, customer_id=None, salesp
                       page: int = 1, size: int = 20) -> tuple[list[dict], int]:
     """销售单列表:筛选(状态/客户/报价人/采购进度)+ 排序(created_at|total_amount,asc|desc)+ 分页。
 
-    **采购进度=派生值,须在分页前参与**(§2.6 硬约束):算进度 → 过滤 → count → limit/offset,
-    严禁「先分页取N条→内存算这N条→过滤」(会踩分页空洞 + total 失真)。故 base 过滤缩小候选集后
-    **一次性物化候选**(内部 SO 千级、方案B 毫秒级),对全候选算进度(共用 purchase_order_service
-    单一口径),过滤后再 count + 切片。升级触发点(十万级)→ 方案C 落冗余列,契约不变。
+    采购进度=派生值(轴2),按是否**用它筛选**分两条路,别让筛选场景的代价压到热路径:
+    - **无进度筛选**(默认热路径):进度只是徽标,DB 直接 count+offset/limit 分页,进度**仅对当前页**派生。
+    - **有进度筛选**:派生值须先于分页参与,否则踩分页空洞 + total 失真(§2.6)。故物化候选 →
+      全量算进度(共用 purchase_order_service 单一口径)→ 过滤 → count → 切片。内部 SO 千级、
+      方案B 毫秒级;升级触发点(十万级)→ 方案C 落冗余列,契约不变。
     """
     from app.services import purchase_order_service
 
@@ -140,24 +141,33 @@ async def list_orders(db: AsyncSession, *, status=None, customer_id=None, salesp
                   .scalar_subquery())
     sort_field = SalesOrder.total_amount if sort == "total_amount" else SalesOrder.created_at
     order_col = sort_field.asc() if dir == "asc" else sort_field.desc()
-    # 物化 base 候选(已排序),不在此处 limit —— 进度过滤须先于分页。
-    rows = (await db.execute(
-        select(SalesOrder, Customer.name, User.name, line_count.label("lc"))
-        .join(Customer, Customer.id == SalesOrder.customer_id)
-        .join(User, User.id == SalesOrder.salesperson_id)
-        .where(*conds).order_by(order_col))).all()
+    base = (select(SalesOrder, Customer.name, User.name, line_count.label("lc"))
+            .join(Customer, Customer.id == SalesOrder.customer_id)
+            .join(User, User.id == SalesOrder.salesperson_id)
+            .where(*conds).order_by(order_col))
 
-    prog = await purchase_order_service.progress_for_sales_orders(db, [o.id for (o, *_ ) in rows])
-    items = [{
-        "id": o.id, "no": o.no, "summary": o.summary,
-        "customer_display": cust_name, "salesperson_display": sp_name,
-        "status": o.status, "currency": o.currency, "total_amount": o.total_amount,
-        "line_count": lc, "created_at": o.created_at,
-        "purchase_progress": prog.get(o.id),
-    } for (o, cust_name, sp_name, lc) in rows]
+    def _item(o, cust_name, sp_name, lc, progress):
+        return {
+            "id": o.id, "no": o.no, "summary": o.summary,
+            "customer_display": cust_name, "salesperson_display": sp_name,
+            "status": o.status, "currency": o.currency, "total_amount": o.total_amount,
+            "line_count": lc, "created_at": o.created_at, "purchase_progress": progress,
+        }
 
-    if purchase_progress:
-        items = [it for it in items if it["purchase_progress"] == purchase_progress]
+    # 无进度筛选:DB 分页,进度仅对当前页派生(不全表物化)。
+    if not purchase_progress:
+        total = (await db.execute(
+            select(func.count(SalesOrder.id)).where(*conds))).scalar_one()
+        rows = (await db.execute(base.offset((page - 1) * size).limit(size))).all()
+        prog = await purchase_order_service.progress_for_sales_orders(
+            db, [o.id for (o, *_) in rows])
+        return [_item(o, c, s, lc, prog.get(o.id)) for (o, c, s, lc) in rows], total
+
+    # 有进度筛选:物化候选 → 全量算进度 → 过滤 → count → 切片(派生值先于分页)。
+    rows = (await db.execute(base)).all()
+    prog = await purchase_order_service.progress_for_sales_orders(db, [o.id for (o, *_) in rows])
+    items = [_item(o, c, s, lc, prog.get(o.id)) for (o, c, s, lc) in rows
+             if prog.get(o.id) == purchase_progress]
     total = len(items)
     start = (page - 1) * size
     return items[start:start + size], total

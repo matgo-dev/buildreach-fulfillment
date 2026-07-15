@@ -26,7 +26,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("code", sa.String(length=20), nullable=False),
         sa.Column("name", sa.String(length=200), nullable=False),
-        sa.Column("default_currency", sa.String(length=3), nullable=True),
+        sa.Column("default_currency", sa.String(length=10), nullable=True),
         sa.Column("contact_name", sa.String(length=100), nullable=True),
         sa.Column("contact_phone", sa.String(length=30), nullable=True),
         sa.Column("contact_email", sa.String(length=255), nullable=True),

@@ -2,7 +2,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { App, Button, Card, Input, Segmented, Select, Space, Table, Tag } from "antd";
+import { PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
+import { Can } from "@/components/common/Can";
+import { Permissions } from "@/config/permission-matrix";
+import { PurchaseOrderBuilder } from "@/components/purchasing/PurchaseOrderBuilder";
+import { SalesOrderPicker } from "@/components/purchasing/SalesOrderPicker";
 import { supplierApi, type SupplierListItem } from "@/lib/supplier";
 import {
   formatCost,
@@ -34,6 +39,9 @@ export default function PurchaseOrderListPage() {
   const [suppliers, setSuppliers] = useState<SupplierListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  // 建单 pull 入口:先选一张 SO(picker),选定后带 SO id 打开建单器。
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [builderSourceId, setBuilderSourceId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -120,7 +128,16 @@ export default function PurchaseOrderListPage() {
   ];
 
   return (
-    <Card>
+    <Card
+      title="采购单"
+      extra={
+        <Can perm={Permissions.PURCHASE_MANAGE}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setPickerOpen(true)}>
+            新建采购单
+          </Button>
+        </Can>
+      }
+    >
       <Space style={{ marginBottom: 16, width: "100%" }} wrap>
         <Segmented
           options={STATUS_TABS}
@@ -189,6 +206,26 @@ export default function PurchaseOrderListPage() {
           }}
         />
       )}
+
+      {/* pull 入口:选 SO → 打开建单器。采购单恒绑单一 SO,故先选一张。 */}
+      <SalesOrderPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onPick={(soId) => {
+          setPickerOpen(false);
+          setBuilderSourceId(soId);
+        }}
+      />
+      <PurchaseOrderBuilder
+        open={builderSourceId !== null}
+        mode="create"
+        sourceSalesOrderId={builderSourceId ?? 0}
+        onClose={() => setBuilderSourceId(null)}
+        onSaved={() => {
+          setBuilderSourceId(null);
+          load();
+        }}
+      />
     </Card>
   );
 }
