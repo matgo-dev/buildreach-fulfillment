@@ -39,10 +39,12 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         Permissions.PRODUCT_READ,
         Permissions.PRODUCT_MANAGE,
     ],
-    # 销售:报价单全生命周期 + 读客户(选客户)+ 读商品(选料)。不碰主数据写、不碰系统域。
+    # 销售:报价单全生命周期 + 转销售建单读销售单 + 读客户(选客户)+ 读商品(选料)。
+    # 不碰主数据写、不碰系统域。
     "SALES": [
         *_AUTH_BASE,
         Permissions.QUOTE_MANAGE,
+        Permissions.SALES_READ,
         Permissions.CUSTOMER_READ,
         Permissions.PRODUCT_READ,
     ],

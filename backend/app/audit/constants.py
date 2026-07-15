@@ -15,6 +15,7 @@ class AuditResourceType(str, Enum):
     SPU = "spu"
     SKU = "sku"
     QUOTATION = "quotation"
+    SALES_ORDER = "sales_order"
 
 
 class AuditAction(str, Enum):
@@ -26,6 +27,7 @@ class AuditAction(str, Enum):
     LOCK = "LOCK"
     UNLOCK = "UNLOCK"
     VOID = "VOID"
+    CONVERT = "CONVERT"       # 报价 LOCKED→CONVERTED(转销售单)
     LOGIN_SUCCESS = "LOGIN_SUCCESS"
     LOGIN_FAILED = "LOGIN_FAILED"
     LOGIN_LOCKED = "LOGIN_LOCKED"

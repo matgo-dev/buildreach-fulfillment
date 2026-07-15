@@ -199,5 +199,13 @@ class QuotationInvalidSalespersonError(BusinessError):
                          message_key=MessageKey.QUOTATION_INVALID_SALESPERSON)
 
 
+class QuotationCannotConvertError(BusinessError):
+    """只有锁档态(LOCKED)报价可转销售单;其它态(草稿/已转/已作废)一律拒。"""
+
+    def __init__(self, message: str = "Only a locked quotation can be converted to a sales order"):
+        super().__init__(status.HTTP_409_CONFLICT, 41409, message,
+                         message_key=MessageKey.QUOTATION_CANNOT_CONVERT)
+
+
 def success(data: Any = None, message: str = "ok") -> dict:
     return {"code": 0, "message": message, "data": data}

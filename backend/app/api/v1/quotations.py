@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import CurrentUser
 from app.core.exceptions import success
+from app.db.models.quotation import QuotationStatus
 from app.db.session import get_db
 from app.rbac.constants import Permissions
 from app.rbac.guards import require_permission
@@ -23,7 +24,8 @@ from app.schemas.quotation import (
     QuotationUpdateIn,
     QuotationVoidIn,
 )
-from app.services import quotation_service
+from app.schemas.sales_order import SalesOrderLineOut, SalesOrderOut
+from app.services import quotation_service, sales_order_service
 
 router = APIRouter(prefix="/quotations", tags=["quotations"])
 
@@ -83,8 +85,11 @@ async def get_quotation(
     order = await quotation_service.get_order(db, order_id)
     lines = await quotation_service.list_lines(db, order_id)
     parties = await quotation_service.resolve_order_parties(db, order)
+    # 反查出口:已转销售的报价带 order.sales_order={id,no}(前端「已转→跳销售单」);未转为 None。
+    sales_order = (await sales_order_service.find_by_source_quotation(db, order_id)
+                   if order.status == QuotationStatus.CONVERTED else None)
     return success({
-        "order": {**_order_out(order), **parties},
+        "order": {**_order_out(order), **parties, "sales_order": sales_order},
         "lines": [QuotationLineOut.model_validate(l, from_attributes=True).model_dump()
                   for l in lines],
     })
@@ -159,3 +164,23 @@ async def void_quotation(
         db, order_id=order_id, reason=(body.reason if body else None),
         actor_user_id=current.id, actor_user_email=current.email, request=request)
     return success(_order_out(order))
+
+
+@router.post("/{order_id}/convert", summary="转销售单(LOCKED→CONVERTED,建销售单)")
+async def convert_quotation(
+    order_id: int,
+    request: Request,
+    current: CurrentUser = _GUARD,
+    db: AsyncSession = Depends(get_db),
+):
+    # 转换是报价终态转移(与 lock/unlock/void 同族),守 quote:manage;销售单本增量无独立写面。
+    so = await sales_order_service.convert_quotation(
+        db, quotation_id=order_id, actor_user_id=current.id,
+        actor_user_email=current.email, request=request)
+    lines = await sales_order_service.list_lines(db, so.id)
+    parties = await sales_order_service.resolve_order_parties(db, so)
+    return success({
+        "order": {**SalesOrderOut.model_validate(so, from_attributes=True).model_dump(), **parties},
+        "lines": [SalesOrderLineOut.model_validate(l, from_attributes=True).model_dump()
+                  for l in lines],
+    })

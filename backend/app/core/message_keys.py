@@ -42,3 +42,4 @@ class MessageKey:
     QUOTATION_INVALID_LINE = "error.quotation.invalid_line"
     QUOTATION_CANNOT_VOID = "error.quotation.cannot_void"
     QUOTATION_INVALID_SALESPERSON = "error.quotation.invalid_salesperson"
+    QUOTATION_CANNOT_CONVERT = "error.quotation.cannot_convert"

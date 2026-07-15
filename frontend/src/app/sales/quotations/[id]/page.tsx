@@ -24,6 +24,7 @@ import {
 } from "@/lib/quotation";
 import {
   QUOTATION_STATUS_META,
+  quotationConvertible,
   quotationEditable,
   quotationLockable,
   quotationUnlockable,
@@ -82,6 +83,19 @@ export default function QuotationDetailPage() {
     }
   }
 
+  // 转销售:成功后跳新建的销售单详情(不停留在已终态的报价)。
+  async function onConvert() {
+    setBusy(true);
+    try {
+      const { order: so } = await quotationApi.convert(id);
+      message.success(`已转销售单 ${so.no}`);
+      router.push(`/sales/orders/${so.id}`);
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : "转销售失败");
+      setBusy(false);
+    }
+  }
+
   const columns: ColumnsType<QuotationLineOut> = useMemo(
     () => [
       { title: "#", render: (_, __, i) => i + 1, width: 44 },
@@ -118,33 +132,52 @@ export default function QuotationDetailPage() {
           </Space>
         }
         extra={
-          <Can perm={Permissions.QUOTE_MANAGE}>
-            <Space>
-              {quotationEditable(order.status) && (
-                <Button onClick={() => router.push(`/sales/quotations/${id}?edit=1`)}>编辑</Button>
-              )}
-              {quotationLockable(order.status) && (
-                <Button type="primary" loading={busy} onClick={() => act(() => quotationApi.lock(id), "已锁档")}>
-                  锁档
-                </Button>
-              )}
-              {quotationUnlockable(order.status) && (
-                <Popconfirm title="撤回锁档,回到草稿?" onConfirm={() => act(() => quotationApi.unlock(id), "已撤回")}>
-                  <Button loading={busy}>撤回锁档</Button>
-                </Popconfirm>
-              )}
-              {quotationVoidable(order.status) && (
-                <Popconfirm
-                  title="作废该报价?"
-                  description="作废后不可编辑,可留档备查。"
-                  okButtonProps={{ danger: true }}
-                  onConfirm={() => act(() => quotationApi.void(id), "已作废")}
-                >
-                  <Button danger loading={busy}>作废</Button>
-                </Popconfirm>
-              )}
-            </Space>
-          </Can>
+          <Space>
+            {/* 已转销售:只读出口,跳生成的销售单(反查字段 order.sales_order)。 */}
+            {order.status === "CONVERTED" && order.sales_order && (
+              <Button type="link" onClick={() => router.push(`/sales/orders/${order.sales_order!.id}`)}>
+                查看销售单 {order.sales_order.no}
+              </Button>
+            )}
+            <Can perm={Permissions.QUOTE_MANAGE}>
+              <Space>
+                {quotationEditable(order.status) && (
+                  <Button onClick={() => router.push(`/sales/quotations/${id}?edit=1`)}>编辑</Button>
+                )}
+                {quotationLockable(order.status) && (
+                  <Button type="primary" loading={busy} onClick={() => act(() => quotationApi.lock(id), "已锁档")}>
+                    锁档
+                  </Button>
+                )}
+                {quotationUnlockable(order.status) && (
+                  <Popconfirm title="撤回锁档,回到草稿?" onConfirm={() => act(() => quotationApi.unlock(id), "已撤回")}>
+                    <Button loading={busy}>撤回锁档</Button>
+                  </Popconfirm>
+                )}
+                {quotationConvertible(order.status) && (
+                  <Popconfirm
+                    title="转为销售单?"
+                    description="转换后此报价锁定为「已转销售」终态、不可撤回,并生成一张销售单。"
+                    okText="确认转销售"
+                    okButtonProps={{ danger: true }}
+                    onConfirm={onConvert}
+                  >
+                    <Button type="primary" danger loading={busy}>转销售单</Button>
+                  </Popconfirm>
+                )}
+                {quotationVoidable(order.status) && (
+                  <Popconfirm
+                    title="作废该报价?"
+                    description="作废后不可编辑,可留档备查。"
+                    okButtonProps={{ danger: true }}
+                    onConfirm={() => act(() => quotationApi.void(id), "已作废")}
+                  >
+                    <Button danger loading={busy}>作废</Button>
+                  </Popconfirm>
+                )}
+              </Space>
+            </Can>
+          </Space>
         }
       >
         <Descriptions column={2} size="small" bordered>
