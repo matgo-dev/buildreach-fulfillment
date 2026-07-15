@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import CurrentUser
@@ -166,11 +166,7 @@ async def void_quotation(
     return success(_order_out(order))
 
 
-@router.post(
-    "/{order_id}/convert",
-    summary="转销售单(LOCKED→CONVERTED,建销售单)",
-    status_code=status.HTTP_201_CREATED,
-)
+@router.post("/{order_id}/convert", summary="转销售单(LOCKED→CONVERTED,建销售单)")
 async def convert_quotation(
     order_id: int,
     request: Request,

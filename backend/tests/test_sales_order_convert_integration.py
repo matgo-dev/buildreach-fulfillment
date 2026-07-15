@@ -50,7 +50,7 @@ async def test_convert_locked_quotation_creates_sales_order(client, sales_header
     oid = await _create_locked_quotation(client, H, cust, sku)
 
     r = await client.post(f"/api/v1/quotations/{oid}/convert", headers=H)
-    assert r.status_code == 201, r.text
+    assert r.status_code == 200, r.text
     detail = r.json()["data"]
     so = detail["order"]
     assert so["status"] == "CONFIRMED"
@@ -123,7 +123,7 @@ async def test_reconvert_converted_quotation_rejected(client, sales_headers, db_
     cust, sku = await _seed_active(db_session)
     H = sales_headers
     oid = await _create_locked_quotation(client, H, cust, sku)
-    assert (await client.post(f"/api/v1/quotations/{oid}/convert", headers=H)).status_code == 201
+    assert (await client.post(f"/api/v1/quotations/{oid}/convert", headers=H)).status_code == 200
     again = await client.post(f"/api/v1/quotations/{oid}/convert", headers=H)
     assert again.status_code == 409 and again.json()["code"] == 41409
 

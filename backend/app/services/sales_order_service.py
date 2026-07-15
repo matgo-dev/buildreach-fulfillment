@@ -116,8 +116,8 @@ async def resolve_order_parties(db: AsyncSession, so: SalesOrder) -> dict:
 
 
 async def list_orders(db: AsyncSession, *, status=None, customer_id=None, salesperson_id=None,
-                      sort="created_at", page: int = 1, size: int = 20) -> tuple[list[dict], int]:
-    """销售单列表:筛选(状态/客户/报价人)+ 排序(created_at|total_amount 降序)+ 分页。"""
+                      sort="created_at", dir="desc", page: int = 1, size: int = 20) -> tuple[list[dict], int]:
+    """销售单列表:筛选(状态/客户/报价人)+ 排序(created_at|total_amount,asc|desc)+ 分页。"""
     conds = []
     if status:
         conds.append(SalesOrder.status == status)
@@ -132,8 +132,8 @@ async def list_orders(db: AsyncSession, *, status=None, customer_id=None, salesp
     line_count = (select(func.count(SalesOrderLine.id))
                   .where(SalesOrderLine.sales_order_id == SalesOrder.id)
                   .scalar_subquery())
-    order_col = (SalesOrder.total_amount.desc() if sort == "total_amount"
-                 else SalesOrder.created_at.desc())
+    sort_field = SalesOrder.total_amount if sort == "total_amount" else SalesOrder.created_at
+    order_col = sort_field.asc() if dir == "asc" else sort_field.desc()
     rows = (await db.execute(
         select(SalesOrder, Customer.name, User.name, line_count.label("lc"))
         .join(Customer, Customer.id == SalesOrder.customer_id)

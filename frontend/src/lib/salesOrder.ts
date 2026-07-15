@@ -59,8 +59,19 @@ export interface SalesOrderListFilters {
   customer_id?: number;
   salesperson_id?: number;
   sort?: "created_at" | "total_amount";
+  dir?: "asc" | "desc";
   page?: number;
   size?: number;
+}
+
+/** 金额格式化:固定 2 位小数(单价/金额/总额)。 */
+export function formatMoney(v: number | string): string {
+  return Number(v).toLocaleString(undefined, { minimumFractionDigits: 2 });
+}
+
+/** 数量格式化:最多 3 位小数、不补零(qty 为 Numeric(18,3),整数不应显示成 x.00)。 */
+export function formatQty(v: number | string): string {
+  return Number(v).toLocaleString(undefined, { maximumFractionDigits: 3 });
 }
 
 function qs(p: Record<string, unknown>): string {

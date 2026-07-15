@@ -19,7 +19,12 @@ import { Can } from "@/components/common/Can";
 import { useAuthStore } from "@/stores/authStore";
 import { Permissions } from "@/config/permission-matrix";
 import { quotationApi, type QuotationListItem } from "@/lib/quotation";
-import { QUOTATION_STATUS_META, quotationDeletable, quotationEditable } from "@/lib/quotationStatus";
+import {
+  QUOTATION_STATUS_META,
+  quotationConvertible,
+  quotationDeletable,
+  quotationEditable,
+} from "@/lib/quotationStatus";
 
 const STATUS_TABS = [
   { label: "全部", value: "" },
@@ -42,6 +47,7 @@ export default function QuotationListPage() {
   const [mineOnly, setMineOnly] = useState(false);
   const [sort, setSort] = useState<"created_at" | "total_amount">("created_at");
   const [loading, setLoading] = useState(false);
+  const [convertingId, setConvertingId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -87,6 +93,19 @@ export default function QuotationListPage() {
     }
   }
 
+  async function onConvert(id: number) {
+    setConvertingId(id);
+    try {
+      const { order: so } = await quotationApi.convert(id);
+      message.success(`已转销售单 ${so.no}`);
+      router.push(`/sales/orders/${so.id}`);
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : "转销售失败");
+    } finally {
+      setConvertingId(null);
+    }
+  }
+
   const columns: ColumnsType<QuotationListItem> = [
     { title: "单号", dataIndex: "no", width: 150 },
     { title: "客户", dataIndex: "customer_display", width: 160, ellipsis: true },
@@ -114,7 +133,7 @@ export default function QuotationListPage() {
     {
       title: "操作",
       key: "actions",
-      width: 150,
+      width: 220,
       fixed: "right",
       className: "whitespace-nowrap",
       // 行主操作=看详情(点整行,见 onRow);操作列只放编辑/作废/删除,点击不触发行下钻。
@@ -129,6 +148,19 @@ export default function QuotationListPage() {
               >
                 编辑
               </Button>
+            )}
+            {quotationConvertible(r.status) && (
+              <Popconfirm
+                title="转为销售单?"
+                description="转换后此报价进入已转销售终态,并生成销售单。"
+                okText="确认转销售"
+                okButtonProps={{ danger: true }}
+                onConfirm={() => onConvert(r.id)}
+              >
+                <Button type="link" size="small" danger loading={convertingId === r.id}>
+                  转销售
+                </Button>
+              </Popconfirm>
             )}
             {(r.status === "DRAFT" || r.status === "LOCKED") && (
               <Popconfirm

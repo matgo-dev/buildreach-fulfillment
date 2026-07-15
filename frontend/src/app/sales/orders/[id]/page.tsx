@@ -5,15 +5,13 @@ import { App, Button, Card, Descriptions, Space, Spin, Table, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import {
+  formatMoney,
+  formatQty,
   salesOrderApi,
   type SalesOrderLineOut,
   type SalesOrderOut,
 } from "@/lib/salesOrder";
 import { SALES_ORDER_STATUS_META } from "@/lib/salesOrderStatus";
-
-function money(v: number | string) {
-  return Number(v).toLocaleString(undefined, { minimumFractionDigits: 2 });
-}
 
 export default function SalesOrderDetailPage() {
   const params = useParams();
@@ -48,9 +46,9 @@ export default function SalesOrderDetailPage() {
       { title: "商品", dataIndex: "name_snapshot", ellipsis: true },
       { title: "规格", dataIndex: "spec_text_snapshot", ellipsis: true, render: (v) => v || "—" },
       { title: "单位", dataIndex: "unit_snapshot", width: 70 },
-      { title: "数量", dataIndex: "qty", width: 90, align: "right", render: money },
-      { title: "单价", dataIndex: "unit_price", width: 110, align: "right", render: money },
-      { title: "金额", dataIndex: "line_total", width: 120, align: "right", render: money },
+      { title: "数量", dataIndex: "qty", width: 90, align: "right", render: formatQty },
+      { title: "单价", dataIndex: "unit_price", width: 110, align: "right", render: formatMoney },
+      { title: "金额", dataIndex: "line_total", width: 120, align: "right", render: formatMoney },
       { title: "备注", dataIndex: "remark", ellipsis: true, render: (v) => v || "—" },
     ],
     [],
@@ -103,7 +101,7 @@ export default function SalesOrderDetailPage() {
           <Descriptions.Item label="备注" span={2}>{order.remark || "—"}</Descriptions.Item>
           <Descriptions.Item label="总额" span={2}>
             <span style={{ fontWeight: 600 }}>
-              {order.currency} {money(order.total_amount)}
+              {order.currency} {formatMoney(order.total_amount)}
             </span>
           </Descriptions.Item>
         </Descriptions>
