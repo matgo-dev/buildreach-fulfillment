@@ -16,7 +16,7 @@ const SIDER_BG = colors.sidebar;
 // 菜单项按权限显隐(perm=可见所需权限点),避免死链;后端 RouteGuard 仍是访问底线。
 const MENU_ITEMS = [
   { key: "/catalog/spus", icon: <AppstoreOutlined />, label: "商品目录", perm: Permissions.PRODUCT_READ },
-  { key: "/sales/quotations", icon: <FileTextOutlined />, label: "报价单", perm: Permissions.QUOTE_MANAGE },
+  { key: "/sales/quotations", icon: <FileTextOutlined />, label: "报价管理", perm: Permissions.QUOTE_MANAGE },
 ];
 
 export function AppShell({ children, breadcrumb = [] }: { children: ReactNode; breadcrumb?: string[] }) {

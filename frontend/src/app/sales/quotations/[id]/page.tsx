@@ -13,6 +13,7 @@ import {
   Tag,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
+import { ArrowLeftOutlined } from "@ant-design/icons";
 import { api } from "@/lib/api";
 import { display } from "@/lib/i18n";
 import { Can } from "@/components/common/Can";
@@ -114,7 +115,14 @@ export default function QuotationDetailPage() {
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
       <Card
         title={
-          <Space>
+          <Space size={8}>
+            <Button
+              type="text"
+              size="small"
+              icon={<ArrowLeftOutlined />}
+              onClick={() => router.push("/sales/quotations")}
+              aria-label="返回列表"
+            />
             <span>{order.no}</span>
             <Tag color={meta.color}>{meta.label}</Tag>
           </Space>

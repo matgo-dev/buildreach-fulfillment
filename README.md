@@ -95,9 +95,11 @@
     移除(ADMIN 严格不碰业务数据);客户列表读放宽为 `require_any_permission(customer:read, customer:manage)`。
   - **8 端点**(均守 `quote:manage`):`GET /quotations`(筛选/排序/分页)、`POST`、`GET/{id}`、`PUT/{id}`、`DELETE/{id}`
     (仅草稿硬删)、`POST/{id}/lock`、`/unlock`、`/void`。单号走 `NumberScope.QUOTATION`(`Q{YYYYMM}####`,模块段 MM=14)。
-  - **前端**(`/sales/quotations`,守 `quote:manage`):列表(状态 Segmented / 关键词 / 报价人=我 / 总额排序 / 行内门禁动作)、
-    详情(Descriptions + 明细表 + 状态门禁 锁档/撤回/作废/编辑)、整单编辑器(new 与 edit?edit=1 共用,内联行网格
-    复用 catalog SKU 搜索,合计实时算)。菜单按权限显隐加「报价单」。迁移 `0014_quotation_lifecycle`。
+  - **前端**(`/sales/quotations`,守 `quote:manage`):列表(状态 Segmented / 关键词 / 报价人=我 / 总额排序 / 行点击进详情 /
+    行内编辑作废删除)、详情(Descriptions + 明细表 + 状态门禁 锁档/撤回/作废/编辑 + 返回箭头)、整单编辑器(new 与
+    edit?edit=1 共用;表头 2 列网格,明细含 规格/单位 只读派生列 + 数量/单价/金额,合计实时算)。选货走**右侧挑货抽屉**
+    `ProductPickerDrawer`(复用 catalog SKU 搜索 available=true,缩略图 + 名/码/单位,连加多件、已加标记)。菜单按权限
+    显隐加「报价管理」。迁移 `0014_quotation_lifecycle`。
 
 ## 本地开发
 

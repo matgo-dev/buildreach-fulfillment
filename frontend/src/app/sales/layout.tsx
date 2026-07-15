@@ -7,7 +7,7 @@ import { Permissions } from "@/config/permission-matrix";
 export default function SalesLayout({ children }: { children: ReactNode }) {
   return (
     <RouteGuard requiredPermissions={[Permissions.QUOTE_MANAGE]}>
-      <AppShell breadcrumb={["报价单"]}>{children}</AppShell>
+      <AppShell breadcrumb={["报价管理"]}>{children}</AppShell>
     </RouteGuard>
   );
 }

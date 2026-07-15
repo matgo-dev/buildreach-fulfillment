@@ -89,7 +89,6 @@ export default function QuotationListPage() {
 
   const columns: ColumnsType<QuotationListItem> = [
     { title: "单号", dataIndex: "no", width: 150 },
-    { title: "摘要", dataIndex: "summary", ellipsis: true, render: (v) => v || <span style={{ color: "#bbb" }}>—</span> },
     { title: "客户", dataIndex: "customer_display", width: 160, ellipsis: true },
     { title: "报价人", dataIndex: "salesperson_display", width: 100 },
     {
@@ -115,14 +114,12 @@ export default function QuotationListPage() {
     {
       title: "操作",
       key: "actions",
-      width: 200,
+      width: 150,
       fixed: "right",
       className: "whitespace-nowrap",
+      // 行主操作=看详情(点整行,见 onRow);操作列只放编辑/作废/删除,点击不触发行下钻。
       render: (_, r) => (
-        <Space size="small">
-          <Button type="link" size="small" onClick={() => router.push(`/sales/quotations/${r.id}`)}>
-            详情
-          </Button>
+        <Space size="small" onClick={(e) => e.stopPropagation()}>
           <Can perm={Permissions.QUOTE_MANAGE}>
             {quotationEditable(r.status) && (
               <Button
@@ -202,6 +199,10 @@ export default function QuotationListPage() {
         loading={loading}
         scroll={{ x: 1200 }}
         locale={{ emptyText: "暂无报价" }}
+        onRow={(r) => ({
+          onClick: () => router.push(`/sales/quotations/${r.id}`),
+          style: { cursor: "pointer" },
+        })}
         pagination={{
           current: page,
           total,
