@@ -3,6 +3,7 @@ import pytest
 
 from app.core.exceptions import (
     QuotationCannotUnlockConvertedError,
+    QuotationCannotVoidError,
     QuotationEmptyLinesError,
     QuotationInvalidTransitionError,
 )
@@ -74,6 +75,27 @@ async def test_lock_voided_is_invalid_transition(db_session):
     await svc.void_order(db_session, order_id=order.id, **_ACTOR)
     with pytest.raises(QuotationInvalidTransitionError):
         await svc.lock_order(db_session, order_id=order.id, **_ACTOR)
+
+
+@pytest.mark.asyncio
+async def test_void_converted_rejected(db_session):
+    # 已转销售(终态)作废 → 专有 QuotationCannotVoidError,而非通用「非法转移」。
+    cust, sku = await _seed(db_session)
+    order = await _draft(db_session, cust, sku)
+    order.status = QuotationStatus.CONVERTED
+    await db_session.commit()
+    with pytest.raises(QuotationCannotVoidError):
+        await svc.void_order(db_session, order_id=order.id, **_ACTOR)
+
+
+@pytest.mark.asyncio
+async def test_void_already_void_rejected(db_session):
+    # 已作废再作废 → 同样专有 QuotationCannotVoidError(幂等边界,精确报错)。
+    cust, sku = await _seed(db_session)
+    order = await _draft(db_session, cust, sku)
+    await svc.void_order(db_session, order_id=order.id, **_ACTOR)
+    with pytest.raises(QuotationCannotVoidError):
+        await svc.void_order(db_session, order_id=order.id, **_ACTOR)
 
 
 @pytest.mark.asyncio

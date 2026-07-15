@@ -14,6 +14,7 @@ from app.core.codegen import NumberScope, format_code
 from app.core.exceptions import (
     NotFoundError,
     QuotationCannotUnlockConvertedError,
+    QuotationCannotVoidError,
     QuotationEditConflictError,
     QuotationEmptyLinesError,
     QuotationInvalidLineError,
@@ -26,6 +27,7 @@ from app.db.models.quotation import (
     QUOTATION_DELETABLE,
     QUOTATION_EDITABLE,
     QUOTATION_TRANSITIONS,
+    QUOTATION_VOIDABLE,
     QuotationLine,
     QuotationOrder,
     QuotationStatus,
@@ -223,7 +225,14 @@ async def unlock_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_
 
 async def void_order(db: AsyncSession, *, order_id, reason=None, actor_user_id, actor_user_email,
                      request: Request | None = None) -> QuotationOrder:
-    """作废 DRAFT/LOCKED→VOID(曾有效现废弃;reason 落 audit)。"""
+    """作废 DRAFT/LOCKED→VOID(曾有效现废弃;reason 落 audit)。
+
+    显式前置守卫(对齐 lock/unlock 的精确报错约定):非可作废态(CONVERTED 终态、VOID 已作废)
+    → 专有 QuotationCannotVoidError,不退化成通用「非法转移」。可作废集派生自矩阵(QUOTATION_VOIDABLE)。
+    """
+    order = await get_order(db, order_id)
+    if order.status not in QUOTATION_VOIDABLE:
+        raise QuotationCannotVoidError()
     return await _transition(db, order_id, QuotationStatus.VOID, AuditAction.VOID,
                              actor_user_id=actor_user_id, actor_user_email=actor_user_email,
                              request=request)

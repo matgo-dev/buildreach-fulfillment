@@ -40,3 +40,4 @@ class MessageKey:
     QUOTATION_CANNOT_UNLOCK_CONVERTED = "error.quotation.cannot_unlock_converted"
     QUOTATION_EDIT_CONFLICT = "error.quotation.edit_conflict"
     QUOTATION_INVALID_LINE = "error.quotation.invalid_line"
+    QUOTATION_CANNOT_VOID = "error.quotation.cannot_void"

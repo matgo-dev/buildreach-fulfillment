@@ -183,5 +183,13 @@ class QuotationInvalidLineError(BusinessError):
                          message_key=MessageKey.QUOTATION_INVALID_LINE)
 
 
+class QuotationCannotVoidError(BusinessError):
+    """当前状态不可作废(仅 DRAFT/LOCKED 可作废;CONVERTED 终态、VOID 已作废)。"""
+
+    def __init__(self, message: str = "Cannot void a quotation in its current status"):
+        super().__init__(status.HTTP_409_CONFLICT, 41407, message,
+                         message_key=MessageKey.QUOTATION_CANNOT_VOID)
+
+
 def success(data: Any = None, message: str = "ok") -> dict:
     return {"code": 0, "message": message, "data": data}
