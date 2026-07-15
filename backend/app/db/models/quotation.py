@@ -34,10 +34,15 @@ QUOTATION_TRANSITIONS: dict[str, set[str]] = {
     QuotationStatus.CONVERTED: set(),
     QuotationStatus.VOID: set(),
 }
-# 编辑/删除仅草稿(锁档后只读;草稿=从没弄好可硬删,作废=曾有效走状态)。作废限草稿/锁档。
+# 编辑/删除仅草稿(锁档后只读;草稿=从没弄好可硬删)——"能否 PUT/硬删"不是状态转移,
+# 矩阵推不出,故各自独立常量(独立事实,非并列副本)。
 QUOTATION_EDITABLE: set[str] = {QuotationStatus.DRAFT}
 QUOTATION_DELETABLE: set[str] = {QuotationStatus.DRAFT}
-QUOTATION_VOIDABLE: set[str] = {QuotationStatus.DRAFT, QuotationStatus.LOCKED}
+# 可作废集相反:作废本身是一条转移,该事实矩阵已拥有,故**派生**自矩阵(目标含 VOID 的态),
+# 不另立并列副本——防与矩阵漂移(当前值 = {DRAFT, LOCKED})。
+QUOTATION_VOIDABLE: set[str] = {
+    s for s, targets in QUOTATION_TRANSITIONS.items() if QuotationStatus.VOID in targets
+}
 
 
 class QuotationOrder(Base, TimestampUpdateMixin):

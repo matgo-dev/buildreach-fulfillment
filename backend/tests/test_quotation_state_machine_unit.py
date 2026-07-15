@@ -25,7 +25,10 @@ def test_transitions_matrix():
 
 
 def test_editable_deletable_voidable_sets():
-    # 删=硬删仅草稿;作废=草稿/锁档;编辑仅草稿(锁档后只读)。
+    # 删=硬删仅草稿;编辑仅草稿(锁档后只读)。
     assert QUOTATION_EDITABLE == {"DRAFT"}
     assert QUOTATION_DELETABLE == {"DRAFT"}
-    assert QUOTATION_VOIDABLE == {"DRAFT", "LOCKED"}
+    # VOIDABLE 派生自矩阵(非并列副本):值恒 = 目标含 VOID 的态 —— 矩阵一改它自动跟随,不漂移。
+    assert QUOTATION_VOIDABLE == {
+        s for s, t in QUOTATION_TRANSITIONS.items() if QuotationStatus.VOID in t}
+    assert QUOTATION_VOIDABLE == {"DRAFT", "LOCKED"}  # 当前矩阵下的具体值
