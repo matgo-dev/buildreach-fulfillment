@@ -1,5 +1,5 @@
 {
-  "_format": "分类规格属性种子(唯一源头)。形态:{ code: { note: 编辑提示(不入库,分类名唯一源头是 categories 表), attributes: [ {key, label_i18n, value_type: string|number|enum, unit?, options?:[{code,label_i18n}]} ] } }。属性按'产品族'挂在其适用的最高分类层:通用属性挂大类,材质/工艺特有属性挂子类;叶子建 SKU 时由 get_suggestions 沿祖先链继承为并集(深覆浅)。key/option.code 为稳定 ASCII 机器码,禁中文;label 走 i18n。sort_order 由 upsert 按列表顺序自动分配,勿手写。首批覆盖:金属管道30/塑胶管道28/紧固件08/电线电缆12。",
+  "_format": "分类规格属性种子(唯一源头)。形态:{ code: { note: 编辑提示(不入库,分类名唯一源头是 categories 表), attributes: [ {key, label_i18n, value_type: string|number|enum, unit?, options?:[{code,label_i18n}]} ] } }。属性按'产品族'挂在其适用的最高分类层:通用属性挂大类,材质/工艺特有属性挂子类;叶子建 SKU 时由 get_suggestions 沿祖先链继承为并集(深覆浅)。key/option.code 为稳定 ASCII 机器码,禁中文;label 走 i18n。sort_order 由 upsert 按列表顺序自动分配,勿手写。覆盖:全部 32 大类 L1 通用轴已铺;材质/工艺特有属性挂各子类,已铺 30/28/08/12 的部分子类,其余子类待随业务逐步补。",
   "30": {
     "note": "金属管道(L1 通用:凡金属管/管件都有)",
     "attributes": [
@@ -1932,6 +1932,1955 @@
             }
           }
         ]
+      }
+    ]
+  },
+  "01": {
+    "note": "劳保用品(L1 通用较弱:各防护类别/等级挂子类)",
+    "attributes": [
+      {
+        "key": "size",
+        "label_i18n": {
+          "zh": "规格/尺码"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "02": {
+    "note": "安防(L1 通用弱:标识/监控/应急为主,属性主要挂子类)",
+    "attributes": [
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "03": {
+    "note": "胶粘剂/密封胶(L1 通用)",
+    "attributes": [
+      {
+        "key": "base",
+        "label_i18n": {
+          "zh": "基料"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "silicone",
+            "label_i18n": {
+              "zh": "硅酮"
+            }
+          },
+          {
+            "code": "pu",
+            "label_i18n": {
+              "zh": "聚氨酯"
+            }
+          },
+          {
+            "code": "epoxy",
+            "label_i18n": {
+              "zh": "环氧"
+            }
+          },
+          {
+            "code": "acrylic",
+            "label_i18n": {
+              "zh": "丙烯酸"
+            }
+          },
+          {
+            "code": "ms",
+            "label_i18n": {
+              "zh": "MS改性硅烷"
+            }
+          },
+          {
+            "code": "water_based",
+            "label_i18n": {
+              "zh": "水性"
+            }
+          }
+        ]
+      },
+      {
+        "key": "color",
+        "label_i18n": {
+          "zh": "颜色"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "packaging",
+        "label_i18n": {
+          "zh": "包装规格"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "04": {
+    "note": "手动工具(L1 通用)",
+    "attributes": [
+      {
+        "key": "material",
+        "label_i18n": {
+          "zh": "材质"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "chrome_vanadium",
+            "label_i18n": {
+              "zh": "铬钒钢"
+            }
+          },
+          {
+            "code": "carbon_steel",
+            "label_i18n": {
+              "zh": "碳钢"
+            }
+          },
+          {
+            "code": "alloy_steel",
+            "label_i18n": {
+              "zh": "合金钢"
+            }
+          },
+          {
+            "code": "stainless_steel",
+            "label_i18n": {
+              "zh": "不锈钢"
+            }
+          }
+        ]
+      },
+      {
+        "key": "spec",
+        "label_i18n": {
+          "zh": "规格"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "surface",
+        "label_i18n": {
+          "zh": "表面处理"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "chrome_plated",
+            "label_i18n": {
+              "zh": "镀铬"
+            }
+          },
+          {
+            "code": "nickel_plated",
+            "label_i18n": {
+              "zh": "镀镍"
+            }
+          },
+          {
+            "code": "phosphated",
+            "label_i18n": {
+              "zh": "磷化/发黑"
+            }
+          },
+          {
+            "code": "polished",
+            "label_i18n": {
+              "zh": "抛光"
+            }
+          }
+        ]
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "05": {
+    "note": "气动液压元件(L1 通用)",
+    "attributes": [
+      {
+        "key": "medium",
+        "label_i18n": {
+          "zh": "介质"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "pneumatic",
+            "label_i18n": {
+              "zh": "气动/压缩空气"
+            }
+          },
+          {
+            "code": "hydraulic",
+            "label_i18n": {
+              "zh": "液压油"
+            }
+          },
+          {
+            "code": "vacuum",
+            "label_i18n": {
+              "zh": "真空"
+            }
+          }
+        ]
+      },
+      {
+        "key": "port",
+        "label_i18n": {
+          "zh": "接口螺纹"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "working_pressure",
+        "label_i18n": {
+          "zh": "工作压力"
+        },
+        "value_type": "number",
+        "scope": "spu",
+        "unit": "MPa"
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "06": {
+    "note": "磨具磨料(L1 通用)",
+    "attributes": [
+      {
+        "key": "abrasive",
+        "label_i18n": {
+          "zh": "磨料"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "brown_alox",
+            "label_i18n": {
+              "zh": "棕刚玉"
+            }
+          },
+          {
+            "code": "white_alox",
+            "label_i18n": {
+              "zh": "白刚玉"
+            }
+          },
+          {
+            "code": "silicon_carbide",
+            "label_i18n": {
+              "zh": "碳化硅"
+            }
+          },
+          {
+            "code": "diamond",
+            "label_i18n": {
+              "zh": "金刚石"
+            }
+          },
+          {
+            "code": "cbn",
+            "label_i18n": {
+              "zh": "立方氮化硼"
+            }
+          },
+          {
+            "code": "zirconia",
+            "label_i18n": {
+              "zh": "锆刚玉"
+            }
+          }
+        ]
+      },
+      {
+        "key": "grit",
+        "label_i18n": {
+          "zh": "粒度"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "spec",
+        "label_i18n": {
+          "zh": "规格尺寸"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "07": {
+    "note": "机电设备(电机/泵/发电机等,L1 通用)",
+    "attributes": [
+      {
+        "key": "power",
+        "label_i18n": {
+          "zh": "功率"
+        },
+        "value_type": "number",
+        "scope": "sku",
+        "unit": "kW"
+      },
+      {
+        "key": "rated_voltage",
+        "label_i18n": {
+          "zh": "额定电压"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "v220",
+            "label_i18n": {
+              "zh": "220V"
+            }
+          },
+          {
+            "code": "v380",
+            "label_i18n": {
+              "zh": "380V"
+            }
+          },
+          {
+            "code": "v660",
+            "label_i18n": {
+              "zh": "660V"
+            }
+          }
+        ]
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "09": {
+    "note": "五金丝网(网/丝/钉,L1 通用)",
+    "attributes": [
+      {
+        "key": "material",
+        "label_i18n": {
+          "zh": "材质"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "low_carbon_steel",
+            "label_i18n": {
+              "zh": "低碳钢"
+            }
+          },
+          {
+            "code": "galv_steel",
+            "label_i18n": {
+              "zh": "镀锌钢"
+            }
+          },
+          {
+            "code": "stainless_steel",
+            "label_i18n": {
+              "zh": "不锈钢"
+            }
+          },
+          {
+            "code": "pvc_coated",
+            "label_i18n": {
+              "zh": "浸塑"
+            }
+          }
+        ]
+      },
+      {
+        "key": "wire_dia",
+        "label_i18n": {
+          "zh": "丝径"
+        },
+        "value_type": "number",
+        "scope": "sku",
+        "unit": "mm"
+      },
+      {
+        "key": "aperture",
+        "label_i18n": {
+          "zh": "网孔"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "10": {
+    "note": "电器(L1 通用)",
+    "attributes": [
+      {
+        "key": "rated_voltage",
+        "label_i18n": {
+          "zh": "额定电压"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "v220",
+            "label_i18n": {
+              "zh": "220V"
+            }
+          },
+          {
+            "code": "v380",
+            "label_i18n": {
+              "zh": "380V"
+            }
+          }
+        ]
+      },
+      {
+        "key": "power",
+        "label_i18n": {
+          "zh": "功率"
+        },
+        "value_type": "number",
+        "scope": "sku",
+        "unit": "W"
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "11": {
+    "note": "灯具照明(L1 通用)",
+    "attributes": [
+      {
+        "key": "light_source",
+        "label_i18n": {
+          "zh": "光源"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "led",
+            "label_i18n": {
+              "zh": "LED"
+            }
+          },
+          {
+            "code": "halogen",
+            "label_i18n": {
+              "zh": "卤素"
+            }
+          },
+          {
+            "code": "fluorescent",
+            "label_i18n": {
+              "zh": "荧光/节能"
+            }
+          },
+          {
+            "code": "hid",
+            "label_i18n": {
+              "zh": "金卤/高压钠"
+            }
+          }
+        ]
+      },
+      {
+        "key": "power",
+        "label_i18n": {
+          "zh": "功率"
+        },
+        "value_type": "number",
+        "scope": "sku",
+        "unit": "W"
+      },
+      {
+        "key": "color_temp",
+        "label_i18n": {
+          "zh": "色温"
+        },
+        "value_type": "enum",
+        "scope": "sku",
+        "options": [
+          {
+            "code": "k2700",
+            "label_i18n": {
+              "zh": "2700K"
+            }
+          },
+          {
+            "code": "k3000",
+            "label_i18n": {
+              "zh": "3000K"
+            }
+          },
+          {
+            "code": "k4000",
+            "label_i18n": {
+              "zh": "4000K"
+            }
+          },
+          {
+            "code": "k6500",
+            "label_i18n": {
+              "zh": "6500K"
+            }
+          }
+        ]
+      },
+      {
+        "key": "ip_rating",
+        "label_i18n": {
+          "zh": "防护等级"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "ip20",
+            "label_i18n": {
+              "zh": "IP20"
+            }
+          },
+          {
+            "code": "ip44",
+            "label_i18n": {
+              "zh": "IP44"
+            }
+          },
+          {
+            "code": "ip54",
+            "label_i18n": {
+              "zh": "IP54"
+            }
+          },
+          {
+            "code": "ip65",
+            "label_i18n": {
+              "zh": "IP65"
+            }
+          },
+          {
+            "code": "ip66",
+            "label_i18n": {
+              "zh": "IP66"
+            }
+          }
+        ]
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "13": {
+    "note": "电力穿线(桥架/穿线管/线槽,L1 通用)",
+    "attributes": [
+      {
+        "key": "material",
+        "label_i18n": {
+          "zh": "材质"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "hot_dip_galv",
+            "label_i18n": {
+              "zh": "热镀锌钢"
+            }
+          },
+          {
+            "code": "pre_galv",
+            "label_i18n": {
+              "zh": "电镀锌钢"
+            }
+          },
+          {
+            "code": "stainless_steel",
+            "label_i18n": {
+              "zh": "不锈钢"
+            }
+          },
+          {
+            "code": "frp",
+            "label_i18n": {
+              "zh": "玻璃钢"
+            }
+          },
+          {
+            "code": "pvc",
+            "label_i18n": {
+              "zh": "PVC"
+            }
+          },
+          {
+            "code": "aluminum_alloy",
+            "label_i18n": {
+              "zh": "铝合金"
+            }
+          }
+        ]
+      },
+      {
+        "key": "spec",
+        "label_i18n": {
+          "zh": "规格"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "thickness",
+        "label_i18n": {
+          "zh": "厚度"
+        },
+        "value_type": "number",
+        "scope": "sku",
+        "unit": "mm"
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "14": {
+    "note": "工控自动化/仪表(L1 通用)",
+    "attributes": [
+      {
+        "key": "range",
+        "label_i18n": {
+          "zh": "量程"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "output_signal",
+        "label_i18n": {
+          "zh": "输出信号"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "ma4_20",
+            "label_i18n": {
+              "zh": "4-20mA"
+            }
+          },
+          {
+            "code": "v0_10",
+            "label_i18n": {
+              "zh": "0-10V"
+            }
+          },
+          {
+            "code": "rs485",
+            "label_i18n": {
+              "zh": "RS485"
+            }
+          },
+          {
+            "code": "pulse",
+            "label_i18n": {
+              "zh": "脉冲"
+            }
+          },
+          {
+            "code": "switch",
+            "label_i18n": {
+              "zh": "开关量"
+            }
+          }
+        ]
+      },
+      {
+        "key": "accuracy",
+        "label_i18n": {
+          "zh": "精度等级"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      },
+      {
+        "key": "power_supply",
+        "label_i18n": {
+          "zh": "供电"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "dc24",
+            "label_i18n": {
+              "zh": "DC24V"
+            }
+          },
+          {
+            "code": "ac220",
+            "label_i18n": {
+              "zh": "AC220V"
+            }
+          }
+        ]
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "15": {
+    "note": "电工辅料(配线器材/开关插座,L1 通用)",
+    "attributes": [
+      {
+        "key": "rated_voltage",
+        "label_i18n": {
+          "zh": "额定电压"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "v250",
+            "label_i18n": {
+              "zh": "250V"
+            }
+          },
+          {
+            "code": "v400",
+            "label_i18n": {
+              "zh": "400V"
+            }
+          }
+        ]
+      },
+      {
+        "key": "rated_current",
+        "label_i18n": {
+          "zh": "额定电流"
+        },
+        "value_type": "number",
+        "scope": "sku",
+        "unit": "A"
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "16": {
+    "note": "保温材料(L1 通用)",
+    "attributes": [
+      {
+        "key": "material",
+        "label_i18n": {
+          "zh": "材质"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "rock_wool",
+            "label_i18n": {
+              "zh": "岩棉"
+            }
+          },
+          {
+            "code": "glass_wool",
+            "label_i18n": {
+              "zh": "玻璃棉"
+            }
+          },
+          {
+            "code": "rubber_plastic",
+            "label_i18n": {
+              "zh": "橡塑"
+            }
+          },
+          {
+            "code": "eps",
+            "label_i18n": {
+              "zh": "EPS聚苯"
+            }
+          },
+          {
+            "code": "xps",
+            "label_i18n": {
+              "zh": "XPS挤塑"
+            }
+          },
+          {
+            "code": "pu",
+            "label_i18n": {
+              "zh": "聚氨酯"
+            }
+          },
+          {
+            "code": "aluminum_silicate",
+            "label_i18n": {
+              "zh": "硅酸铝"
+            }
+          },
+          {
+            "code": "phenolic",
+            "label_i18n": {
+              "zh": "酚醛"
+            }
+          }
+        ]
+      },
+      {
+        "key": "form",
+        "label_i18n": {
+          "zh": "形态"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "board",
+            "label_i18n": {
+              "zh": "板"
+            }
+          },
+          {
+            "code": "tube",
+            "label_i18n": {
+              "zh": "管壳"
+            }
+          },
+          {
+            "code": "roll",
+            "label_i18n": {
+              "zh": "卷毡"
+            }
+          },
+          {
+            "code": "blanket",
+            "label_i18n": {
+              "zh": "毡"
+            }
+          }
+        ]
+      },
+      {
+        "key": "thickness",
+        "label_i18n": {
+          "zh": "厚度"
+        },
+        "value_type": "number",
+        "scope": "sku",
+        "unit": "mm"
+      },
+      {
+        "key": "fire_rating",
+        "label_i18n": {
+          "zh": "燃烧性能等级"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "a",
+            "label_i18n": {
+              "zh": "A级不燃"
+            }
+          },
+          {
+            "code": "b1",
+            "label_i18n": {
+              "zh": "B1难燃"
+            }
+          },
+          {
+            "code": "b2",
+            "label_i18n": {
+              "zh": "B2可燃"
+            }
+          }
+        ]
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "17": {
+    "note": "防水材料(L1 通用)",
+    "attributes": [
+      {
+        "key": "product_type",
+        "label_i18n": {
+          "zh": "类型"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "membrane",
+            "label_i18n": {
+              "zh": "卷材"
+            }
+          },
+          {
+            "code": "coating",
+            "label_i18n": {
+              "zh": "涂料"
+            }
+          },
+          {
+            "code": "sealant",
+            "label_i18n": {
+              "zh": "密封防水"
+            }
+          }
+        ]
+      },
+      {
+        "key": "material",
+        "label_i18n": {
+          "zh": "材质"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "sbs",
+            "label_i18n": {
+              "zh": "SBS改性沥青"
+            }
+          },
+          {
+            "code": "app",
+            "label_i18n": {
+              "zh": "APP改性沥青"
+            }
+          },
+          {
+            "code": "pvc",
+            "label_i18n": {
+              "zh": "PVC"
+            }
+          },
+          {
+            "code": "tpo",
+            "label_i18n": {
+              "zh": "TPO"
+            }
+          },
+          {
+            "code": "epdm",
+            "label_i18n": {
+              "zh": "三元乙丙"
+            }
+          },
+          {
+            "code": "js",
+            "label_i18n": {
+              "zh": "JS聚合物水泥"
+            }
+          },
+          {
+            "code": "pu",
+            "label_i18n": {
+              "zh": "聚氨酯"
+            }
+          },
+          {
+            "code": "acrylic",
+            "label_i18n": {
+              "zh": "丙烯酸"
+            }
+          }
+        ]
+      },
+      {
+        "key": "thickness",
+        "label_i18n": {
+          "zh": "厚度"
+        },
+        "value_type": "number",
+        "scope": "sku",
+        "unit": "mm"
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "18": {
+    "note": "涂料化工(L1 通用)",
+    "attributes": [
+      {
+        "key": "base",
+        "label_i18n": {
+          "zh": "类型"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "water_based",
+            "label_i18n": {
+              "zh": "水性"
+            }
+          },
+          {
+            "code": "oil_based",
+            "label_i18n": {
+              "zh": "油性"
+            }
+          },
+          {
+            "code": "powder",
+            "label_i18n": {
+              "zh": "粉末"
+            }
+          }
+        ]
+      },
+      {
+        "key": "finish",
+        "label_i18n": {
+          "zh": "光泽"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "matte",
+            "label_i18n": {
+              "zh": "哑光"
+            }
+          },
+          {
+            "code": "semi_gloss",
+            "label_i18n": {
+              "zh": "半光"
+            }
+          },
+          {
+            "code": "gloss",
+            "label_i18n": {
+              "zh": "亮光"
+            }
+          }
+        ]
+      },
+      {
+        "key": "color",
+        "label_i18n": {
+          "zh": "颜色"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "packaging",
+        "label_i18n": {
+          "zh": "包装规格"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "19": {
+    "note": "装饰材料(L1 通用)",
+    "attributes": [
+      {
+        "key": "material",
+        "label_i18n": {
+          "zh": "材质"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "gypsum",
+            "label_i18n": {
+              "zh": "石膏"
+            }
+          },
+          {
+            "code": "mineral_wool",
+            "label_i18n": {
+              "zh": "矿棉"
+            }
+          },
+          {
+            "code": "aluminum",
+            "label_i18n": {
+              "zh": "铝"
+            }
+          },
+          {
+            "code": "pvc",
+            "label_i18n": {
+              "zh": "PVC"
+            }
+          },
+          {
+            "code": "wpc",
+            "label_i18n": {
+              "zh": "木塑"
+            }
+          },
+          {
+            "code": "stone",
+            "label_i18n": {
+              "zh": "石材"
+            }
+          },
+          {
+            "code": "glass",
+            "label_i18n": {
+              "zh": "玻璃"
+            }
+          },
+          {
+            "code": "wood",
+            "label_i18n": {
+              "zh": "木质"
+            }
+          }
+        ]
+      },
+      {
+        "key": "spec",
+        "label_i18n": {
+          "zh": "规格"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "thickness",
+        "label_i18n": {
+          "zh": "厚度"
+        },
+        "value_type": "number",
+        "scope": "sku",
+        "unit": "mm"
+      },
+      {
+        "key": "surface",
+        "label_i18n": {
+          "zh": "饰面"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "20": {
+    "note": "门窗(L1 通用)",
+    "attributes": [
+      {
+        "key": "material",
+        "label_i18n": {
+          "zh": "材质"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "wood",
+            "label_i18n": {
+              "zh": "木质"
+            }
+          },
+          {
+            "code": "steel",
+            "label_i18n": {
+              "zh": "钢质"
+            }
+          },
+          {
+            "code": "aluminum_alloy",
+            "label_i18n": {
+              "zh": "铝合金"
+            }
+          },
+          {
+            "code": "upvc",
+            "label_i18n": {
+              "zh": "塑钢"
+            }
+          },
+          {
+            "code": "stainless_steel",
+            "label_i18n": {
+              "zh": "不锈钢"
+            }
+          },
+          {
+            "code": "glass",
+            "label_i18n": {
+              "zh": "玻璃"
+            }
+          }
+        ]
+      },
+      {
+        "key": "opening",
+        "label_i18n": {
+          "zh": "开启方式"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "casement",
+            "label_i18n": {
+              "zh": "平开"
+            }
+          },
+          {
+            "code": "sliding",
+            "label_i18n": {
+              "zh": "推拉"
+            }
+          },
+          {
+            "code": "fixed",
+            "label_i18n": {
+              "zh": "固定"
+            }
+          },
+          {
+            "code": "folding",
+            "label_i18n": {
+              "zh": "折叠"
+            }
+          },
+          {
+            "code": "top_hung",
+            "label_i18n": {
+              "zh": "上悬"
+            }
+          }
+        ]
+      },
+      {
+        "key": "size",
+        "label_i18n": {
+          "zh": "洞口尺寸"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "fire_rating",
+        "label_i18n": {
+          "zh": "耐火等级"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "none",
+            "label_i18n": {
+              "zh": "非防火"
+            }
+          },
+          {
+            "code": "a",
+            "label_i18n": {
+              "zh": "甲级"
+            }
+          },
+          {
+            "code": "b",
+            "label_i18n": {
+              "zh": "乙级"
+            }
+          },
+          {
+            "code": "c",
+            "label_i18n": {
+              "zh": "丙级"
+            }
+          }
+        ]
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "21": {
+    "note": "土建材料(L1 通用弱:钢筋/模板/木方/土工等,属性多挂子类)",
+    "attributes": [
+      {
+        "key": "material",
+        "label_i18n": {
+          "zh": "材质"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      },
+      {
+        "key": "spec",
+        "label_i18n": {
+          "zh": "规格"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "22": {
+    "note": "临建设施(L1 通用弱,属性主要挂子类)",
+    "attributes": [
+      {
+        "key": "material",
+        "label_i18n": {
+          "zh": "材质"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      },
+      {
+        "key": "spec",
+        "label_i18n": {
+          "zh": "规格"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "23": {
+    "note": "装配式材料(L1 通用弱,属性主要挂子类)",
+    "attributes": [
+      {
+        "key": "material",
+        "label_i18n": {
+          "zh": "材质"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      },
+      {
+        "key": "spec",
+        "label_i18n": {
+          "zh": "规格"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "24": {
+    "note": "暖通(L1 通用弱:设备/管路/风阀混合,属性多挂子类)",
+    "attributes": [
+      {
+        "key": "material",
+        "label_i18n": {
+          "zh": "材质"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      },
+      {
+        "key": "spec",
+        "label_i18n": {
+          "zh": "规格"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "25": {
+    "note": "水暖器材(阀门/管件/辅材,L1 通用)",
+    "attributes": [
+      {
+        "key": "material",
+        "label_i18n": {
+          "zh": "材质"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "brass",
+            "label_i18n": {
+              "zh": "黄铜"
+            }
+          },
+          {
+            "code": "stainless_steel",
+            "label_i18n": {
+              "zh": "不锈钢"
+            }
+          },
+          {
+            "code": "cast_iron",
+            "label_i18n": {
+              "zh": "铸铁"
+            }
+          },
+          {
+            "code": "ductile_iron",
+            "label_i18n": {
+              "zh": "球墨铸铁"
+            }
+          },
+          {
+            "code": "ppr",
+            "label_i18n": {
+              "zh": "PPR"
+            }
+          },
+          {
+            "code": "pvc",
+            "label_i18n": {
+              "zh": "PVC"
+            }
+          },
+          {
+            "code": "bronze",
+            "label_i18n": {
+              "zh": "青铜"
+            }
+          }
+        ]
+      },
+      {
+        "key": "dn",
+        "label_i18n": {
+          "zh": "公称直径"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "pn",
+        "label_i18n": {
+          "zh": "公称压力"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "pn10",
+            "label_i18n": {
+              "zh": "PN10"
+            }
+          },
+          {
+            "code": "pn16",
+            "label_i18n": {
+              "zh": "PN16"
+            }
+          },
+          {
+            "code": "pn25",
+            "label_i18n": {
+              "zh": "PN25"
+            }
+          },
+          {
+            "code": "pn40",
+            "label_i18n": {
+              "zh": "PN40"
+            }
+          }
+        ]
+      },
+      {
+        "key": "conn",
+        "label_i18n": {
+          "zh": "连接方式"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "thread",
+            "label_i18n": {
+              "zh": "螺纹"
+            }
+          },
+          {
+            "code": "flange",
+            "label_i18n": {
+              "zh": "法兰"
+            }
+          },
+          {
+            "code": "weld",
+            "label_i18n": {
+              "zh": "焊接"
+            }
+          },
+          {
+            "code": "groove",
+            "label_i18n": {
+              "zh": "沟槽"
+            }
+          },
+          {
+            "code": "press",
+            "label_i18n": {
+              "zh": "卡压"
+            }
+          },
+          {
+            "code": "socket",
+            "label_i18n": {
+              "zh": "承插"
+            }
+          }
+        ]
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "26": {
+    "note": "消防(L1 通用:多为强标产品,型号+标准为主轴)",
+    "attributes": [
+      {
+        "key": "spec",
+        "label_i18n": {
+          "zh": "规格型号"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "27": {
+    "note": "陶瓷卫浴(L1 通用)",
+    "attributes": [
+      {
+        "key": "material",
+        "label_i18n": {
+          "zh": "材质"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "ceramic",
+            "label_i18n": {
+              "zh": "陶瓷"
+            }
+          },
+          {
+            "code": "acrylic",
+            "label_i18n": {
+              "zh": "亚克力"
+            }
+          },
+          {
+            "code": "stainless_steel",
+            "label_i18n": {
+              "zh": "不锈钢"
+            }
+          },
+          {
+            "code": "brass",
+            "label_i18n": {
+              "zh": "黄铜"
+            }
+          },
+          {
+            "code": "tempered_glass",
+            "label_i18n": {
+              "zh": "钢化玻璃"
+            }
+          },
+          {
+            "code": "stone",
+            "label_i18n": {
+              "zh": "人造石/石材"
+            }
+          }
+        ]
+      },
+      {
+        "key": "color",
+        "label_i18n": {
+          "zh": "颜色"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "size",
+        "label_i18n": {
+          "zh": "规格尺寸"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "installation",
+        "label_i18n": {
+          "zh": "安装方式"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "wall_hung",
+            "label_i18n": {
+              "zh": "挂墙"
+            }
+          },
+          {
+            "code": "floor",
+            "label_i18n": {
+              "zh": "落地"
+            }
+          },
+          {
+            "code": "counter_top",
+            "label_i18n": {
+              "zh": "台上"
+            }
+          },
+          {
+            "code": "under_counter",
+            "label_i18n": {
+              "zh": "台下"
+            }
+          }
+        ]
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "29": {
+    "note": "量刃具(量具/刃具,L1 通用弱)",
+    "attributes": [
+      {
+        "key": "material",
+        "label_i18n": {
+          "zh": "材质"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "hss",
+            "label_i18n": {
+              "zh": "高速钢"
+            }
+          },
+          {
+            "code": "carbide",
+            "label_i18n": {
+              "zh": "硬质合金"
+            }
+          },
+          {
+            "code": "stainless_steel",
+            "label_i18n": {
+              "zh": "不锈钢"
+            }
+          },
+          {
+            "code": "carbon_steel",
+            "label_i18n": {
+              "zh": "碳钢"
+            }
+          }
+        ]
+      },
+      {
+        "key": "spec",
+        "label_i18n": {
+          "zh": "规格"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "range",
+        "label_i18n": {
+          "zh": "测量范围/加工范围"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "31": {
+    "note": "中低压配电(L1 通用)",
+    "attributes": [
+      {
+        "key": "rated_voltage",
+        "label_i18n": {
+          "zh": "额定电压"
+        },
+        "value_type": "enum",
+        "scope": "spu",
+        "options": [
+          {
+            "code": "v400",
+            "label_i18n": {
+              "zh": "0.4kV/400V"
+            }
+          },
+          {
+            "code": "v6kv",
+            "label_i18n": {
+              "zh": "6kV"
+            }
+          },
+          {
+            "code": "v10kv",
+            "label_i18n": {
+              "zh": "10kV"
+            }
+          },
+          {
+            "code": "v35kv",
+            "label_i18n": {
+              "zh": "35kV"
+            }
+          }
+        ]
+      },
+      {
+        "key": "rated_current",
+        "label_i18n": {
+          "zh": "额定电流"
+        },
+        "value_type": "number",
+        "scope": "sku",
+        "unit": "A"
+      },
+      {
+        "key": "standard",
+        "label_i18n": {
+          "zh": "执行标准"
+        },
+        "value_type": "string",
+        "scope": "spu"
+      }
+    ]
+  },
+  "32": {
+    "note": "办公用品(L1 通用极弱:家具/设备/其他混合,属性主要挂子类)",
+    "attributes": [
+      {
+        "key": "spec",
+        "label_i18n": {
+          "zh": "规格"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "color",
+        "label_i18n": {
+          "zh": "颜色"
+        },
+        "value_type": "string",
+        "scope": "sku"
+      },
+      {
+        "key": "material",
+        "label_i18n": {
+          "zh": "材质"
+        },
+        "value_type": "string",
+        "scope": "spu"
       }
     ]
   }
