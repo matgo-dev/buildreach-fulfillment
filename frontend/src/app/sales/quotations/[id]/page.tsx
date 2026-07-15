@@ -14,7 +14,6 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ArrowLeftOutlined } from "@ant-design/icons";
-import { api } from "@/lib/api";
 import { Can } from "@/components/common/Can";
 import { Permissions } from "@/config/permission-matrix";
 import { QuotationEditor } from "@/components/quotation/QuotationEditor";
@@ -30,11 +29,6 @@ import {
   quotationUnlockable,
   quotationVoidable,
 } from "@/lib/quotationStatus";
-
-interface CustomerLite {
-  id: number;
-  name: string;
-}
 
 function money(v: number | string) {
   return Number(v).toLocaleString(undefined, { minimumFractionDigits: 2 });
@@ -61,12 +55,9 @@ export default function QuotationDetailPage() {
       const { order: o, lines: ls } = await quotationApi.get(id);
       setOrder(o);
       setLines(ls);
-      const [custs, sps] = await Promise.all([
-        api.get<CustomerLite[]>("/api/v1/customers"),
-        quotationApi.usersSelectable(),
-      ]);
-      setCustomerName(custs.find((c) => c.id === o.customer_id)?.name ?? `#${o.customer_id}`);
-      setSalespersonName(sps.find((s) => s.id === o.salesperson_id)?.name ?? `#${o.salesperson_id}`);
+      // 展示名由详情响应服务端直出(不再靠"可选人列表"反查:历史报价人停用/改角色后仍显示姓名)。
+      setCustomerName(o.customer_display ?? `#${o.customer_id}`);
+      setSalespersonName(o.salesperson_display ?? `#${o.salesperson_id}`);
     } catch (e) {
       message.error(e instanceof Error ? e.message : "加载失败");
     } finally {

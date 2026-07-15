@@ -33,6 +33,10 @@ export interface QuotationOrderOut {
   summary: string | null;
   remark: string | null;
   updated_at: string;
+  // 详情响应附带的展示名(GET /{id} 服务端按 id 直查,不受"可选报价人"口径限制);
+  // create/update 响应不含,故可选。
+  customer_display?: string;
+  salesperson_display?: string;
 }
 
 export interface QuotationListItem {

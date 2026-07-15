@@ -82,8 +82,9 @@ async def get_quotation(
 ):
     order = await quotation_service.get_order(db, order_id)
     lines = await quotation_service.list_lines(db, order_id)
+    parties = await quotation_service.resolve_order_parties(db, order)
     return success({
-        "order": _order_out(order),
+        "order": {**_order_out(order), **parties},
         "lines": [QuotationLineOut.model_validate(l, from_attributes=True).model_dump()
                   for l in lines],
     })

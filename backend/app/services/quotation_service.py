@@ -116,6 +116,20 @@ async def list_lines(db: AsyncSession, order_id: int) -> list[QuotationLine]:
         .order_by(QuotationLine.sort_order))).scalars().all())
 
 
+async def resolve_order_parties(db: AsyncSession, order: QuotationOrder) -> dict:
+    """详情展示投影:客户 / 报价人展示名,按 id **直查 name**——不走 /users/selectable 口径。
+    历史报价人即便后来停用 / 改角色(不再"可选")仍要显示姓名,不退化成 #id;查无才兜底 #id。
+    与列表投影同源(列表用 join、详情用此),前端不再靠"可选人列表"反查。"""
+    cust = (await db.execute(
+        select(Customer.name).where(Customer.id == order.customer_id))).scalar_one_or_none()
+    sp = (await db.execute(
+        select(User.name).where(User.id == order.salesperson_id))).scalar_one_or_none()
+    return {
+        "customer_display": cust or f"#{order.customer_id}",
+        "salesperson_display": sp or f"#{order.salesperson_id}",
+    }
+
+
 async def _reconcile_lines(db: AsyncSession, order: QuotationOrder, lines: list[dict]) -> Decimal:
     """按行 id 对账到期望态:有 id→UPDATE、库中缺席→DELETE、无 id→INSERT。返回总额。"""
     existing = {ln.id: ln for ln in await list_lines(db, order.id)}
