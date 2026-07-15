@@ -18,21 +18,29 @@ from app.db.models.user_role import UserRole
 from app.rbac.constants import Permissions
 
 
-async def list_selectable_salespersons(db: AsyncSession) -> list[dict]:
-    """报价人选择器数据源:ACTIVE 且持 quote:manage 的用户,只回 {id,name}。
-
-    参照数据选择器不下发敏感字段(邮箱/手机),也不要求 user:manage 权限。
-    """
-    stmt = (
+def _selectable_salespersons_stmt():
+    """"可选报价人"口径单一源头:ACTIVE 且持 quote:manage。列表下拉与写入口校验共用同一
+    谓词(不在两处各写一份、防漂移)。"""
+    return (
         select(User.id, User.name)
         .join(UserRole, UserRole.user_id == User.id)
         .join(RolePermission, RolePermission.role_id == UserRole.role_id)
         .join(Permission, Permission.id == RolePermission.permission_id)
         .where(Permission.code == Permissions.QUOTE_MANAGE, User.status == UserStatus.ACTIVE)
-        .distinct()
-        .order_by(User.name)
     )
+
+
+async def list_selectable_salespersons(db: AsyncSession) -> list[dict]:
+    """报价人选择器数据源:只回 {id,name}(不下发敏感字段/邮箱/手机,也不要求 user:manage)。"""
+    stmt = _selectable_salespersons_stmt().distinct().order_by(User.name)
     return [{"id": r.id, "name": r.name} for r in (await db.execute(stmt)).all()]
+
+
+async def is_selectable_salesperson(db: AsyncSession, user_id: int) -> bool:
+    """报价写入口守卫:该用户是否满足"可选报价人"口径(同 list 单一源头)。前端下拉挡不住
+    直连 API,服务端据此硬挡把报价归给非销售/停用/任意存在用户。"""
+    stmt = _selectable_salespersons_stmt().where(User.id == user_id)
+    return (await db.execute(stmt)).first() is not None
 
 ALLOWED_INTERNAL_ROLES = {RoleCode.ADMIN, RoleCode.PRODUCT_OPERATOR, RoleCode.SALES}
 

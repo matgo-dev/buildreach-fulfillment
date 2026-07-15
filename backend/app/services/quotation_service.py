@@ -18,6 +18,7 @@ from app.core.exceptions import (
     QuotationEditConflictError,
     QuotationEmptyLinesError,
     QuotationInvalidLineError,
+    QuotationInvalidSalespersonError,
     QuotationInvalidTransitionError,
     QuotationNotDraftError,
 )
@@ -37,7 +38,7 @@ from app.db.models.sku import Sku
 from app.db.models.spu import Spu
 from app.db.models.unit import Unit
 from app.db.models.user import User
-from app.services import customer_service, sku_service, spec_template_service as tmpl
+from app.services import customer_service, sku_service, spec_template_service as tmpl, user_service
 from app.services.numbering import allocate
 
 
@@ -187,6 +188,11 @@ async def save_order(db: AsyncSession, *, order_id: int | None, customer_id, cur
 
     行按 id 对账(见 _reconcile_lines);total_amount=Σ行;快照按 SPU∪SKU 规格冻结。
     """
+    # 报价人写入口守卫:显式指派必须是"可选报价人"(ACTIVE + quote:manage),同下拉口径;
+    # 缺省 = 建单销售本人(已过 quote:manage 门禁),无需再验。
+    if salesperson_id is not None and not await user_service.is_selectable_salesperson(db, salesperson_id):
+        raise QuotationInvalidSalespersonError()
+
     if order_id is None:
         customer = await customer_service.get_customer(db, customer_id)
         order = QuotationOrder(

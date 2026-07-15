@@ -191,5 +191,13 @@ class QuotationCannotVoidError(BusinessError):
                          message_key=MessageKey.QUOTATION_CANNOT_VOID)
 
 
+class QuotationInvalidSalespersonError(BusinessError):
+    """报价人非法:须 ACTIVE 且持 quote:manage(同 /users/selectable 口径,写入口硬挡)。"""
+
+    def __init__(self, message: str = "Salesperson must be an active quote-capable user"):
+        super().__init__(status.HTTP_400_BAD_REQUEST, 41408, message,
+                         message_key=MessageKey.QUOTATION_INVALID_SALESPERSON)
+
+
 def success(data: Any = None, message: str = "ok") -> dict:
     return {"code": 0, "message": message, "data": data}
