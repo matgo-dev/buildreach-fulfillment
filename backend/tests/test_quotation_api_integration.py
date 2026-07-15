@@ -88,6 +88,28 @@ async def test_create_language_defaults_from_customer(client, sales_headers, db_
 
 
 @pytest.mark.asyncio
+async def test_snapshot_is_server_authoritative(client, sales_headers, db_session):
+    """契约:行快照由服务端从 SKU 权威冻结,客户端传入的 _snapshot 值一律不采信。
+    否则销售可把规格/名称写成与真实 SKU 矛盾的文本,冻结快照不再忠实反映选料。"""
+    cust, sku = await _seed_active(db_session)  # SKU 名=工字钢200,单位=ton→吨,无 spec
+    r = await client.post("/api/v1/quotations", headers=sales_headers, json={
+        "customer_id": cust.id, "currency": "USD",
+        "lines": [{
+            "sku_id": sku.id, "unit_price": 10, "qty": 1,
+            "name_snapshot": "伪造名称",
+            "spec_text_snapshot": "伪造规格",
+            "unit_snapshot": "伪造单位",
+        }]})
+    assert r.status_code == 200, r.text
+    oid = r.json()["data"]["id"]
+    line = (await client.get(f"/api/v1/quotations/{oid}", headers=sales_headers)
+            ).json()["data"]["lines"][0]
+    assert line["name_snapshot"] == "工字钢200"    # 服务端 SKU 名,非客户端伪造
+    assert line["unit_snapshot"] == "吨"           # units.label_i18n 展示值,非伪造
+    assert "伪造" not in line["spec_text_snapshot"]  # 规格服务端组合,不含客户端注入
+
+
+@pytest.mark.asyncio
 async def test_delete_only_draft(client, sales_headers, db_session):
     cust, sku = await _seed_active(db_session)
     H = sales_headers

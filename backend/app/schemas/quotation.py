@@ -12,10 +12,8 @@ class QuotationLineIn(BaseModel):
     unit_price: float = Field(ge=0)    # 手录报价价,非负
     qty: float = Field(gt=0)           # 数量为正
     remark: str | None = None          # 明细备注
-    # 快照可编辑覆盖(线下定稿措辞优先);不传则由 SKU + SPU∪SKU 规格按报价语言组合默认
-    name_snapshot: str | None = None
-    spec_text_snapshot: str | None = None
-    unit_snapshot: str | None = None
+    # 快照(name/spec_text/unit)不收客户端值:服务端从 SKU + SPU∪SKU 规格按报价语言权威冻结,
+    # 保证冻结快照忠实反映选料。自定义客户面措辞走 remark,不污染快照。
     sort_order: int = Field(default=0, ge=0)
 
 

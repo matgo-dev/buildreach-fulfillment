@@ -92,10 +92,6 @@ async def list_lines(db: AsyncSession, order_id: int) -> list[QuotationLine]:
         .order_by(QuotationLine.sort_order))).scalars().all())
 
 
-def _override(given, default):
-    return given if given is not None else default
-
-
 async def _reconcile_lines(db: AsyncSession, order: QuotationOrder, lines: list[dict]) -> Decimal:
     """按行 id 对账到期望态:有 id→UPDATE、库中缺席→DELETE、无 id→INSERT。返回总额。"""
     existing = {ln.id: ln for ln in await list_lines(db, order.id)}
@@ -111,10 +107,8 @@ async def _reconcile_lines(db: AsyncSession, order: QuotationOrder, lines: list[
     total = Decimal("0")
     for idx, ln in enumerate(lines):
         sku = await assert_sku_available(db, ln["sku_id"])          # 写时挡非可选货
-        name_d, spec_d, unit_d = await compose_line_snapshot(db, sku, order.language)
-        name = _override(ln.get("name_snapshot"), name_d)
-        spec_text = _override(ln.get("spec_text_snapshot"), spec_d)
-        unit = _override(ln.get("unit_snapshot"), unit_d)
+        # 快照服务端权威冻结(SPU∪SKU 规格 + 单位,按报价语言),不采信客户端传入值。
+        name, spec_text, unit = await compose_line_snapshot(db, sku, order.language)
         line_total = Decimal(str(ln["unit_price"])) * Decimal(str(ln["qty"]))
         total += line_total
         sort_order = ln.get("sort_order", idx)
