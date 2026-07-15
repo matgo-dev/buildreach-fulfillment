@@ -3,7 +3,7 @@ import pytest
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("method,path,body", [
-    ("post", "/api/v1/customers", {"name_i18n": {"zh": "X"}}),
+    ("post", "/api/v1/customers", {"name": "X"}),
     ("post", "/api/v1/spus", {"category_code": "10", "name_i18n": {"zh": "X"}}),
     ("post", "/api/v1/skus", {"spu_id": 1, "unit": "piece", "name_i18n": {"zh": "X"}, "spec_items": []}),
     ("post", "/api/v1/quotations", {"customer_id": 1, "currency": "USD"}),

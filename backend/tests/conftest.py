@@ -225,3 +225,18 @@ async def product_operator_headers(client, db_session) -> dict[str, str]:
     )
     assert r.status_code == 200, r.text
     return {"Authorization": f"Bearer {r.json()['data']['access_token']}"}
+
+
+@pytest_asyncio.fixture
+async def sales_headers(client, db_session) -> dict[str, str]:
+    """SALES 账号 headers。quote:manage 已从 ADMIN 摘除(Q25),报价操作须用销售角色。"""
+    from app.services.user_service import create_internal_user
+
+    email = "sales@fulfillment.local"
+    pw = "SalesOp123456"
+    await create_internal_user(
+        db_session, email=email, name="销售", password=pw, role="SALES",
+        must_change_password=False, actor_user_id=0, actor_user_email="system@test")
+    r = await client.post("/api/v1/auth/login", json={"identifier": email, "password": pw})
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['data']['access_token']}"}

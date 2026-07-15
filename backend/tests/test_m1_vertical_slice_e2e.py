@@ -4,7 +4,7 @@ from decimal import Decimal
 
 @pytest.mark.asyncio
 async def test_end_to_end_build_search_quote(
-    client, superadmin_headers, product_operator_headers, db_session
+    client, superadmin_headers, product_operator_headers, sales_headers, db_session
 ):
     from scripts.import_categories import import_categories
     await import_categories(
@@ -12,7 +12,7 @@ async def test_end_to_end_build_search_quote(
           "level": 1, "is_leaf": True, "sort_order": 0}], db_session, dry_run=False)
 
     cust = (await client.post("/api/v1/customers", headers=superadmin_headers,
-            json={"name_i18n": {"zh": "东非客户"}, "quote_language": "en"})).json()["data"]
+            json={"name": "东非客户", "quote_language": "en"})).json()["data"]
     spu_id = (await client.post("/api/v1/spus", headers=product_operator_headers,
               json={"category_code": "10", "name_i18n": {"zh": "球阀"},
                     "images": [{"image_key": "img/test.jpg", "image_type": "MAIN", "sort_order": 0}]})).json()["data"]["id"]
@@ -27,13 +27,19 @@ async def test_end_to_end_build_search_quote(
     found = (await client.get("/api/v1/skus?q=法兰球阀", headers=superadmin_headers)).json()["data"]
     assert any(s["id"] == sku["id"] for s in found["items"])
 
-    order = (await client.post("/api/v1/quotations", headers=superadmin_headers,
-             json={"customer_id": cust["id"], "currency": "USD"})).json()["data"]
+    # 上架 SPU(报价选料要求 SKU/SPU 均 ACTIVE 可选货)
+    act = await client.patch(f"/api/v1/spus/{spu_id}/status", headers=product_operator_headers,
+                             json={"status": "ACTIVE"})
+    assert act.status_code == 200, act.text
+
+    # 建报价(整单:表头 + 行一次提交;报价须 SALES 角色)
+    order = (await client.post("/api/v1/quotations", headers=sales_headers,
+             json={"customer_id": cust["id"], "currency": "USD",
+                   "lines": [{"sku_id": sku["id"], "unit_price": 150.0, "qty": 2}]})).json()["data"]
     assert order["language"] == "en"
-    line = (await client.post(f"/api/v1/quotations/{order['id']}/lines", headers=superadmin_headers,
-            json={"sku_id": sku["id"], "unit_price": 150.0, "qty": 2})).json()["data"]
-    assert Decimal(str(line["line_total"])) == Decimal("300.00")
-    # unit_snapshot 冻结展示 label:order.language=en → units.label_i18n.en("pc"),
-    # 而非 sku.unit 的 code("piece")
+    assert Decimal(str(order["total_amount"])) == Decimal("300.00")   # 150*2
+    line = (await client.get(f"/api/v1/quotations/{order['id']}",
+            headers=sales_headers)).json()["data"]["lines"][0]
+    # unit_snapshot 冻结展示 label:order.language=en → units.label_i18n.en("pc"),非 code("piece")
     assert line["unit_snapshot"] == "pc"
     assert line["name_snapshot"]  # 非空快照

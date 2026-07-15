@@ -27,6 +27,7 @@ class Permissions:
 
     # ----- 履约:customer / product(spu+sku) / quote -----
     CUSTOMER_MANAGE = "customer:manage"
+    CUSTOMER_READ = "customer:read"
     PRODUCT_READ = "product:read"
     PRODUCT_MANAGE = "product:manage"
     QUOTE_MANAGE = "quote:manage"
@@ -60,6 +61,7 @@ PERMISSION_META: dict[str, dict[str, str]] = {
     Permissions.SYSTEM_AUDIT: {"name": "审计日志", "module": ModuleLabel.SYSTEM},
 
     Permissions.CUSTOMER_MANAGE: {"name": "客户管理", "module": ModuleLabel.FULFILLMENT},
+    Permissions.CUSTOMER_READ: {"name": "客户查看", "module": ModuleLabel.FULFILLMENT},
     Permissions.PRODUCT_READ: {"name": "商品查看", "module": ModuleLabel.FULFILLMENT},
     Permissions.PRODUCT_MANAGE: {"name": "商品管理", "module": ModuleLabel.FULFILLMENT},
     Permissions.QUOTE_MANAGE: {"name": "报价管理", "module": ModuleLabel.FULFILLMENT},
@@ -69,4 +71,5 @@ PERMISSION_META: dict[str, dict[str, str]] = {
 ROLE_META: dict[str, dict[str, str]] = {
     "ADMIN": {"name": "系统管理员", "description": "系统级管理员,不触业务数据(Q25)"},
     "PRODUCT_OPERATOR": {"name": "商品运营", "description": "商品 SPU/SKU 增改上下架"},
+    "SALES": {"name": "销售", "description": "报价单全生命周期;读客户/商品选料"},
 }

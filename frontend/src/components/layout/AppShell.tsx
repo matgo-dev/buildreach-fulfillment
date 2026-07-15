@@ -1,10 +1,11 @@
 "use client";
 import { ReactNode, useState } from "react";
 import { Layout, Menu, Breadcrumb, Dropdown, Avatar } from "antd";
-import { AppstoreOutlined, UserOutlined, LogoutOutlined } from "@ant-design/icons";
+import { AppstoreOutlined, FileTextOutlined, UserOutlined, LogoutOutlined } from "@ant-design/icons";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuthStore } from "@/stores/authStore";
 import { authApi } from "@/lib/auth";
+import { Permissions } from "@/config/permission-matrix";
 import { colors } from "@/lib/tokens";
 
 const { Header, Sider, Content } = Layout;
@@ -12,9 +13,10 @@ const { Header, Sider, Content } = Layout;
 // 侧栏暗色底 = DESIGN §1.1 sidebar(与 AntD 默认 #001529 的有意偏离)。
 const SIDER_BG = colors.sidebar;
 
-// SKU 维度搜索能力(/catalog/skus 路由仍在)留给「报价」等 SKU 级操作,不在目录侧栏单列入口。
+// 菜单项按权限显隐(perm=可见所需权限点),避免死链;后端 RouteGuard 仍是访问底线。
 const MENU_ITEMS = [
-  { key: "/catalog/spus", icon: <AppstoreOutlined />, label: "商品目录" },
+  { key: "/catalog/spus", icon: <AppstoreOutlined />, label: "商品目录", perm: Permissions.PRODUCT_READ },
+  { key: "/sales/quotations", icon: <FileTextOutlined />, label: "报价管理", perm: Permissions.QUOTE_MANAGE },
 ];
 
 export function AppShell({ children, breadcrumb = [] }: { children: ReactNode; breadcrumb?: string[] }) {
@@ -23,10 +25,15 @@ export function AppShell({ children, breadcrumb = [] }: { children: ReactNode; b
   const pathname = usePathname();
   const user = useAuthStore((s) => s.user);
   const clear = useAuthStore((s) => s.clear);
+  const hasPermission = useAuthStore((s) => s.hasPermission);
+
+  // 按权限过滤菜单项(perm 缺省=始终显示)。
+  const visibleItems = MENU_ITEMS.filter((m) => !m.perm || hasPermission(m.perm));
 
   // 详情页(/catalog/spus/123)仍高亮所属一级项:取最长前缀命中。
   const selectedKey =
-    MENU_ITEMS.map((m) => m.key)
+    visibleItems
+      .map((m) => m.key)
       .filter((k) => pathname === k || pathname.startsWith(k + "/"))
       .sort((a, b) => b.length - a.length)[0] ?? pathname;
 
@@ -61,7 +68,7 @@ export function AppShell({ children, breadcrumb = [] }: { children: ReactNode; b
           mode="inline"
           style={{ background: "transparent" }}
           selectedKeys={[selectedKey]}
-          items={MENU_ITEMS}
+          items={visibleItems.map((m) => ({ key: m.key, icon: m.icon, label: m.label }))}
           onClick={({ key }) => router.push(key)}
         />
       </Sider>

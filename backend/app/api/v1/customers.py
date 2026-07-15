@@ -8,7 +8,7 @@ from app.core.dependencies import CurrentUser
 from app.core.exceptions import success
 from app.db.session import get_db
 from app.rbac.constants import Permissions
-from app.rbac.guards import require_permission
+from app.rbac.guards import require_any_permission, require_permission
 from app.schemas.customer import CustomerCreateIn, CustomerOut
 from app.services import customer_service
 
@@ -30,7 +30,9 @@ async def create_customer(
 
 @router.get("", summary="客户列表")
 async def list_customers(
-    _current: CurrentUser = Depends(require_permission(Permissions.CUSTOMER_MANAGE)),
+    # 读:销售(customer:read)与 ADMIN(customer:manage)都可;扁平码 manage 不隐含 read,故用 any。
+    _current: CurrentUser = Depends(
+        require_any_permission(Permissions.CUSTOMER_READ, Permissions.CUSTOMER_MANAGE)),
     db: AsyncSession = Depends(get_db),
 ):
     rows = await customer_service.list_customers(db)
