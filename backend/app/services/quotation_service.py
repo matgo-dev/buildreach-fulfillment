@@ -106,14 +106,19 @@ async def _reconcile_lines(db: AsyncSession, order: QuotationOrder, lines: list[
 
     total = Decimal("0")
     for idx, ln in enumerate(lines):
-        sku = await assert_sku_available(db, ln["sku_id"])          # 写时挡非可选货
-        # 快照服务端权威冻结(SPU∪SKU 规格 + 单位,按报价语言),不采信客户端传入值。
-        name, spec_text, unit = await compose_line_snapshot(db, sku, order.language)
+        row = existing[ln["id"]] if ln.get("id") is not None else None
+        sku = await assert_sku_available(db, ln["sku_id"])          # 每行都挡非可选货
+        # 快照 freeze-at-pick:仅新增行或换了 SKU 才按当前主数据冻结(SPU∪SKU 规格 + 单位,
+        # 按报价语言);同一 SKU 改数量/价/备注保留原定格值,主数据后续变更不回写已定行
+        # (对齐 Odoo/SAP/NetSuite:行的单价/数量相对定格上下文才成立)。不采信客户端传入值。
+        if row is not None and row.sku_id == ln["sku_id"]:
+            name, spec_text, unit = row.name_snapshot, row.spec_text_snapshot, row.unit_snapshot
+        else:
+            name, spec_text, unit = await compose_line_snapshot(db, sku, order.language)
         line_total = Decimal(str(ln["unit_price"])) * Decimal(str(ln["qty"]))
         total += line_total
         sort_order = ln.get("sort_order", idx)
-        if ln.get("id") is not None:
-            row = existing[ln["id"]]
+        if row is not None:
             row.sku_id = ln["sku_id"]
             row.name_snapshot, row.spec_text_snapshot, row.unit_snapshot = name, spec_text, unit
             row.unit_price, row.qty, row.line_total = ln["unit_price"], ln["qty"], line_total
@@ -243,7 +248,7 @@ async def list_orders(db: AsyncSession, *, status=None, customer_id=None, salesp
     if keyword:
         like = f"%{keyword}%"
         conds.append(or_(QuotationOrder.no.ilike(like),
-                         Customer.name_i18n["zh"].astext.ilike(like)))
+                         Customer.name.ilike(like)))
 
     total = (await db.execute(
         select(func.count(QuotationOrder.id))
@@ -256,7 +261,7 @@ async def list_orders(db: AsyncSession, *, status=None, customer_id=None, salesp
     order_col = (QuotationOrder.total_amount.desc() if sort == "total_amount"
                  else QuotationOrder.created_at.desc())
     rows = (await db.execute(
-        select(QuotationOrder, Customer.name_i18n, User.name, line_count.label("lc"))
+        select(QuotationOrder, Customer.name, User.name, line_count.label("lc"))
         .join(Customer, Customer.id == QuotationOrder.customer_id)
         .join(User, User.id == QuotationOrder.salesperson_id)
         .where(*conds).order_by(order_col)
@@ -264,7 +269,7 @@ async def list_orders(db: AsyncSession, *, status=None, customer_id=None, salesp
 
     items = [{
         "id": o.id, "no": o.no, "summary": o.summary,
-        "customer_display": display(cust_name, "zh"),
+        "customer_display": cust_name,
         "salesperson_display": sp_name,
         "status": o.status, "currency": o.currency, "total_amount": o.total_amount,
         "valid_until": o.valid_until, "line_count": lc, "created_at": o.created_at,
