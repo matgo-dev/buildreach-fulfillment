@@ -87,7 +87,7 @@ export default function QuotationDetailPage() {
   async function onConvert() {
     setBusy(true);
     try {
-      const so = await quotationApi.convert(id);
+      const { order: so } = await quotationApi.convert(id);
       message.success(`已转销售单 ${so.no}`);
       router.push(`/sales/orders/${so.id}`);
     } catch (e) {

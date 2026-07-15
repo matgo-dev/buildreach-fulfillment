@@ -50,12 +50,14 @@ async def test_convert_locked_quotation_creates_sales_order(client, sales_header
     oid = await _create_locked_quotation(client, H, cust, sku)
 
     r = await client.post(f"/api/v1/quotations/{oid}/convert", headers=H)
-    assert r.status_code == 200, r.text
-    so = r.json()["data"]
+    assert r.status_code == 201, r.text
+    detail = r.json()["data"]
+    so = detail["order"]
     assert so["status"] == "CONFIRMED"
     assert so["source_quotation_id"] == oid
     assert so["no"].startswith("SO")
     assert float(so["total_amount"]) == 250
+    assert len(detail["lines"]) == 2
 
     # 报价被驱动到终态 CONVERTED
     q = (await client.get(f"/api/v1/quotations/{oid}", headers=H)).json()["data"]
@@ -70,9 +72,10 @@ async def test_convert_copies_line_snapshots(client, sales_headers, db_session):
     oid = await _create_locked_quotation(client, H, cust, sku)
     ql = (await client.get(f"/api/v1/quotations/{oid}", headers=H)).json()["data"]["lines"]
 
-    so = (await client.post(f"/api/v1/quotations/{oid}/convert", headers=H)).json()["data"]
+    converted = (await client.post(f"/api/v1/quotations/{oid}/convert", headers=H)).json()["data"]
+    so = converted["order"]
     detail = (await client.get(f"/api/v1/sales-orders/{so['id']}", headers=H)).json()["data"]
-    sl = detail["lines"]
+    sl = converted["lines"]
     assert len(sl) == len(ql) == 2
     for s, q in zip(sl, ql):
         assert s["name_snapshot"] == q["name_snapshot"]
@@ -82,7 +85,8 @@ async def test_convert_copies_line_snapshots(client, sales_headers, db_session):
         assert float(s["qty"]) == float(q["qty"])
         assert float(s["line_total"]) == float(q["line_total"])
         assert s["source_quotation_line_id"] == q["id"]
-    assert detail["order"]["source_quotation_no"]  # 详情带来源报价号
+    assert converted["order"]["source_quotation_no"]  # convert 返回详情带来源报价号
+    assert detail["order"]["source_quotation_no"]  # GET 详情带来源报价号
 
 
 @pytest.mark.asyncio
@@ -91,7 +95,7 @@ async def test_sales_order_list_read(client, sales_headers, db_session):
     cust, sku = await _seed_active(db_session)
     H = sales_headers
     oid = await _create_locked_quotation(client, H, cust, sku)
-    so = (await client.post(f"/api/v1/quotations/{oid}/convert", headers=H)).json()["data"]
+    so = (await client.post(f"/api/v1/quotations/{oid}/convert", headers=H)).json()["data"]["order"]
 
     lst = (await client.get("/api/v1/sales-orders?status=CONFIRMED", headers=H)).json()["data"]
     assert lst["total"] >= 1
@@ -119,7 +123,7 @@ async def test_reconvert_converted_quotation_rejected(client, sales_headers, db_
     cust, sku = await _seed_active(db_session)
     H = sales_headers
     oid = await _create_locked_quotation(client, H, cust, sku)
-    assert (await client.post(f"/api/v1/quotations/{oid}/convert", headers=H)).status_code == 200
+    assert (await client.post(f"/api/v1/quotations/{oid}/convert", headers=H)).status_code == 201
     again = await client.post(f"/api/v1/quotations/{oid}/convert", headers=H)
     assert again.status_code == 409 and again.json()["code"] == 41409
 
@@ -134,7 +138,7 @@ async def test_quotation_detail_links_converted_sales_order(client, sales_header
     q0 = (await client.get(f"/api/v1/quotations/{oid}", headers=H)).json()["data"]
     assert q0["order"].get("sales_order") is None
 
-    so = (await client.post(f"/api/v1/quotations/{oid}/convert", headers=H)).json()["data"]
+    so = (await client.post(f"/api/v1/quotations/{oid}/convert", headers=H)).json()["data"]["order"]
     q1 = (await client.get(f"/api/v1/quotations/{oid}", headers=H)).json()["data"]
     assert q1["order"]["sales_order"]["id"] == so["id"]
     assert q1["order"]["sales_order"]["no"] == so["no"]
@@ -179,7 +183,7 @@ async def test_unique_source_quotation_line_blocks_duplicate(client, sales_heade
     cust, sku = await _seed_active(db_session)
     H = sales_headers
     oid = await _create_locked_quotation(client, H, cust, sku)
-    so = (await client.post(f"/api/v1/quotations/{oid}/convert", headers=H)).json()["data"]
+    so = (await client.post(f"/api/v1/quotations/{oid}/convert", headers=H)).json()["data"]["order"]
     a_line = (await db_session.execute(
         select(SalesOrderLine).where(SalesOrderLine.sales_order_id == so["id"]))).scalars().first()
 

@@ -7,11 +7,12 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import CurrentUser
 from app.core.exceptions import success
+from app.db.models.quotation import QuotationStatus
 from app.db.session import get_db
 from app.rbac.constants import Permissions
 from app.rbac.guards import require_permission
@@ -23,8 +24,7 @@ from app.schemas.quotation import (
     QuotationUpdateIn,
     QuotationVoidIn,
 )
-from app.db.models.quotation import QuotationStatus
-from app.schemas.sales_order import SalesOrderOut
+from app.schemas.sales_order import SalesOrderLineOut, SalesOrderOut
 from app.services import quotation_service, sales_order_service
 
 router = APIRouter(prefix="/quotations", tags=["quotations"])
@@ -166,7 +166,11 @@ async def void_quotation(
     return success(_order_out(order))
 
 
-@router.post("/{order_id}/convert", summary="转销售单(LOCKED→CONVERTED,建销售单)")
+@router.post(
+    "/{order_id}/convert",
+    summary="转销售单(LOCKED→CONVERTED,建销售单)",
+    status_code=status.HTTP_201_CREATED,
+)
 async def convert_quotation(
     order_id: int,
     request: Request,
@@ -177,4 +181,10 @@ async def convert_quotation(
     so = await sales_order_service.convert_quotation(
         db, quotation_id=order_id, actor_user_id=current.id,
         actor_user_email=current.email, request=request)
-    return success(SalesOrderOut.model_validate(so, from_attributes=True).model_dump())
+    lines = await sales_order_service.list_lines(db, so.id)
+    parties = await sales_order_service.resolve_order_parties(db, so)
+    return success({
+        "order": {**SalesOrderOut.model_validate(so, from_attributes=True).model_dump(), **parties},
+        "lines": [SalesOrderLineOut.model_validate(l, from_attributes=True).model_dump()
+                  for l in lines],
+    })
