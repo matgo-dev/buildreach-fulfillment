@@ -88,6 +88,19 @@ async def get_order(db: AsyncSession, order_id: int) -> QuotationOrder:
     return order
 
 
+async def get_order_for_update(db: AsyncSession, order_id: int) -> QuotationOrder:
+    """行级悲观锁读单(SELECT ... FOR UPDATE)。所有"读→改→写"的写路径(整单保存、状态跃迁、
+    硬删)都经它取单:锁持到本事务提交,并发写被串行化,堵住无锁 RMW 的丢更新。
+    乐观锁 expected_updated_at 是另一层职责——只探测"客户端视图过期"(GET 后别人改过),
+    防丢更新靠这把行锁。纯读路径(GET 详情)不锁。"""
+    order = (await db.execute(
+        select(QuotationOrder).where(QuotationOrder.id == order_id)
+        .with_for_update())).scalar_one_or_none()
+    if order is None:
+        raise NotFoundError(f"报价单不存在: {order_id}")
+    return order
+
+
 async def list_lines(db: AsyncSession, order_id: int) -> list[QuotationLine]:
     return list((await db.execute(
         select(QuotationLine).where(QuotationLine.quotation_order_id == order_id)
@@ -156,7 +169,7 @@ async def save_order(db: AsyncSession, *, order_id: int | None, customer_id, cur
         await db.flush()
         audit_action = AuditAction.CREATE
     else:
-        order = await get_order(db, order_id)
+        order = await get_order_for_update(db, order_id)
         if order.status not in QUOTATION_EDITABLE:
             raise QuotationNotDraftError()
         if expected_updated_at is not None and order.updated_at != expected_updated_at:
@@ -188,7 +201,7 @@ def _assert_transition(current: str, target: str) -> None:
 
 async def _transition(db: AsyncSession, order_id: int, target: str, audit_action: AuditAction,
                       *, actor_user_id, actor_user_email, request: Request | None) -> QuotationOrder:
-    order = await get_order(db, order_id)
+    order = await get_order_for_update(db, order_id)
     _assert_transition(order.status, target)
     order.status = target
     await db.flush()
@@ -203,7 +216,7 @@ async def _transition(db: AsyncSession, order_id: int, target: str, audit_action
 async def lock_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_email,
                      request: Request | None = None) -> QuotationOrder:
     """锁档 DRAFT→LOCKED(冻结基准),前置至少一行。"""
-    order = await get_order(db, order_id)
+    order = await get_order_for_update(db, order_id)
     _assert_transition(order.status, QuotationStatus.LOCKED)
     if not await list_lines(db, order_id):
         raise QuotationEmptyLinesError()
@@ -215,7 +228,7 @@ async def lock_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_em
 async def unlock_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_email,
                        request: Request | None = None) -> QuotationOrder:
     """解锁 LOCKED→DRAFT;已转销售不可解(专有错误码)。"""
-    order = await get_order(db, order_id)
+    order = await get_order_for_update(db, order_id)
     if order.status == QuotationStatus.CONVERTED:
         raise QuotationCannotUnlockConvertedError()
     return await _transition(db, order_id, QuotationStatus.DRAFT, AuditAction.UNLOCK,
@@ -230,7 +243,7 @@ async def void_order(db: AsyncSession, *, order_id, reason=None, actor_user_id, 
     显式前置守卫(对齐 lock/unlock 的精确报错约定):非可作废态(CONVERTED 终态、VOID 已作废)
     → 专有 QuotationCannotVoidError,不退化成通用「非法转移」。可作废集派生自矩阵(QUOTATION_VOIDABLE)。
     """
-    order = await get_order(db, order_id)
+    order = await get_order_for_update(db, order_id)
     if order.status not in QUOTATION_VOIDABLE:
         raise QuotationCannotVoidError()
     return await _transition(db, order_id, QuotationStatus.VOID, AuditAction.VOID,
@@ -289,7 +302,7 @@ async def list_orders(db: AsyncSession, *, status=None, customer_id=None, salesp
 async def delete_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_email,
                        request: Request | None = None) -> None:
     """硬删报价单(仅草稿;行 CASCADE)。草稿=从没弄好可删,非草稿走作废。"""
-    order = await get_order(db, order_id)
+    order = await get_order_for_update(db, order_id)
     if order.status not in QUOTATION_DELETABLE:
         raise QuotationNotDraftError()
     await write_audit(db, resource_type=AuditResourceType.QUOTATION, action=AuditAction.DELETE,
