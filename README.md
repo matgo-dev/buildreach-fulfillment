@@ -235,8 +235,9 @@ docker compose build backend
 
 ## 待接
 
-- GitHub remote 已建:`origin` → `github.com/matgo-dev/buildreach-fulfillment`;仍待接:
-  - 远端 CI(`.github/workflows/ci.yml` 尚未在真实 GitHub Actions 环境验证过)
-  - 远端部署编排(目前本仓库无对应目录,后续按需补)
+- GitHub remote 已建:`origin` → `github.com/matgo-dev/buildreach-fulfillment`。远端 CI
+  (`.github/workflows/ci.yml`)已在 GitHub Actions 实跑:PR 触发 pytest + 前端 lint/build 卡点,当前绿。
+  仍待接:远端部署编排(目前本仓库无对应目录,后续按需补)。
 - `frontend/Dockerfile`:生产构建镜像待补(见上「容器部署」一节)。
-- 前端界面:M1 未做(仅 M0 最小登录壳),随各模块后端稳定后逐步补(内部界面,中文)。
+- 前端界面:登录/改密壳 + 商品目录全套(SPU/SKU 列表·详情·增改)+ 报价全套(列表·详情·整单编辑器)
+  已上;随主流程各步(转销售/采购/入库…)后端稳定后逐步补(内部界面,中文)。
