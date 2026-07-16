@@ -75,6 +75,29 @@ async def test_update_user_info(client, superadmin_headers):
 
 
 @pytest.mark.asyncio
+async def test_update_super_admin_email_blocked(client, superadmin_headers, db_session):
+    """守卫锚点保护:任何人(含 super admin 自己)不能改 super admin 的邮箱,
+    否则「先改邮箱再重置/停用」两步绕过 super 守卫。name/phone 仍可改。"""
+    sa_id = await _super_id(db_session)
+    r = await client.put(f"/api/v1/users/{sa_id}", headers=superadmin_headers,
+                         json={"email": "hijack@fulfillment.local"})
+    assert r.status_code == 400
+    ok = await client.put(f"/api/v1/users/{sa_id}", headers=superadmin_headers,
+                          json={"name": "零号改名"})
+    assert ok.status_code == 200 and ok.json()["data"]["name"] == "零号改名"
+
+
+@pytest.mark.asyncio
+async def test_update_other_admin_email_still_allowed(client, superadmin_headers):
+    """非 super 的 ADMIN 邮箱仍可正常编辑(守卫只锚定零号)。"""
+    u = await _create(client, superadmin_headers, email="admin5@fulfillment.local",
+                      name="管理员五号", role="ADMIN")
+    r = await client.put(f"/api/v1/users/{u['id']}", headers=superadmin_headers,
+                         json={"email": "admin5new@fulfillment.local"})
+    assert r.status_code == 200 and r.json()["data"]["email"] == "admin5new@fulfillment.local"
+
+
+@pytest.mark.asyncio
 async def test_disable_self_blocked_and_toggle_idempotent(client, superadmin_headers, db_session):
     sa_id = await _super_id(db_session)
     # superadmin 停自己:先撞「不能停用自己」守卫

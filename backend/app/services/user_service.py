@@ -46,6 +46,12 @@ ALLOWED_INTERNAL_ROLES = {RoleCode.ADMIN, RoleCode.PRODUCT_OPERATOR, RoleCode.SA
                           RoleCode.PURCHASER}
 
 
+def _is_super_admin(user: User) -> bool:
+    """super admin(env 零号账号)判定单一源头。守卫依赖此身份,故其 email 同时受
+    update_user 改写保护 —— 二者共同封死「先改邮箱再绕守卫」的两步绕过。"""
+    return user.email == settings.SUPER_ADMIN_EMAIL
+
+
 async def create_internal_user(
     db: AsyncSession,
     *,
@@ -189,6 +195,10 @@ async def update_user(
     if target is None:
         raise NotFoundError("User not found")
 
+    # super admin 的 email 是守卫判定的身份锚点,不允许改写(封死两步绕过)。
+    if email is not None and email != target.email and _is_super_admin(target):
+        raise ValidationFailedError("不能修改 super admin 的邮箱")
+
     changes: dict = {}
 
     if name is not None and name != target.name:
@@ -284,7 +294,7 @@ async def disable_user(
     if target.id == actor_user_id:
         raise ValidationFailedError("不能停用自己的账号")
 
-    if target.email == settings.SUPER_ADMIN_EMAIL:
+    if _is_super_admin(target):
         raise ValidationFailedError("不能停用 super admin 账号")
 
     if target.status == UserStatus.DISABLED:
@@ -370,7 +380,7 @@ async def reset_password(
         raise NotFoundError("User not found")
     if target.id == actor_user_id:
         raise ValidationFailedError("不能重置自己的密码,请走修改密码")
-    if target.email == settings.SUPER_ADMIN_EMAIL:
+    if _is_super_admin(target):
         raise ValidationFailedError("不能重置 super admin 密码")
 
     target.password_hash = hash_password(new_password)
