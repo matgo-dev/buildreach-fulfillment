@@ -28,11 +28,7 @@ import { quotationApi, type QuotationSaveBody } from "@/lib/quotation";
 import { ProductPickerDrawer, type PickedSku } from "@/components/quotation/ProductPickerDrawer";
 
 import { CURRENCY_OPTIONS } from "@/lib/currencies";
-const LANGUAGES = [
-  { value: "zh", label: "中文" },
-  { value: "en", label: "English" },
-  { value: "sw", label: "Kiswahili" },
-];
+import { QUOTE_LANGUAGE_OPTIONS } from "@/lib/quote-languages";
 
 interface CustomerLite {
   id: number;
@@ -310,7 +306,7 @@ export function QuotationEditor({ mode, orderId }: { mode: "create" | "edit"; or
             </Col>
             <Col span={8}>
               <Form.Item name="language" label="语言">
-                <Select options={LANGUAGES} />
+                <Select options={QUOTE_LANGUAGE_OPTIONS} />
               </Form.Item>
             </Col>
             <Col span={8}>
