@@ -28,6 +28,7 @@ async def test_unreceive_voids_payable_and_reopens(
                            json={"void_reason": "误收"})
     assert ur.status_code == 200, ur.text
     assert ur.json()["data"]["order"]["status"] == "IN_TRANSIT"
+    assert ur.json()["data"]["order"]["arrived_at"] is None   # 回在途即未到货,到货日随撤销清空
     assert "payable" not in ur.json()["data"]   # 在途无活动 payable 块
 
     # payable 行留痕:仍在库、voided_at/by/reason 有值、原金额仍在。

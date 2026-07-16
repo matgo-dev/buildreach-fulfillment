@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+from decimal import Decimal
+
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,6 +43,9 @@ async def _detail_payload(db, po, current) -> dict:
     line_ids = [ln.id for ln in lines]
     inbounded = await inbound_order_service.compute_inbounded_qty(db, line_ids)
     received = await inbound_order_service.compute_received_qty(db, line_ids)
+    # 进度直接由上面已取的 received + 行 qty 派生,不再重查(共用 receipt_progress_from 单一口径)。
+    progress = inbound_order_service.receipt_progress_from(
+        received, {ln.id: Decimal(str(ln.qty)) for ln in lines})
     line_dicts = []
     for ln in lines:
         d = PurchaseOrderLineOut.build(ln, can_see_cost=ccost)
@@ -53,7 +58,7 @@ async def _detail_payload(db, po, current) -> dict:
     return {
         "order": PurchaseOrderOut.build(po, {
             **parties,
-            "receipt_progress": await inbound_order_service.compute_receipt_progress(db, po.id),
+            "receipt_progress": progress,
         }, can_see_cost=ccost),
         "lines": line_dicts,
         "inbound_orders": [RelatedInboundOrderItem.model_validate(r).model_dump()

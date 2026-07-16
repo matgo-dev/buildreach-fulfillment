@@ -56,6 +56,8 @@ def upgrade() -> None:
             "amount_allocated >= 0 AND amount_allocated <= amount_original",
             name="ck_payables_allocated_range"),
     )
+    # FK 引用列全量索引(默认加,不等消费者);与下方活动行偏唯一并存(用途不同)。
+    op.create_index(op.f("ix_payables_inbound_order_id"), "payables", ["inbound_order_id"])
     op.create_index(op.f("ix_payables_purchase_order_id"), "payables", ["purchase_order_id"])
     op.create_index(op.f("ix_payables_supplier_id"), "payables", ["supplier_id"])
     op.create_index(op.f("ix_payables_voided_at"), "payables", ["voided_at"])
@@ -69,4 +71,5 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_payables_voided_at"), table_name="payables")
     op.drop_index(op.f("ix_payables_supplier_id"), table_name="payables")
     op.drop_index(op.f("ix_payables_purchase_order_id"), table_name="payables")
+    op.drop_index(op.f("ix_payables_inbound_order_id"), table_name="payables")
     op.drop_table("payables")

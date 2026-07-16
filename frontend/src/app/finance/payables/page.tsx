@@ -13,9 +13,7 @@ import {
   type PayableListItem,
 } from "@/lib/payable";
 import { colors } from "@/lib/tokens";
-
-// 币种可选值(ISO4217,与供应商/采购口径一致)。
-const CURRENCIES = ["USD", "CNY", "KES", "TZS", "EUR"];
+import { CURRENCY_OPTIONS } from "@/lib/currencies";
 
 export default function PayableListPage() {
   const router = useRouter();
@@ -169,7 +167,7 @@ export default function PayableListPage() {
             setCurrency(v);
             setPage(1);
           }}
-          options={CURRENCIES.map((c) => ({ value: c, label: c }))}
+          options={CURRENCY_OPTIONS}
         />
       </Space>
 

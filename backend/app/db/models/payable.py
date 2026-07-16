@@ -66,8 +66,11 @@ class Payable(Base, TimestampUpdateMixin):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     # 债务来源批次。RESTRICT:被 payable 引用的入库单不可硬删(入库单本就无硬删)。
+    # 全量索引(FK 引用列默认加,不等消费者)+ 活动行偏唯一(幂等键,见 __table_args__)双索引:
+    # 前者服务 FK 侧查找与含作废行的溯源,后者只约束活动行。
     inbound_order_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("inbound_orders.id", ondelete="RESTRICT"), nullable=False)
+        Integer, ForeignKey("inbound_orders.id", ondelete="RESTRICT"),
+        nullable=False, index=True)
     # 溯源 + 按 PO 聚合欠款(派生,非唯一)。
     purchase_order_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("purchase_orders.id", ondelete="RESTRICT"),

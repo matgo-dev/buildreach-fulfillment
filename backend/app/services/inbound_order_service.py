@@ -103,8 +103,9 @@ async def compute_received_qty(db: AsyncSession, po_line_ids: list[int]) -> dict
         db, po_line_ids, statuses={InboundOrderStatus.RECEIVED})
 
 
-def _receipt_progress_from(received: dict[int, Decimal], required: dict[int, Decimal]) -> str:
-    """由每 PO 行 received/required 派生整单收货进度(唯一口径,列表与详情共用)。"""
+def receipt_progress_from(received: dict[int, Decimal], required: dict[int, Decimal]) -> str:
+    """由每 PO 行 received/required 派生整单收货进度(唯一口径,列表与详情共用)。
+    详情端点已持有行数据与 received 聚合,直接调本函数派生,不再重查(去重复聚合)。"""
     if not required:
         return ReceiptProgress.NOT_RECEIVED
     any_recv = any(received.get(pid, Decimal("0")) > 0 for pid in required)
@@ -114,20 +115,6 @@ def _receipt_progress_from(received: dict[int, Decimal], required: dict[int, Dec
     if any_recv:
         return ReceiptProgress.PARTIALLY_RECEIVED
     return ReceiptProgress.NOT_RECEIVED
-
-
-async def _po_line_required(db: AsyncSession, purchase_order_id: int) -> dict[int, Decimal]:
-    rows = (await db.execute(
-        select(PurchaseOrderLine.id, PurchaseOrderLine.qty)
-        .where(PurchaseOrderLine.purchase_order_id == purchase_order_id))).all()
-    return {pid: Decimal(str(q)) for pid, q in rows}
-
-
-async def compute_receipt_progress(db: AsyncSession, purchase_order_id: int) -> str:
-    """整单收货进度(PO 详情/列表徽标)。仅 RECEIVED 计入;共用 compute_received_qty 单一口径。"""
-    required = await _po_line_required(db, purchase_order_id)
-    received = await compute_received_qty(db, list(required.keys()))
-    return _receipt_progress_from(received, required)
 
 
 async def receipt_progress_for_purchase_orders(
@@ -142,7 +129,7 @@ async def receipt_progress_for_purchase_orders(
     required_by_po: dict[int, dict[int, Decimal]] = defaultdict(dict)
     for pid, poid, q in rows:
         required_by_po[poid][pid] = Decimal(str(q))
-    return {poid: _receipt_progress_from(
+    return {poid: receipt_progress_from(
         {pid: received.get(pid, Decimal("0")) for pid in required_by_po.get(poid, {})},
         required_by_po.get(poid, {})) for poid in purchase_order_ids}
 
@@ -353,6 +340,8 @@ async def receive_order(db: AsyncSession, *, order_id, arrived_at: date | None, 
     po_lines = await _load_po_lines(db, order.purchase_order_id)
 
     order.status = InboundOrderStatus.RECEIVED
+    # 兜底默认 = UTC 当天(全仓时间一律 UTC;前端确认框恒显式传日期,此默认仅直调 API 时触达。
+    # 不引入业务时区配置——无第二个消费者,属过度设计)。
     order.arrived_at = arrived_at or datetime.now(timezone.utc).date()
     await db.flush()
 
@@ -363,10 +352,13 @@ async def receive_order(db: AsyncSession, *, order_id, arrived_at: date | None, 
         created_by=actor_user_id))
     try:
         await db.flush()
-    except IntegrityError:
-        # 活动行偏唯一撞:已有活动 payable = 已确认过(并发兜底,头锁下极罕见)。
+    except IntegrityError as e:
         await db.rollback()
-        raise InboundOrderInvalidTransitionError("入库单已确认,不可重复确认")
+        # 仅活动行偏唯一撞才转友好错(已有活动 payable = 已确认过;并发兜底,头锁下极罕见)。
+        # 其它完整性冲突如实上抛,不宽映射成「已确认」掩盖真实约束违规。
+        if "uq_payables_inbound_active" in str(e.orig or e):
+            raise InboundOrderInvalidTransitionError("入库单已确认,不可重复确认")
+        raise
     await write_audit(db, resource_type=AuditResourceType.INBOUND_ORDER, action=AuditAction.RECEIVE,
                       user_id=actor_user_id, user_email=actor_user_email,
                       resource_id=order.id, request=request, commit=False)
@@ -389,6 +381,7 @@ async def unreceive_order(db: AsyncSession, *, order_id, void_reason: str | None
         payable.voided_by = actor_user_id
         payable.void_reason = void_reason
     order.status = InboundOrderStatus.IN_TRANSIT
+    order.arrived_at = None  # 回在途即未到货:清到货日,与状态语义一致(重收时重新填)
     await db.flush()
     await write_audit(db, resource_type=AuditResourceType.INBOUND_ORDER,
                       action=AuditAction.UNRECEIVE, user_id=actor_user_id,

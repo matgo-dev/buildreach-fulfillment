@@ -27,7 +27,7 @@ import { catalogApi, specDisplayText } from "@/lib/catalog";
 import { quotationApi, type QuotationSaveBody } from "@/lib/quotation";
 import { ProductPickerDrawer, type PickedSku } from "@/components/quotation/ProductPickerDrawer";
 
-const CURRENCIES = ["USD", "CNY", "KES", "TZS", "EUR"];
+import { CURRENCY_OPTIONS } from "@/lib/currencies";
 const LANGUAGES = [
   { value: "zh", label: "中文" },
   { value: "en", label: "English" },
@@ -305,7 +305,7 @@ export function QuotationEditor({ mode, orderId }: { mode: "create" | "edit"; or
           <Row gutter={16}>
             <Col span={8}>
               <Form.Item name="currency" label="币种" rules={[{ required: true }]}>
-                <Select options={CURRENCIES.map((c) => ({ value: c, label: c }))} />
+                <Select options={CURRENCY_OPTIONS} />
               </Form.Item>
             </Col>
             <Col span={8}>

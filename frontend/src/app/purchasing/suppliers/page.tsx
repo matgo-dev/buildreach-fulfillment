@@ -32,7 +32,7 @@ import {
 import { colors } from "@/lib/tokens";
 
 // 默认币种可选值(ISO4217,与报价/销售币种口径一致)。可空。
-const CURRENCIES = ["USD", "CNY", "KES", "TZS", "EUR"];
+import { CURRENCY_OPTIONS } from "@/lib/currencies";
 
 const STATUS_TABS = [
   { label: "启用", value: "ACTIVE" },
@@ -321,7 +321,7 @@ export default function SupplierListPage() {
               <Select
                 allowClear
                 placeholder="可空"
-                options={CURRENCIES.map((c) => ({ value: c, label: c }))}
+                options={CURRENCY_OPTIONS}
               />
             </Form.Item>
             <Row gutter={16}>

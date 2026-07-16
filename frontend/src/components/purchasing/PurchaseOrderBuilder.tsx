@@ -26,7 +26,7 @@ import {
 } from "@/lib/purchaseOrder";
 
 // 币种可选值(ISO4217,与供应商/销售口径一致)。
-const CURRENCIES = ["USD", "CNY", "KES", "TZS", "EUR"];
+import { CURRENCY_OPTIONS } from "@/lib/currencies";
 
 /** 建单器编辑行:候选可采行 ∪ 既有采购行(编辑态)。 */
 interface BuilderRow {
@@ -328,7 +328,7 @@ export function PurchaseOrderBuilder({
                 </Col>
                 <Col span={12}>
                   <Form.Item name="currency" label="币种" rules={[{ required: true, message: "选择币种" }]}>
-                    <Select options={CURRENCIES.map((c) => ({ value: c, label: c }))} />
+                    <Select options={CURRENCY_OPTIONS} />
                   </Form.Item>
                 </Col>
               </Row>
