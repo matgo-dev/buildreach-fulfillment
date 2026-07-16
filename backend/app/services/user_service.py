@@ -72,16 +72,13 @@ async def create_internal_user(
         )
     if not validate_password_strength(password):
         raise ValidationFailedError(PASSWORD_RULE_MESSAGE)
-    # 排除已停用账号,允许复用
-    row = await db.execute(
-        select(User.id).where(User.email == email, User.status != UserStatus.DISABLED)
-    )
+    # 全状态唯一(镜像 uq_users_email):停用不释放邮箱,恢复走启用流程
+    row = await db.execute(select(User.id).where(User.email == email))
     if row.scalar_one_or_none() is not None:
         raise ConflictError("Email 已存在")
     if username:
-        row2 = await db.execute(
-            select(User.id).where(User.username == username, User.status != UserStatus.DISABLED)
-        )
+        # 全状态唯一(镜像 uq_users_username):停用不释放用户名,恢复走启用流程
+        row2 = await db.execute(select(User.id).where(User.username == username))
         if row2.scalar_one_or_none() is not None:
             raise ConflictError("用户名已存在")
 
@@ -206,13 +203,9 @@ async def update_user(
         target.name = name
 
     if email is not None and email != target.email:
-        # 检查邮箱唯一(排除 DISABLED)
+        # 全状态唯一(镜像 uq_users_email):停用不释放邮箱,恢复走启用流程
         row = await db.execute(
-            select(User.id).where(
-                User.email == email,
-                User.status != UserStatus.DISABLED,
-                User.id != target.id,
-            )
+            select(User.id).where(User.email == email, User.id != target.id)
         )
         if row.scalar_one_or_none() is not None:
             raise ConflictError("该邮箱已被其他用户使用")
@@ -220,13 +213,9 @@ async def update_user(
         target.email = email
 
     if phone is not None and phone != target.phone:
-        # 检查手机号唯一(排除 DISABLED)
+        # 全状态唯一(镜像 uq_users_phone):停用不释放手机号,恢复走启用流程
         row = await db.execute(
-            select(User.id).where(
-                User.phone == phone,
-                User.status != UserStatus.DISABLED,
-                User.id != target.id,
-            )
+            select(User.id).where(User.phone == phone, User.id != target.id)
         )
         if row.scalar_one_or_none() is not None:
             raise ConflictError("该手机号已被其他用户使用")

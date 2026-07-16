@@ -51,6 +51,17 @@ async def test_create_email_conflict(client, superadmin_headers):
 
 
 @pytest.mark.asyncio
+async def test_disabled_account_email_not_reusable(client, superadmin_headers):
+    """DB 全状态唯一(uq_users_email):停用不释放邮箱,复用须 409 而非 500。"""
+    u = await _create(client, superadmin_headers, email="retired@fulfillment.local")
+    await client.post(f"/api/v1/users/{u['id']}/disable", headers=superadmin_headers)
+    r = await client.post("/api/v1/users", headers=superadmin_headers, json={
+        "email": "retired@fulfillment.local", "name": "接盘者",
+        "password": "Aa123456789", "role": "SALES"})
+    assert r.status_code == 409, r.text
+
+
+@pytest.mark.asyncio
 async def test_list_filter_q_and_status(client, superadmin_headers):
     u = await _create(client, superadmin_headers, email="findme@fulfillment.local",
                       name="阿尔法销售")
