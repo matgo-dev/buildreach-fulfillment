@@ -26,6 +26,7 @@ import {
   INBOUND_ORDER_STATUS_META,
   RECEIPT_PROGRESS_META,
 } from "@/lib/inboundOrderStatus";
+import { InTransitBadge } from "@/components/inbound/InTransitBadge";
 import { PurchaseOrderBuilder } from "@/components/purchasing/PurchaseOrderBuilder";
 
 export default function PurchaseOrderDetailPage() {
@@ -146,6 +147,8 @@ export default function PurchaseOrderDetailPage() {
                 {RECEIPT_PROGRESS_META[order.receipt_progress].label}
               </Tag>
             )}
+            {/* 在途信号从已加载的入库记录派生(IN_TRANSIT 计数),与收货进度并列弱化。 */}
+            <InTransitBadge count={inbounds.filter((i) => i.status === "IN_TRANSIT").length} />
           </Space>
         }
         extra={

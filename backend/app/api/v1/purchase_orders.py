@@ -88,13 +88,17 @@ async def list_purchase_orders(status: str | None = None, supplier_id: int | Non
         source_sales_order_id=source_sales_order_id,
         source_sales_order_no=source_sales_order_no, page=page, size=size)
     ccost = _can_see_cost(current)
+    po_ids = [it["id"] for it in items]
     # 收货进度徽标(轴2 派生,一次聚合覆盖本页 PO;不新增成本暴露)。
-    progress = await inbound_order_service.receipt_progress_for_purchase_orders(
-        db, [it["id"] for it in items])
+    progress = await inbound_order_service.receipt_progress_for_purchase_orders(db, po_ids)
+    # 次要在途信号:该 PO 已登记未收货的入库单数(与收货进度互补,不并入收货态)。
+    in_transit = await inbound_order_service.in_transit_inbound_count_for_purchase_orders(
+        db, po_ids)
     out = []
     for it in items:
         d = PurchaseOrderListItem.build(it, can_see_cost=ccost)
         d["receipt_progress"] = progress.get(it["id"])
+        d["in_transit_count"] = in_transit.get(it["id"], 0)
         out.append(d)
     return success({"items": out, "total": total, "page": page, "size": size})
 

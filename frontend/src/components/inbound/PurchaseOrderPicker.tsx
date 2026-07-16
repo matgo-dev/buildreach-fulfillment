@@ -4,6 +4,7 @@ import { App, Button, Drawer, Input, Select, Space, Table, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { purchaseOrderApi, type PurchaseOrderListItem } from "@/lib/purchaseOrder";
 import { RECEIPT_PROGRESS_META } from "@/lib/inboundOrderStatus";
+import { InTransitBadge } from "@/components/inbound/InTransitBadge";
 import { supplierApi, type SupplierListItem } from "@/lib/supplier";
 import { colors } from "@/lib/tokens";
 
@@ -70,11 +71,16 @@ export function PurchaseOrderPicker({
     {
       title: "收货进度",
       dataIndex: "receipt_progress",
-      width: 120,
-      render: (p: PurchaseOrderListItem["receipt_progress"]) => {
-        if (!p) return "—";
-        const m = RECEIPT_PROGRESS_META[p];
-        return <Tag color={m.color}>{m.label}</Tag>;
+      width: 150,
+      // 选单时并列在途信号:直接告诉运营「这张已有几张在途单」,避免重复登记。
+      render: (p: PurchaseOrderListItem["receipt_progress"], r) => {
+        const m = p ? RECEIPT_PROGRESS_META[p] : null;
+        return (
+          <Space size={4}>
+            {m ? <Tag color={m.color}>{m.label}</Tag> : <span>—</span>}
+            <InTransitBadge count={r.in_transit_count} />
+          </Space>
+        );
       },
     },
     {

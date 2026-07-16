@@ -16,6 +16,7 @@ import {
 } from "@/lib/purchaseOrder";
 import { PURCHASE_ORDER_STATUS_META } from "@/lib/purchaseOrderStatus";
 import { RECEIPT_PROGRESS_META } from "@/lib/inboundOrderStatus";
+import { InTransitBadge } from "@/components/inbound/InTransitBadge";
 import { colors } from "@/lib/tokens";
 
 const STATUS_TABS = [
@@ -129,11 +130,16 @@ export default function PurchaseOrderListPage() {
     {
       title: "收货进度",
       dataIndex: "receipt_progress",
-      width: 120,
-      render: (p: PurchaseOrderListItem["receipt_progress"]) => {
-        if (!p) return "—";
-        const m = RECEIPT_PROGRESS_META[p];
-        return <Tag color={m.color}>{m.label}</Tag>;
+      width: 150,
+      render: (p: PurchaseOrderListItem["receipt_progress"], r) => {
+        // 收货进度(实收口径的语义徽标)+ 弱化在途信号,后者只回答「有货在路上」。
+        const m = p ? RECEIPT_PROGRESS_META[p] : null;
+        return (
+          <Space size={4}>
+            {m ? <Tag color={m.color}>{m.label}</Tag> : <span>—</span>}
+            <InTransitBadge count={r.in_transit_count} />
+          </Space>
+        );
       },
     },
     {

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime, timezone
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -27,6 +27,7 @@ from app.audit.logger import write_audit
 from app.core.codegen import NumberScope, format_code
 from app.core.exceptions import (
     InboundLineNotInPurchaseOrderError,
+    InboundOrderEditConflictError,
     InboundOrderEmptyError,
     InboundOrderInvalidTransitionError,
     InboundOrderNotFoundError,
@@ -132,6 +133,22 @@ async def receipt_progress_for_purchase_orders(
     return {poid: receipt_progress_from(
         {pid: received.get(pid, Decimal("0")) for pid in required_by_po.get(poid, {})},
         required_by_po.get(poid, {})) for poid in purchase_order_ids}
+
+
+async def in_transit_inbound_count_for_purchase_orders(
+        db: AsyncSession, purchase_order_ids: list[int]) -> dict[int, int]:
+    """批量:一组 PO 的在途入库单数(仅 IN_TRANSIT)。列表/选单器次要在途信号。
+
+    与收货进度(实收口径)互补:回答「有几张货在路上未收」,不并入收货态
+    (在途货可能被取消/退回,并入会污染收货语义)。已作废/已入库不计。"""
+    if not purchase_order_ids:
+        return {}
+    rows = (await db.execute(
+        select(InboundOrder.purchase_order_id, func.count(InboundOrder.id))
+        .where(InboundOrder.purchase_order_id.in_(purchase_order_ids),
+               InboundOrder.status == InboundOrderStatus.IN_TRANSIT)
+        .group_by(InboundOrder.purchase_order_id))).all()
+    return {poid: cnt for poid, cnt in rows}
 
 
 async def has_active_inbound(db: AsyncSession, purchase_order_id: int) -> bool:
@@ -276,13 +293,15 @@ async def create_order(db: AsyncSession, *, purchase_order_id, carrier_name, tra
 
 
 async def save_order(db: AsyncSession, *, order_id, carrier_name, tracking_no, shipped_at,
-                     eta, remark, lines: list[dict], actor_user_id, actor_user_email,
-                     request: Request | None = None) -> InboundOrder:
-    """整单保存(仅 IN_TRANSIT):行整表重写 + 头程物流字段 + 超收重校验(exclude self)。
+                     eta, remark, lines: list[dict], expected_updated_at, actor_user_id,
+                     actor_user_email, request: Request | None = None) -> InboundOrder:
+    """整单保存(仅 IN_TRANSIT):行整表重写 + 头程物流字段 + 乐观锁 + 超收重校验(exclude self)。
     PO 归属不可改(单据身份)。先删后加避免复合 UNIQUE 误报。"""
     order = await get_order_for_update(db, order_id)
     if order.status not in INBOUND_ORDER_EDITABLE_STATUSES:
         raise InboundOrderNotInTransitError()
+    if expected_updated_at is not None and order.updated_at != expected_updated_at:
+        raise InboundOrderEditConflictError()
     if not lines:
         raise InboundOrderEmptyError()
     po_lines = await _load_po_lines(db, order.purchase_order_id)
@@ -318,11 +337,12 @@ def _assert_transition(current: str, target: str) -> None:
 
 async def _compute_payable_amount(db: AsyncSession, order: InboundOrder,
                                   po_lines: dict[int, PurchaseOrderLine]) -> Decimal:
-    """应付原始额 = Σ(行实收 qty × PO 行 unit_price),逐行 quantize 2dp 再求和(显式规定)。"""
+    """应付原始额 = Σ(行实收 qty × PO 行 unit_price),逐行 quantize 2dp 再求和。
+    舍入模式显式 ROUND_HALF_UP(财务四舍五入惯例;不写则吃 Decimal 上下文默认 half-even)。"""
     total = Decimal("0")
     for ln in await list_lines(db, order.id):
         unit_price = Decimal(str(po_lines[ln.purchase_order_line_id].unit_price))
-        total += (Decimal(str(ln.qty)) * unit_price).quantize(_CENT)
+        total += (Decimal(str(ln.qty)) * unit_price).quantize(_CENT, rounding=ROUND_HALF_UP)
     return total
 
 
@@ -346,10 +366,11 @@ async def receive_order(db: AsyncSession, *, order_id, arrived_at: date | None, 
     await db.flush()
 
     amount = await _compute_payable_amount(db, order, po_lines)
-    db.add(Payable(
+    payable = Payable(
         inbound_order_id=order.id, purchase_order_id=po.id, supplier_id=po.supplier_id,
         currency=po.currency, amount_original=amount, amount_allocated=0,
-        created_by=actor_user_id))
+        created_by=actor_user_id)
+    db.add(payable)
     try:
         await db.flush()
     except IntegrityError as e:
@@ -359,9 +380,11 @@ async def receive_order(db: AsyncSession, *, order_id, arrived_at: date | None, 
         if "uq_payables_inbound_active" in str(e.orig or e):
             raise InboundOrderInvalidTransitionError("入库单已确认,不可重复确认")
         raise
+    # extra 带 payable_id:一张入库单撤销/重收后有多条 payable(作废+活动),审计要能定位本次动作对应哪条。
     await write_audit(db, resource_type=AuditResourceType.INBOUND_ORDER, action=AuditAction.RECEIVE,
                       user_id=actor_user_id, user_email=actor_user_email,
-                      resource_id=order.id, request=request, commit=False)
+                      resource_id=order.id, request=request,
+                      extra={"payable_id": payable.id}, commit=False)
     await db.commit()
     await db.refresh(order)
     return order
@@ -385,8 +408,9 @@ async def unreceive_order(db: AsyncSession, *, order_id, void_reason: str | None
     await db.flush()
     await write_audit(db, resource_type=AuditResourceType.INBOUND_ORDER,
                       action=AuditAction.UNRECEIVE, user_id=actor_user_id,
-                      user_email=actor_user_email, resource_id=order.id,
-                      request=request, commit=False)
+                      user_email=actor_user_email, resource_id=order.id, request=request,
+                      extra={"payable_id": payable.id} if payable is not None else None,
+                      commit=False)
     await db.commit()
     await db.refresh(order)
     return order

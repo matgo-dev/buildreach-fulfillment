@@ -78,6 +78,8 @@ export interface PurchaseOrderListItem {
   created_at: string;
   /** 收货进度徽标(入库步新增,列表响应附带)。 */
   receipt_progress?: ReceiptProgress | null;
+  /** 次要在途信号:已登记未收货的入库单数(与收货进度互补,回答「有几张货在路上」)。 */
+  in_transit_count?: number;
 }
 
 /** 建单器可采行(GET /purchase-orders/purchasable-lines)。 */
