@@ -32,6 +32,7 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         # 履约:customer 管理 ADMIN 与 SALES 共持(SALES=业务主责,ADMIN=兜底);product 只留 read 过渡桥,
         # manage 已拆给 PRODUCT_OPERATOR。quote:manage 已归位到 SALES(Q25 职责分离),ADMIN 不再持有。
         Permissions.CUSTOMER_MANAGE,
+        Permissions.CUSTOMER_READ,
         Permissions.PRODUCT_READ,
     ],
     "PRODUCT_OPERATOR": [

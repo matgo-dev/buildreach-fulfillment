@@ -1,4 +1,4 @@
-"""T9 RBAC 边界:SALES 读客户不写;ADMIN 已无 quote:manage(Q25 归位)。"""
+"""T9 RBAC 边界:SALES 读写客户(customer:manage 本增量放给 SALES);ADMIN 已无 quote:manage(Q25 归位)。"""
 import pytest
 
 

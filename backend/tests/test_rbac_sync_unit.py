@@ -57,6 +57,9 @@ def test_admin_has_catalog_read_but_not_manage():
     perms = ROLE_PERMISSIONS["ADMIN"]
     assert Permissions.PRODUCT_READ in perms
     assert Permissions.PRODUCT_MANAGE not in perms
+    # ADMIN 兜底共持客户主数据:manage 不隐含 read(扁平权限码无蕴含关系,read+manage 成对纪律),
+    # 前端 RouteGuard(/sales/customers)要求 customer:read,需显式补齐才能进页面。
+    assert Permissions.CUSTOMER_READ in perms
 
 
 def test_admin_no_longer_holds_quote_manage():
