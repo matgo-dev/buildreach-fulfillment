@@ -346,3 +346,48 @@ async def enable_user(
     await db.commit()
     await db.refresh(target)
     return target
+
+
+async def reset_password(
+    db: AsyncSession,
+    *,
+    target_user_id: int,
+    new_password: str,
+    actor_user_id: int,
+    actor_user_email: str,
+    request: Request | None = None,
+) -> User:
+    """管理员代重置密码:临时密码 + 强制首登改密 + token_version+1 踢掉全部旧会话。
+
+    规则:
+    - 不能重置自己(自助走 /auth/change-password,须验旧密码)
+    - 不能重置 super admin(env 零号账号)
+    """
+    if not validate_password_strength(new_password):
+        raise ValidationFailedError(PASSWORD_RULE_MESSAGE)
+    target = await db.get(User, target_user_id)
+    if target is None:
+        raise NotFoundError("User not found")
+    if target.id == actor_user_id:
+        raise ValidationFailedError("不能重置自己的密码,请走修改密码")
+    if target.email == settings.SUPER_ADMIN_EMAIL:
+        raise ValidationFailedError("不能重置 super admin 密码")
+
+    target.password_hash = hash_password(new_password)
+    target.must_change_password = True
+    target.token_version += 1
+
+    await write_audit(
+        db,
+        resource_type=AuditResourceType.USER,
+        action=AuditAction.PASSWORD_RESET,
+        user_id=actor_user_id,
+        user_email=actor_user_email,
+        resource_id=target.id,
+        request=request,
+        extra={"target_user_id": target.id, "target_email": target.email},
+        commit=False,
+    )
+    await db.commit()
+    await db.refresh(target)
+    return target

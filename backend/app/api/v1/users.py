@@ -91,3 +91,13 @@ async def enable_user(user_id: int, request: Request,
         db, target_user_id=user_id, actor_user_id=current.id,
         actor_user_email=current.email, request=request)
     return success(_user_out(u, await user_service.get_user_roles(db, u.id)))
+
+
+@router.post("/{user_id}/reset-password",
+             summary="重置密码(临时密码,强制首登改密,踢掉旧会话)")
+async def reset_password(user_id: int, body: AdminUserResetPasswordIn, request: Request,
+                         current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
+    u = await user_service.reset_password(
+        db, target_user_id=user_id, new_password=body.password,
+        actor_user_id=current.id, actor_user_email=current.email, request=request)
+    return success(_user_out(u, await user_service.get_user_roles(db, u.id)))
