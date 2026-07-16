@@ -9,7 +9,7 @@ import { Permissions } from "@/config/permission-matrix";
 export default function InboundLayout({ children }: { children: ReactNode }) {
   return (
     <RouteGuard requiredPermissions={[Permissions.INBOUND_READ]}>
-      <AppShell breadcrumb={["入库"]}>{children}</AppShell>
+      <AppShell breadcrumb={["入库单"]}>{children}</AppShell>
     </RouteGuard>
   );
 }

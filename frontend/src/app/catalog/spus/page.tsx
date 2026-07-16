@@ -174,16 +174,8 @@ export default function SpuListPage() {
       </Col>
       <Col flex="auto" style={{ minWidth: 0 }}>
         <Card size="small">
+          {/* 工具条统一次序(DESIGN §7):状态 → 搜索。 */}
           <Space style={{ marginBottom: 12 }} wrap>
-            <Input.Search
-              placeholder="名称 / 编码"
-              allowClear
-              style={{ width: 240 }}
-              onSearch={(v) => {
-                setKeyword(v);
-                setPage(1);
-              }}
-            />
             <Segmented
               value={status}
               onChange={(k) => {
@@ -196,6 +188,15 @@ export default function SpuListPage() {
                 { label: "启用", value: "ACTIVE" },
                 { label: "停用", value: "INACTIVE" },
               ]}
+            />
+            <Input.Search
+              placeholder="名称 / 编码"
+              allowClear
+              style={{ width: 240 }}
+              onSearch={(v) => {
+                setKeyword(v);
+                setPage(1);
+              }}
             />
             <Can perm="product:manage">
               <Button

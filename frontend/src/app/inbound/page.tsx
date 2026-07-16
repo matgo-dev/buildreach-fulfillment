@@ -125,35 +125,34 @@ export default function InboundOrderListPage() {
   ];
 
   return (
-    <Card
-      title="入库单"
-      extra={
+    <Card>
+      {/* 工具条统一次序(DESIGN §7):状态 → 搜索;标题由面包屑承担,不重复。 */}
+      <Space style={{ marginBottom: 16, width: "100%", justifyContent: "space-between" }} wrap>
+        <Space wrap>
+          <Segmented
+            options={STATUS_TABS}
+            value={status}
+            onChange={(v) => {
+              setStatus(v as string);
+              setPage(1);
+            }}
+          />
+          <Input.Search
+            allowClear
+            placeholder="入库单号 / 头程单号 / 采购单号"
+            style={{ width: 280 }}
+            defaultValue={keyword}
+            onSearch={(v) => {
+              setKeyword(v.trim());
+              setPage(1);
+            }}
+          />
+        </Space>
         <Can perm={Permissions.INBOUND_MANAGE}>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setPickerOpen(true)}>
             登记入库
           </Button>
         </Can>
-      }
-    >
-      <Space style={{ marginBottom: 16, width: "100%" }} wrap>
-        <Segmented
-          options={STATUS_TABS}
-          value={status}
-          onChange={(v) => {
-            setStatus(v as string);
-            setPage(1);
-          }}
-        />
-        <Input.Search
-          allowClear
-          placeholder="入库单号 / 头程单号 / 采购单号"
-          style={{ width: 280 }}
-          defaultValue={keyword}
-          onSearch={(v) => {
-            setKeyword(v.trim());
-            setPage(1);
-          }}
-        />
       </Space>
 
       {loadError && !rows.length ? (

@@ -21,12 +21,16 @@ router = APIRouter(prefix="/payables", tags=["payables"])
 _READ = Depends(require_permission(Permissions.PAYABLE_READ))
 
 
-@router.get("", summary="应付款列表(仅活动行;供应商/币种筛选)")
+@router.get("", summary="应付款列表(仅活动行;状态/搜索/供应商/币种筛选)")
 async def list_payables(supplier_id: int | None = None, currency: str | None = None,
+                        status: str | None = Query(
+                            None, pattern=r"^(UNPAID|PARTIALLY_PAID|PAID)$"),
+                        q: str | None = None,
                         page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
                         _current: CurrentUser = _READ, db: AsyncSession = Depends(get_db)):
     items, total = await payable_service.list_payables(
-        db, supplier_id=supplier_id, currency=currency, page=page, size=size)
+        db, supplier_id=supplier_id, currency=currency, status=status, q=q,
+        page=page, size=size)
     return success({
         "items": [PayableListItem.build(it) for it in items],
         "total": total, "page": page, "size": size,

@@ -64,6 +64,10 @@ function qs(p: Record<string, unknown>): string {
 export interface PayableListFilters {
   supplier_id?: number;
   currency?: string;
+  /** 派生状态筛选(服务端谓词镜像 derive_payable_status)。 */
+  status?: PayableStatus;
+  /** 入库单号 / 采购单号 / 供应商名 模糊搜索。 */
+  q?: string;
   page?: number;
   size?: number;
 }

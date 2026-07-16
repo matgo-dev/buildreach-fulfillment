@@ -6,33 +6,51 @@ status(未付/部分付/已付清)派生自 amount_*,不落列(见 payable.deriv
 """
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.inbound_order import InboundOrder
-from app.db.models.payable import Payable
+from app.db.models.payable import Payable, PayableStatus
 from app.db.models.purchase_order import PurchaseOrder
 from app.db.models.supplier import Supplier
 
+# 派生状态 → SQL 谓词(**镜像 derive_payable_status 判序**:先付清含 0 金额单,勿倒序改)。
+_STATUS_CONDS = {
+    PayableStatus.PAID: Payable.amount_allocated >= Payable.amount_original,
+    PayableStatus.UNPAID: (Payable.amount_allocated <= 0)
+    & (Payable.amount_original > 0),
+    PayableStatus.PARTIALLY_PAID: (Payable.amount_allocated > 0)
+    & (Payable.amount_allocated < Payable.amount_original),
+}
+
 
 async def list_payables(db: AsyncSession, *, supplier_id=None, currency=None,
+                        status: str | None = None, q: str | None = None,
                         page: int = 1, size: int = 20) -> tuple[list[dict], int]:
-    """应付列表(仅活动行):供应商/币种过滤 + 分页,created_at 降序。
-    投影供应商名 + 入库单号 + PO 号(人面识别,账层无自身业务号)。"""
+    """应付列表(仅活动行):状态/搜索/供应商/币种过滤 + 分页,created_at 降序。
+    投影供应商名 + 入库单号 + PO 号(人面识别,账层无自身业务号)。
+    q = 入库单号 / PO 号 / 供应商名 模糊;count 与 rows 同一 join 基座(搜索条件跨表)。"""
     conds = [Payable.voided_at.is_(None)]
     if supplier_id:
         conds.append(Payable.supplier_id == supplier_id)
     if currency:
         conds.append(Payable.currency == currency)
+    if status in _STATUS_CONDS:
+        conds.append(_STATUS_CONDS[status])
+    if q and q.strip():
+        like = f"%{q.strip()}%"
+        conds.append(or_(InboundOrder.no.ilike(like), PurchaseOrder.no.ilike(like),
+                         Supplier.name.ilike(like)))
 
+    base = (select(Payable, Supplier.name, InboundOrder.no, PurchaseOrder.no)
+            .join(Supplier, Supplier.id == Payable.supplier_id)
+            .join(InboundOrder, InboundOrder.id == Payable.inbound_order_id)
+            .join(PurchaseOrder, PurchaseOrder.id == Payable.purchase_order_id)
+            .where(*conds))
     total = (await db.execute(
-        select(func.count(Payable.id)).where(*conds))).scalar_one()
+        select(func.count()).select_from(base.subquery()))).scalar_one()
     rows = (await db.execute(
-        select(Payable, Supplier.name, InboundOrder.no, PurchaseOrder.no)
-        .join(Supplier, Supplier.id == Payable.supplier_id)
-        .join(InboundOrder, InboundOrder.id == Payable.inbound_order_id)
-        .join(PurchaseOrder, PurchaseOrder.id == Payable.purchase_order_id)
-        .where(*conds).order_by(Payable.created_at.desc())
+        base.order_by(Payable.created_at.desc())
         .offset((page - 1) * size).limit(size))).all()
     items = [{
         "id": p.id, "inbound_order_id": p.inbound_order_id, "inbound_order_no": inb_no,

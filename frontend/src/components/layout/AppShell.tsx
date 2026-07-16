@@ -30,7 +30,7 @@ const MENU_ITEMS = [
   { key: "/sales/orders", icon: <ProfileOutlined />, label: "销售单", perm: Permissions.SALES_READ },
   { key: "/purchasing/suppliers", icon: <ShopOutlined />, label: "供应商", perm: Permissions.SUPPLIER_READ },
   { key: "/purchasing/orders", icon: <ShoppingCartOutlined />, label: "采购单", perm: Permissions.PURCHASE_READ },
-  { key: "/inbound", icon: <InboxOutlined />, label: "入库", perm: Permissions.INBOUND_READ },
+  { key: "/inbound", icon: <InboxOutlined />, label: "入库单", perm: Permissions.INBOUND_READ },
   { key: "/finance/payables", icon: <AccountBookOutlined />, label: "财务·应付款", perm: Permissions.PAYABLE_READ },
 ];
 
@@ -65,15 +65,21 @@ export function AppShell({ children, breadcrumb = [] }: { children: ReactNode; b
   return (
     <Layout style={{ minHeight: "100vh" }}>
       <Sider collapsible collapsed={collapsed} onCollapse={setCollapsed} style={{ background: SIDER_BG }}>
+        {/* 品牌区:与菜单项 icon 起点(24px)对齐的紧凑行 + 底部发丝线与菜单分隔 */}
         <div
           style={{
-            height: 48,
-            margin: 8,
+            height: 56,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: collapsed ? "center" : "flex-start",
+            paddingLeft: collapsed ? 0 : 24,
+            marginBottom: 4,
+            borderBottom: "1px solid rgba(255,255,255,0.08)",
             color: colors.white,
-            fontWeight: 700,
-            textAlign: "center",
-            lineHeight: "32px",
-            letterSpacing: collapsed ? 0 : 2,
+            fontSize: 15,
+            fontWeight: 600,
+            letterSpacing: 1,
+            whiteSpace: "nowrap",
           }}
         >
           {collapsed ? "履约" : "履约系统"}

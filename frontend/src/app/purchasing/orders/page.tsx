@@ -151,53 +151,52 @@ export default function PurchaseOrderListPage() {
   ];
 
   return (
-    <Card
-      title="采购单"
-      extra={
+    <Card>
+      {/* 工具条统一次序(DESIGN §7):状态 → 搜索 → 参照维度;标题由面包屑承担,不重复。 */}
+      <Space style={{ marginBottom: 16, width: "100%", justifyContent: "space-between" }} wrap>
+        <Space wrap>
+          <Segmented
+            options={STATUS_TABS}
+            value={status}
+            onChange={(v) => {
+              setStatus(v as string);
+              setPage(1);
+            }}
+          />
+          <Input.Search
+            allowClear
+            placeholder="来源销售单号"
+            style={{ width: 200 }}
+            defaultValue={soNo}
+            onSearch={(v) => {
+              setSoNo(v.trim());
+              setPage(1);
+            }}
+          />
+          <Select
+            allowClear
+            showSearch
+            placeholder="供应商"
+            optionFilterProp="label"
+            style={{ width: 220 }}
+            value={supplierId}
+            onChange={(v) => {
+              setSupplierId(v);
+              setPage(1);
+            }}
+            options={suppliers.map((s) => ({ value: s.id, label: `${s.code} · ${s.name}` }))}
+          />
+          {sourceSalesOrderId && (
+            <Button size="small" onClick={() => router.push("/purchasing/orders")}>
+              清除来源销售单筛选
+            </Button>
+          )}
+        </Space>
         <Can perm={Permissions.PURCHASE_MANAGE}>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setPickerOpen(true)}>
             新建采购单
           </Button>
         </Can>
-      }
-    >
-      <Space style={{ marginBottom: 16, width: "100%" }} wrap>
-        <Segmented
-          options={STATUS_TABS}
-          value={status}
-          onChange={(v) => {
-            setStatus(v as string);
-            setPage(1);
-          }}
-        />
-        <Select
-          allowClear
-          showSearch
-          placeholder="供应商"
-          optionFilterProp="label"
-          style={{ width: 220 }}
-          value={supplierId}
-          onChange={(v) => {
-            setSupplierId(v);
-            setPage(1);
-          }}
-          options={suppliers.map((s) => ({ value: s.id, label: `${s.code} · ${s.name}` }))}
-        />
-        <Input.Search
-          allowClear
-          placeholder="来源销售单号"
-          style={{ width: 200 }}
-          defaultValue={soNo}
-          onSearch={(v) => {
-            setSoNo(v.trim());
-            setPage(1);
-          }}
-        />
-        {sourceSalesOrderId && (
-          <Button size="small" onClick={() => router.push("/purchasing/orders")}>
-            清除来源销售单筛选
-          </Button>
-        )}
       </Space>
 
       {loadError && !rows.length ? (
