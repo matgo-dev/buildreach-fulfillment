@@ -1,7 +1,7 @@
 """内部账号管理 service。"""
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
@@ -126,16 +126,27 @@ async def create_internal_user(
 async def list_users(
     db: AsyncSession,
     *,
+    q: str | None = None,
+    status: str | None = None,
     page: int = 1,
     page_size: int = 50,
 ) -> tuple[list[tuple[User, list[str]]], int]:
+    """用户列表:筛选(状态/关键词 name|email|username)+ 分页,id 降序。"""
     page = max(1, page)
     page_size = max(1, min(page_size, 200))
     offset = (page - 1) * page_size
 
-    total = (await db.execute(select(func.count(User.id)))).scalar_one()
+    conds = []
+    if status:
+        conds.append(User.status == status)
+    if q:
+        like = f"%{q}%"
+        conds.append(or_(User.name.ilike(like), User.email.ilike(like),
+                         User.username.ilike(like)))
+
+    total = (await db.execute(select(func.count(User.id)).where(*conds))).scalar_one()
     rows = await db.execute(
-        select(User).order_by(User.id.desc()).offset(offset).limit(page_size)
+        select(User).where(*conds).order_by(User.id.desc()).offset(offset).limit(page_size)
     )
     users = list(rows.scalars().all())
     if not users:
@@ -152,6 +163,14 @@ async def list_users(
 
     items = [(u, sorted(roles_by_user.get(u.id, []))) for u in users]
     return items, total
+
+
+async def get_user_roles(db: AsyncSession, user_id: int) -> list[str]:
+    """单用户角色 codes(写端点响应组装用)。"""
+    rows = await db.execute(
+        select(Role.code).join(UserRole, UserRole.role_id == Role.id)
+        .where(UserRole.user_id == user_id))
+    return sorted(r for (r,) in rows.all())
 
 
 async def update_user(
