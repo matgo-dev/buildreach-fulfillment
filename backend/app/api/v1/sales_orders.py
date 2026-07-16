@@ -1,8 +1,8 @@
 """销售单路由 /api/v1/sales-orders。读:列表(+采购进度徽标/筛选)+ 详情(含行 + 采购进度 + 关联PO区)。
+写:整单取消(守 sales:manage;创建仍走报价侧 POST /quotations/{id}/convert)。
 
-创建走报价侧 POST /quotations/{id}/convert(转销售 = 报价终态转移)。SO 本步零改动(单据状态机)。
 采购进度=派生(轴2),不改表;related_purchase_orders 仅 purchase:read 下发(供应商身份红线端点级门控)。
-守 sales:read。
+读守 sales:read。
 """
 from __future__ import annotations
 
@@ -15,12 +15,18 @@ from app.db.session import get_db
 from app.rbac.constants import Permissions
 from app.rbac.guards import require_permission
 from app.schemas.purchase_order import RelatedPurchaseOrderItem
-from app.schemas.sales_order import SalesOrderLineOut, SalesOrderListItem, SalesOrderOut
+from app.schemas.sales_order import (
+    SalesOrderCancelIn,
+    SalesOrderLineOut,
+    SalesOrderListItem,
+    SalesOrderOut,
+)
 from app.services import purchase_order_service, sales_order_service
 
 router = APIRouter(prefix="/sales-orders", tags=["sales-orders"])
 
 _GUARD = Depends(require_permission(Permissions.SALES_READ))
+_MANAGE = Depends(require_permission(Permissions.SALES_MANAGE))
 
 
 @router.get("", summary="销售单列表(筛选/排序/分页/采购进度)")
@@ -46,6 +52,27 @@ async def list_sales_orders(
     return success({
         "items": [SalesOrderListItem.model_validate(it).model_dump() for it in items],
         "total": total, "page": page, "size": size,
+    })
+
+
+@router.post("/{order_id}/cancel", summary="整单取消(CONFIRMED→CANCELLED,报价回锁档可重转)")
+async def cancel_sales_order(
+    order_id: int,
+    body: SalesOrderCancelIn,
+    request: Request,
+    current: CurrentUser = _MANAGE,
+    db: AsyncSession = Depends(get_db),
+):
+    so = await sales_order_service.cancel_order(
+        db, order_id=order_id, reason=body.reason, actor_user_id=current.id,
+        actor_user_email=current.email, request=request)
+    lines = await sales_order_service.list_lines(db, order_id)
+    parties = await sales_order_service.resolve_order_parties(db, so)
+    return success({
+        "order": {**SalesOrderOut.model_validate(so, from_attributes=True).model_dump(),
+                  **parties},
+        "lines": [SalesOrderLineOut.model_validate(ln, from_attributes=True).model_dump()
+                  for ln in lines],
     })
 
 

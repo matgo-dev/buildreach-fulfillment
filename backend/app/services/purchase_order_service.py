@@ -183,9 +183,14 @@ async def resolve_order_parties(db: AsyncSession, po: PurchaseOrder) -> dict:
 
 
 async def _load_source_so_lines(db: AsyncSession, source_sales_order_id: int) -> dict[int, SalesOrderLine]:
-    """取源 SO(须 CONFIRMED)的行,按行 id 索引。SO 无效 → 41604。"""
+    """取源 SO(须 CONFIRMED)的行,按行 id 索引。SO 无效 → 41604。
+
+    锁 SO 头行 FOR UPDATE 再校验(与 SO 取消并发闭环,评审 B2;同型先例=入库锁 PO 头):
+    不锁则「读到 CONFIRMED → 取消事务提交 → 本事务插单」交错会把活动 PO 挂到 CANCELLED SO 上。
+    锁序:建单 SO头→SO行;取消 SO头→报价头;convert 仅报价头——无环无死锁。"""
     so = (await db.execute(
-        select(SalesOrder).where(SalesOrder.id == source_sales_order_id))).scalar_one_or_none()
+        select(SalesOrder).where(SalesOrder.id == source_sales_order_id)
+        .with_for_update())).scalar_one_or_none()
     if so is None or so.status != SalesOrderStatus.CONFIRMED:
         raise PurchaseSourceSalesOrderInvalidError(f"源 SO 无效: {source_sales_order_id}")
     return {ln.id: ln for ln in (await db.execute(

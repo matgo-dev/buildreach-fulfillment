@@ -32,6 +32,7 @@ class Permissions:
     PRODUCT_MANAGE = "product:manage"
     QUOTE_MANAGE = "quote:manage"
     SALES_READ = "sales:read"
+    SALES_MANAGE = "sales:manage"  # SO 域写权限(取消;将来修订复用)。仅 SALES(Q25:ADMIN 不触业务)
 
     # ----- 履约:supplier(供应商主数据) / purchase(采购单)-----
     SUPPLIER_MANAGE = "supplier:manage"
@@ -83,6 +84,7 @@ PERMISSION_META: dict[str, dict[str, str]] = {
     Permissions.PRODUCT_MANAGE: {"name": "商品管理", "module": ModuleLabel.FULFILLMENT},
     Permissions.QUOTE_MANAGE: {"name": "报价管理", "module": ModuleLabel.FULFILLMENT},
     Permissions.SALES_READ: {"name": "销售单查看", "module": ModuleLabel.FULFILLMENT},
+    Permissions.SALES_MANAGE: {"name": "销售单管理", "module": ModuleLabel.FULFILLMENT},
 
     Permissions.SUPPLIER_MANAGE: {"name": "供应商管理", "module": ModuleLabel.FULFILLMENT},
     Permissions.SUPPLIER_READ: {"name": "供应商查看", "module": ModuleLabel.FULFILLMENT},

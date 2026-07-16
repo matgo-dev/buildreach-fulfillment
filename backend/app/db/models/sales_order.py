@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import (
     CheckConstraint,
+    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -17,13 +20,16 @@ from app.db.base import Base, TimestampMixin, TimestampUpdateMixin
 
 class SalesOrderStatus:
     CONFIRMED = "CONFIRMED"
-    ALL = (CONFIRMED,)
+    CANCELLED = "CANCELLED"
+    ALL = (CONFIRMED, CANCELLED)
 
 
-# 状态机单一源头(model 层常量)。本增量销售单只建初始态 CONFIRMED、无出边;
-# 完整 SO 状态机(→采购中…)留给「转采购」增量再系统性做对,不预造投机态。
+# 状态机单一源头(model 层常量)。整单取消:CONFIRMED→CANCELLED(终态,不复活——
+# 要继续做生意 → 报价回 LOCKED 重转新 SO);取消前置守卫 = 下游无活动 PO(service 层 41802)。
+# 更多态(→采购中…)留给后续增量系统性做对,不预造投机态。
 SALES_ORDER_TRANSITIONS: dict[str, set[str]] = {
-    SalesOrderStatus.CONFIRMED: set(),
+    SalesOrderStatus.CONFIRMED: {SalesOrderStatus.CANCELLED},
+    SalesOrderStatus.CANCELLED: set(),
 }
 
 
@@ -33,20 +39,28 @@ class SalesOrder(Base, TimestampUpdateMixin):
         # 币种存 ISO4217 三字母大写 code(复制自报价);DB 锁死格式,展示走 i18n。
         CheckConstraint("currency ~ '^[A-Z]{3}$'", name="ck_sorders_currency_iso4217"),
         # 状态 DB 兜底,bound 到状态机全集(单一源头 SalesOrderStatus.ALL)。
-        CheckConstraint("status IN ('CONFIRMED')", name="ck_sorders_status"),
+        CheckConstraint("status IN ('CONFIRMED','CANCELLED')", name="ck_sorders_status"),
         # 表头总额转换时冻结自报价 total;DB 兜底非负。
         CheckConstraint("total_amount >= 0", name="ck_sorders_total_amount_nn"),
+        # 取消留痕轴与状态一致性锁死在 DB(偏唯一谓词只看 status,防两轴漂移脏审计)。
+        CheckConstraint("(status = 'CANCELLED') = (cancelled_at IS NOT NULL)",
+                        name="ck_sorders_cancel_trace"),
         # 列表默认 status tab 过滤 + created_at DESC 排序(镜像报价 ix_qorders_status_created)。
         Index("ix_sorders_status_created", "status", text("created_at DESC")),
+        # 「一报价 ≤ 一**活动**销售单」:偏唯一只约束非取消行——取消后报价回 LOCKED 可重转,
+        # 新活动行与 CANCELLED 留痕行共存(同款先例 uq_payables_inbound_active)。
+        Index("uq_sorders_source_quotation_active", "source_quotation_id", unique=True,
+              postgresql_where=text("status <> 'CANCELLED'")),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     no: Mapped[str] = mapped_column(String(30), unique=True, nullable=False, index=True)
     # 来源报价:下游记来源(Odoo origin / NetSuite createdFrom / SAP document flow 通行)。
-    # UNIQUE 在最强层硬保证「一报价≤一销售单、不重复转」;唯一索引兼作反查(报价→销售单)路径。
+    # 「一报价≤一活动销售单、不重复转」由活动行偏唯一硬保证(见 __table_args__);
+    # 全量索引服务 FK 侧查找与含取消行的溯源(FK 列全量索引默认加,偏唯一不算替代)。
     source_quotation_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("quotation_orders.id", ondelete="RESTRICT"),
-        nullable=False, unique=True)
+        nullable=False, index=True)
     # ON DELETE RESTRICT:客户/报价人被销售单引用时不可硬删(同报价口径)。
     customer_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("customers.id", ondelete="RESTRICT"), nullable=False, index=True)
@@ -64,6 +78,11 @@ class SalesOrder(Base, TimestampUpdateMixin):
     # 执行转换的人(审计归属);可 ≠ salesperson_id(报价业务归属,复制自报价)。
     created_by: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    # 取消留痕轴(镜像 payable void 轴):非空 = 已取消;与 status 一致性由 CHECK 锁死。
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cancelled_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, index=True)
+    cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class SalesOrderLine(Base, TimestampMixin):
@@ -74,6 +93,10 @@ class SalesOrderLine(Base, TimestampMixin):
         CheckConstraint("unit_price >= 0", name="ck_slines_unit_price_nn"),
         CheckConstraint("line_total >= 0", name="ck_slines_line_total_nn"),
         CheckConstraint("sort_order >= 0", name="ck_slines_sort_nn"),
+        # 同单内每报价行只入一次(挡复制逻辑 bug 的行级重复);跨单放行——取消后重转的
+        # 新 SO 复用同批报价行(原单列 UNIQUE 会挡重转,故降为复合)。
+        Index("uq_slines_order_source_line", "sales_order_id", "source_quotation_line_id",
+              unique=True),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -82,11 +105,11 @@ class SalesOrderLine(Base, TimestampMixin):
         Integer, ForeignKey("sales_orders.id", ondelete="CASCADE"), nullable=False, index=True)
     sku_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("skus.id", ondelete="RESTRICT"), nullable=False, index=True)  # 溯源
-    # 行级 document flow(SAP item-level 追溯);整单 1:1 下每报价行只应入单一次,
-    # UNIQUE 在最强层挡住复制逻辑 bug 把同一报价行重复写入(order 级 UNIQUE 挡不住行级重复)。
+    # 行级 document flow(SAP item-level 追溯);同单内唯一性见复合 UNIQUE(__table_args__)。
+    # 单列全量索引服务 FK 侧查找(报价删行守卫等;复合索引右列不覆盖自身查找)。
     source_quotation_line_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("quotation_lines.id", ondelete="RESTRICT"),
-        nullable=False, unique=True)
+        nullable=False, index=True)
     # 平移报价行已冻结快照(转换时不重算)。行 write-once → TimestampMixin(仅 created_at),
     # 变更历史归 audit_logs;与 QuotationLine(草稿期可变→UpdateMixin)按真实可变性分叉。
     name_snapshot: Mapped[str] = mapped_column(Text, nullable=False)

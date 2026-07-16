@@ -104,23 +104,32 @@
 - **转销售(主流程第二步,已完成,分支 `feat/convert-to-sales`)**:锁档报价 → 销售单。**整单转 1:1、销售单自持冻结行**。
   - **范式**:分离文档 + 下游反向 FK(对齐 SAP SD document flow / NetSuite `createdFrom`;非 Odoo 同记录换态,因下游
     采购/发运/财务单挂销售单,销售单须是独立生命周期文档)。`sales_orders.source_quotation_id → quotation_orders.id`
-    (`ON DELETE RESTRICT`,**UNIQUE**),报价不加前向列,反查靠 `WHERE source_quotation_id=:qid`。
+    (`ON DELETE RESTRICT`,**活动行偏唯一**,见下方取消增量),报价不加前向列,反查靠
+    `WHERE source_quotation_id=:qid AND status<>'CANCELLED'`。
   - **转换语义**:`POST /quotations/{id}/convert`(守 `quote:manage`,与 lock/void 同族的报价终态转移)。单事务原子:
     悲观锁读报价 → 精确守卫 `status==LOCKED` 否则 `409` `cannot_convert`(模块段 **41409**)→ 建销售单 + **平移**报价行
-    已冻结快照(不重算)→ 报价 `LOCKED→CONVERTED`(终态,撤不回、不重复转)。`UNIQUE(source_quotation_id)` +
-    `UNIQUE(source_quotation_line_id)` 在最强层硬保证「一报价≤一销售单、每报价行只入单一次」(并发/复制 bug 兜底)。
+    已冻结快照(不重算)→ 报价 `LOCKED→CONVERTED`(SO 取消可回退,见下)。活动行偏唯一(`source_quotation_id
+    WHERE status<>'CANCELLED'`)+ 复合 `UNIQUE(sales_order_id, source_quotation_line_id)` 在最强层硬保证
+    「一报价≤一**活动**销售单、同单内每报价行只入一次」(并发/复制 bug 兜底;跨单放行支持取消后重转)。
   - **审计两行**:`CREATE`/`sales_order`(销售单诞生)+ `CONVERT`/`quotation`(报价转移),与全库「每实体审计自己 CREATE」一致。
   - **销售单表**:`sales_orders`(复制 customer/salesperson/lang/currency/total/summary/remark;初始态 `CONFIRMED`,
     完整 SO 状态机留给转采购)+ `sales_order_lines`(平移六个快照列 + `source_quotation_line_id`)。行 write-once →
     `TimestampMixin`(仅 `created_at`),与草稿期可变的 `QuotationLine`(`TimestampUpdateMixin`)按真实可变性分叉。
-  - **RBAC**:新增权限点 `sales:read`(销售单读),加到复用的 `SALES` 角色;convert 复用 `quote:manage`,不造 `sales:manage`
-    (本增量销售单无独立写面)。销售单本阶段只承载对客成交价,**无红线字段**(采购价/供应商在采购步才出现)。
+  - **RBAC**:权限点 `sales:read`(销售单读)+ `sales:manage`(SO 写面:取消;取消增量补),均仅 `SALES` 角色
+    (ADMIN 按 Q25 不触业务)。销售单本阶段只承载对客成交价,**无红线字段**(采购价/供应商在采购步才出现)。
   - **端点**:`POST /quotations/{id}/convert`(守 `quote:manage`)、`GET /sales-orders`(筛选/排序/分页)、`GET /sales-orders/{id}`
     (含行 + 来源报价号,守 `sales:read`);报价详情增补 `order.sales_order?:{id,no}`(反查出口)。单号走
     `NumberScope.SALES_ORDER`(`SO{YYYYMM}####`)。
   - **前端**(`/sales/orders`,守 `sales:read`):列表(状态 / 报价人=我 / 总额排序 / 行点击进详情)、详情(只读:头部含
     来源报价链接 + 明细表)。报价详情页加「转销售单」危险确认动作(锁档态)+「查看销售单」出口(已转态)。菜单按
     `sales:read` 显隐加「销售单」;`/sales` 段权限下沉到 quotations/orders 各自 layout。迁移 `0016_sales_order`。
+  - **SO 整单取消(回补增量,契约 `docs/契约/2026-07-16-0707`)**:`POST /sales-orders/{id}/cancel`(守 `sales:manage`,
+    段 18:41801 非法转移 / 41802 存在活动 PO)。范式 = SAP/NetSuite/Odoo 共性:下游活动单据硬拦、**不级联**、解链
+    人工自下而上。单事务:锁 SO 头 → 41802 守卫 → 置 `CANCELLED`(留痕 `cancelled_at/by/reason` + 一致性 CHECK)→
+    报价 `CONVERTED→LOCKED` 回退可改可重转;审计两行 extra 互指(`CANCEL`/SO + `UNCONVERT`/报价)。配套收紧:公开
+    lock 端点仅 DRAFT(41401);报价删行/删单被 SO 行引用 → 41411(改量/价放行);建 PO 锁 SO 头防 TOCTOU;
+    `purchasable_only` 服务端排除 CANCELLED。前端:详情「取消销售单」危险确认(原因留痕)+ 已取消隐藏进度徽标与
+    发起采购;列表加「已取消」tab。迁移 `0021_so_cancel`(downgrade 前提:无取消+重转数据)。
 
 - **采购(主流程第三步,分支 `feat/purchase-order`)**:**按单采购**——基于某张 `CONFIRMED` 销售单(SO)独立发起采购单(PO),
   **无「转」语义**(SO 自身状态不变,只被约束 SKU 范围与数量上限)。参照 SAP MM / Odoo Purchase / NetSuite 共性。

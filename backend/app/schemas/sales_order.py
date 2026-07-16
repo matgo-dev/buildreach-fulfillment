@@ -6,6 +6,11 @@ from datetime import datetime
 from pydantic import BaseModel
 
 
+class SalesOrderCancelIn(BaseModel):
+    """整单取消:原因留痕(可空)。"""
+    reason: str | None = None
+
+
 class SalesOrderOut(BaseModel):
     id: int
     no: str
@@ -18,6 +23,8 @@ class SalesOrderOut(BaseModel):
     total_amount: float
     summary: str | None
     remark: str | None
+    cancelled_at: datetime | None
+    cancel_reason: str | None
     updated_at: datetime
 
 

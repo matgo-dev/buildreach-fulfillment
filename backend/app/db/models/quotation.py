@@ -27,11 +27,13 @@ class QuotationStatus:
 
 
 # 状态机单一源头(model 层常量;service 守卫 + 前端镜像均派生自此,不并列副本)。
-# 合法转移矩阵:草稿↔锁档、锁档→转销售、草稿/锁档→作废;转销售/作废为终态。
+# 合法转移矩阵:草稿↔锁档、锁档→转销售、草稿/锁档→作废、已转→锁档(仅 SO 取消回退);
+# 作废为终态。CONVERTED→LOCKED 是真实存在的转移故进矩阵,但**仅限 SO 取消服务内部走**——
+# 公开 lock 端点已显式收紧仅 DRAFT(lock_order),防止绕过 SO 取消守卫拉回已转报价。
 QUOTATION_TRANSITIONS: dict[str, set[str]] = {
     QuotationStatus.DRAFT: {QuotationStatus.LOCKED, QuotationStatus.VOID},
     QuotationStatus.LOCKED: {QuotationStatus.DRAFT, QuotationStatus.CONVERTED, QuotationStatus.VOID},
-    QuotationStatus.CONVERTED: set(),
+    QuotationStatus.CONVERTED: {QuotationStatus.LOCKED},
     QuotationStatus.VOID: set(),
 }
 # 编辑/删除仅草稿(锁档后只读;草稿=从没弄好可硬删)——"能否 PUT/硬删"不是状态转移,
