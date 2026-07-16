@@ -69,8 +69,8 @@ def test_sales_role_permissions():
     assert Permissions.QUOTE_MANAGE in perms
     assert Permissions.CUSTOMER_READ in perms
     assert Permissions.PRODUCT_READ in perms
-    # 销售不碰商品/客户主数据写、不碰系统域
-    assert Permissions.CUSTOMER_MANAGE not in perms
+    # 销售持客户主数据全管(建客户→报价选客户同人同流);仍不碰商品主数据写、不碰系统域
+    assert Permissions.CUSTOMER_MANAGE in perms
     assert Permissions.PRODUCT_MANAGE not in perms
     assert Permissions.USER_MANAGE not in perms
     # 销售不碰采购域(职责分离,采购整域是红线)

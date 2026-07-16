@@ -97,3 +97,25 @@ async def test_toggle_status_idempotent(client, superadmin_headers):
 async def test_customer_not_found(client, superadmin_headers):
     assert (await client.get("/api/v1/customers/999999",
                              headers=superadmin_headers)).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_sales_can_manage_customers(client, sales_headers):
+    """SALES 持 customer:manage:建/编辑/启停全通(建客户→报价选客户同人同流)。"""
+    c = (await client.post("/api/v1/customers", headers=sales_headers,
+                           json={"name": "销售自建客户"})).json()["data"]
+    assert c["status"] == "ACTIVE"
+    upd = await client.put(f"/api/v1/customers/{c['id']}", headers=sales_headers,
+                           json={"name": "销售改名"})
+    assert upd.status_code == 200
+    d = await client.post(f"/api/v1/customers/{c['id']}/deactivate", headers=sales_headers)
+    assert d.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_purchaser_cannot_access_customers(client, purchaser_headers):
+    """PURCHASER 无 customer:*:读写均 403(客户域归销售线)。"""
+    assert (await client.get("/api/v1/customers",
+                             headers=purchaser_headers)).status_code == 403
+    assert (await client.post("/api/v1/customers", headers=purchaser_headers,
+                              json={"name": "x"})).status_code == 403
