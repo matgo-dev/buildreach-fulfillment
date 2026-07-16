@@ -21,19 +21,14 @@ import { colors } from "@/lib/tokens";
 import type { ColumnsType } from "antd/es/table";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
-import { api } from "@/lib/api";
 import { display } from "@/lib/i18n";
 import { catalogApi, specDisplayText } from "@/lib/catalog";
 import { quotationApi, type QuotationSaveBody } from "@/lib/quotation";
+import { customerApi, type CustomerListItem } from "@/lib/customer";
 import { ProductPickerDrawer, type PickedSku } from "@/components/quotation/ProductPickerDrawer";
 
 import { CURRENCY_OPTIONS } from "@/lib/currencies";
 import { QUOTE_LANGUAGE_OPTIONS } from "@/lib/quote-languages";
-
-interface CustomerLite {
-  id: number;
-  name: string;
-}
 
 /** 编辑器内的行(前端本地态)。_key 稳定 rowKey;id 有值=已存在行(对账更新)。
  *  spec_text/unit 是选中 SKU 后派生的**只读预览**(展示 label,非用户输入);
@@ -58,7 +53,7 @@ export function QuotationEditor({ mode, orderId }: { mode: "create" | "edit"; or
   const { message } = App.useApp();
   const [form] = Form.useForm();
 
-  const [customers, setCustomers] = useState<CustomerLite[]>([]);
+  const [customers, setCustomers] = useState<{ id: number; name: string }[]>([]);
   const [salespeople, setSalespeople] = useState<{ id: number; name: string }[]>([]);
   const [lines, setLines] = useState<EditLine[]>([]);
   const [unitLabels, setUnitLabels] = useState<Map<string, string>>(new Map());
@@ -70,11 +65,11 @@ export function QuotationEditor({ mode, orderId }: { mode: "create" | "edit"; or
   const load = useCallback(async () => {
     try {
       const [custs, sps, units] = await Promise.all([
-        api.get<CustomerLite[]>("/api/v1/customers"),
+        customerApi.list({ status: "ACTIVE", size: 100 }),
         quotationApi.usersSelectable(),
         catalogApi.units(),
       ]);
-      setCustomers(custs);
+      setCustomers(custs.items.map((c: CustomerListItem) => ({ id: c.id, name: c.name })));
       setSalespeople(sps);
       // 售卖单位 code→展示 label(与后端 unit_snapshot 口径一致:units.label_i18n)。
       setUnitLabels(new Map(units.items.map((u) => [u.code, display(u.label_i18n)])));
@@ -86,6 +81,12 @@ export function QuotationEditor({ mode, orderId }: { mode: "create" | "edit"; or
           return;
         }
         setExpectedUpdatedAt(order.updated_at);
+        // 存量单据的客户可能已停用(不在 ACTIVE 下拉里):补进选项,保证回显与"不换客户可保存"。
+        setCustomers((prev) =>
+          prev.some((c) => c.id === order.customer_id)
+            ? prev
+            : [...prev, { id: order.customer_id, name: order.customer_display ?? `#${order.customer_id}` }],
+        );
         form.setFieldsValue({
           customer_id: order.customer_id,
           salesperson_id: order.salesperson_id,
