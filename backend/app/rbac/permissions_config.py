@@ -51,6 +51,8 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
     # 采购员:供应商主数据全管 + 基于销售单发起采购单(建/编辑/确认/取消)。
     # sales:read = 浏览 SO 发起采购(SO 只对客售价,非红线);read_cost = 采购员当然看采购价;
     # product:read = 选料溯源。不碰系统域、不碰报价/销售写、不碰其它主数据写。
+    # 入库:P0 采购员兼收货登记(货代仓外部不进系统,收货由内部人凭到货通知登记,见契约 D8)+
+    # 欠款查看(payable:read);已持 read_cost,无新增泄露面。WAREHOUSE 角色触发式后置。
     "PURCHASER": [
         *_AUTH_BASE,
         Permissions.SUPPLIER_MANAGE,
@@ -58,6 +60,9 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         Permissions.PURCHASE_MANAGE,
         Permissions.PURCHASE_READ,
         Permissions.PURCHASE_READ_COST,
+        Permissions.INBOUND_MANAGE,
+        Permissions.INBOUND_READ,
+        Permissions.PAYABLE_READ,
         Permissions.SALES_READ,
         Permissions.PRODUCT_READ,
     ],

@@ -38,6 +38,13 @@ export const Permissions = {
   PURCHASE_MANAGE: "purchase:manage",
   // 红线:采购价 / 采购金额可见门(后端脱敏为 null,前端仅决定是否显示成本列语义)。
   PURCHASE_READ_COST: "purchase:read_cost",
+
+  // ----- 履约:入库单 / 应付款 -----
+  // 入库单据零成本列(契约 D3),故无 inbound:read_cost 轴。
+  INBOUND_READ: "inbound:read",
+  INBOUND_MANAGE: "inbound:manage",
+  // 红线域:应付款整域只对持 payable:read 者下发(后端整块门控,非字段级)。
+  PAYABLE_READ: "payable:read",
 } as const;
 
 export type PermissionCode = (typeof Permissions)[keyof typeof Permissions];

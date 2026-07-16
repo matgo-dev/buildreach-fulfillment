@@ -17,6 +17,8 @@ from app.db.models.quotation import QuotationOrder, QuotationLine  # noqa: F401
 from app.db.models.sales_order import SalesOrder, SalesOrderLine  # noqa: F401
 from app.db.models.supplier import Supplier  # noqa: F401
 from app.db.models.purchase_order import PurchaseOrder, PurchaseOrderLine  # noqa: F401
+from app.db.models.inbound_order import InboundOrder, InboundOrderLine  # noqa: F401
+from app.db.models.payable import Payable  # noqa: F401
 
 __all__ = [
     "User", "Role", "RoleCode", "Permission",
@@ -24,4 +26,5 @@ __all__ = [
     "CategorySpecAttribute", "Customer", "NumberSequence", "Unit", "Spu", "Sku",
     "ProductImage", "QuotationOrder", "QuotationLine", "SalesOrder", "SalesOrderLine",
     "Supplier", "PurchaseOrder", "PurchaseOrderLine",
+    "InboundOrder", "InboundOrderLine", "Payable",
 ]

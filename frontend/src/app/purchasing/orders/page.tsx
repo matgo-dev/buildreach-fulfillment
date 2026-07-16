@@ -15,6 +15,7 @@ import {
   type PurchaseOrderListItem,
 } from "@/lib/purchaseOrder";
 import { PURCHASE_ORDER_STATUS_META } from "@/lib/purchaseOrderStatus";
+import { RECEIPT_PROGRESS_META } from "@/lib/inboundOrderStatus";
 import { colors } from "@/lib/tokens";
 
 const STATUS_TABS = [
@@ -126,6 +127,16 @@ export default function PurchaseOrderListPage() {
     },
     { title: "行数", dataIndex: "line_count", width: 70, align: "right" },
     {
+      title: "收货进度",
+      dataIndex: "receipt_progress",
+      width: 120,
+      render: (p: PurchaseOrderListItem["receipt_progress"]) => {
+        if (!p) return "—";
+        const m = RECEIPT_PROGRESS_META[p];
+        return <Tag color={m.color}>{m.label}</Tag>;
+      },
+    },
+    {
       title: "创建时间",
       dataIndex: "created_at",
       width: 170,
@@ -196,7 +207,7 @@ export default function PurchaseOrderListPage() {
           columns={columns}
           dataSource={rows}
           loading={loading}
-          scroll={{ x: 1050 }}
+          scroll={{ x: 1170 }}
           locale={{ emptyText: "暂无采购单" }}
           onRow={(r) => ({
             onClick: () => router.push(`/purchasing/orders/${r.id}`),

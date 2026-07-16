@@ -293,5 +293,77 @@ class PurchaseOrderEmptyError(BusinessError):
                          message_key=MessageKey.PURCHASE_ORDER_EMPTY)
 
 
+class PurchaseOrderHasActiveInboundError(BusinessError):
+    """CONFIRMED→CANCELLED 被拦:存在活动入库单({IN_TRANSIT, RECEIVED})。
+    货已在途/已收,订货承诺不可单方作废(契约 D5)。"""
+
+    def __init__(self, message: str = "Cannot cancel a purchase order with active inbound orders"):
+        super().__init__(status.HTTP_409_CONFLICT, 41609, message,
+                         message_key=MessageKey.PURCHASE_ORDER_HAS_ACTIVE_INBOUND)
+
+
+# 模块段 17 = 入库单 / 应付款。见 db/models/inbound_order.py、db/models/payable.py。
+class InboundOrderNotFoundError(BusinessError):
+    def __init__(self, message: str = "Inbound order not found"):
+        super().__init__(status.HTTP_404_NOT_FOUND, 41701, message,
+                         message_key=MessageKey.INBOUND_ORDER_NOT_FOUND)
+
+
+class InboundSourcePurchaseOrderInvalidError(BusinessError):
+    """源 PO 无效:不存在或非 CONFIRMED(入库须基于已确认采购单登记)。"""
+
+    def __init__(self, message: str = "Source purchase order not found or not confirmed"):
+        super().__init__(status.HTTP_409_CONFLICT, 41702, message,
+                         message_key=MessageKey.INBOUND_ORDER_SOURCE_PO_INVALID)
+
+
+class InboundOverReceiptError(BusinessError):
+    """超收:累计(非取消入库行,含在途)> 对应 PO 行数量。"""
+
+    def __init__(self, message: str = "Inbound quantity exceeds purchase order line remaining"):
+        super().__init__(status.HTTP_409_CONFLICT, 41703, message,
+                         message_key=MessageKey.INBOUND_ORDER_OVER_RECEIPT)
+
+
+class InboundOrderInvalidTransitionError(BusinessError):
+    """状态转移不在 INBOUND_ORDER_TRANSITIONS 矩阵。"""
+
+    def __init__(self, message: str = "Illegal inbound order status transition"):
+        super().__init__(status.HTTP_409_CONFLICT, 41704, message,
+                         message_key=MessageKey.INBOUND_ORDER_INVALID_TRANSITION)
+
+
+class InboundOrderNotInTransitError(BusinessError):
+    """对非 IN_TRANSIT 入库单执行编辑(整单保存仅在途)。"""
+
+    def __init__(self, message: str = "Inbound order is not in transit"):
+        super().__init__(status.HTTP_409_CONFLICT, 41705, message,
+                         message_key=MessageKey.INBOUND_ORDER_NOT_IN_TRANSIT)
+
+
+class InboundLineNotInPurchaseOrderError(BusinessError):
+    """入库行引用的 PO 行不属于该采购单。"""
+
+    def __init__(self, message: str = "Inbound line references a purchase order line not on this PO"):
+        super().__init__(status.HTTP_400_BAD_REQUEST, 41706, message,
+                         message_key=MessageKey.INBOUND_ORDER_LINE_NOT_IN_PO)
+
+
+class InboundOrderEmptyError(BusinessError):
+    """空入库单(无行):建单 / 编辑对账后均杜绝。"""
+
+    def __init__(self, message: str = "Inbound order must have at least one line"):
+        super().__init__(status.HTTP_400_BAD_REQUEST, 41707, message,
+                         message_key=MessageKey.INBOUND_ORDER_EMPTY)
+
+
+class PayableAllocatedCannotUnreceiveError(BusinessError):
+    """撤销入库被拦:对应 payable 已有核销(amount_allocated > 0),不可撤销。"""
+
+    def __init__(self, message: str = "Cannot unreceive: payable has been partially allocated"):
+        super().__init__(status.HTTP_409_CONFLICT, 41708, message,
+                         message_key=MessageKey.PAYABLE_ALLOCATED_CANNOT_UNRECEIVE)
+
+
 def success(data: Any = None, message: str = "ok") -> dict:
     return {"code": 0, "message": message, "data": data}

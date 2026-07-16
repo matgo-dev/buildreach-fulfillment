@@ -18,6 +18,8 @@ class AuditResourceType(str, Enum):
     SALES_ORDER = "sales_order"
     SUPPLIER = "supplier"
     PURCHASE_ORDER = "purchase_order"
+    INBOUND_ORDER = "inbound_order"
+    PAYABLE = "payable"
 
 
 class AuditAction(str, Enum):
@@ -36,6 +38,10 @@ class AuditAction(str, Enum):
     # 采购单状态跃迁:DRAFT→CONFIRMED(下单)/ →CANCELLED
     CONFIRM = "CONFIRM"
     CANCEL = "CANCEL"
+    # 入库单状态跃迁:IN_TRANSIT→RECEIVED(收货)/ RECEIVED→IN_TRANSIT(撤销入库)。
+    # 收货/撤销是独立业务语义,不复用 CONFIRM/CANCEL。
+    RECEIVE = "RECEIVE"
+    UNRECEIVE = "UNRECEIVE"
     LOGIN_SUCCESS = "LOGIN_SUCCESS"
     LOGIN_FAILED = "LOGIN_FAILED"
     LOGIN_LOCKED = "LOGIN_LOCKED"

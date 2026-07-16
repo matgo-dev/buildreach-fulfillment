@@ -4,9 +4,11 @@ import { Layout, Menu, Breadcrumb, Dropdown, Avatar } from "antd";
 import {
   AppstoreOutlined,
   FileTextOutlined,
+  InboxOutlined,
   ProfileOutlined,
   ShopOutlined,
   ShoppingCartOutlined,
+  AccountBookOutlined,
   UserOutlined,
   LogoutOutlined,
 } from "@ant-design/icons";
@@ -28,6 +30,8 @@ const MENU_ITEMS = [
   { key: "/sales/orders", icon: <ProfileOutlined />, label: "销售单", perm: Permissions.SALES_READ },
   { key: "/purchasing/suppliers", icon: <ShopOutlined />, label: "供应商", perm: Permissions.SUPPLIER_READ },
   { key: "/purchasing/orders", icon: <ShoppingCartOutlined />, label: "采购单", perm: Permissions.PURCHASE_READ },
+  { key: "/inbound", icon: <InboxOutlined />, label: "入库", perm: Permissions.INBOUND_READ },
+  { key: "/finance/payables", icon: <AccountBookOutlined />, label: "财务·应付款", perm: Permissions.PAYABLE_READ },
 ];
 
 export function AppShell({ children, breadcrumb = [] }: { children: ReactNode; breadcrumb?: string[] }) {
