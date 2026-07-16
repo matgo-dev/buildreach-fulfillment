@@ -20,6 +20,7 @@ import { useRouter } from "next/navigation";
 import { catalogApi, SpuListItem } from "@/lib/catalog";
 import { display } from "@/lib/i18n";
 import { Can } from "@/components/common/Can";
+import { useAuthStore } from "@/stores/authStore";
 import { CategoryTree } from "@/components/catalog/CategoryTree";
 import { SPU_STATUS_META, spuEditable, spuDeletable, spuNextAction } from "@/lib/productStatus";
 
@@ -28,6 +29,8 @@ const PAGE_SIZE = 20;
 export default function SpuListPage() {
   const { message } = App.useApp();
   const router = useRouter();
+  // 无 product:manage → 整列不渲染(权限=用户级,列去留;状态=行级,单元格内差异)。
+  const canManage = useAuthStore((s) => s.hasPermission("product:manage"));
   const [rows, setRows] = useState<SpuListItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -114,44 +117,46 @@ export default function SpuListPage() {
         <Tag color={SPU_STATUS_META[v].color}>{SPU_STATUS_META[v].label}</Tag>
       ),
     },
-    {
-      title: "操作",
-      width: 200,
-      className: "whitespace-nowrap",
-      render: (_, r) => (
-        <Space size="small" onClick={(e) => e.stopPropagation()}>
-          <Can perm="product:manage">
-            {/* 编辑/删除仅 DRAFT/INACTIVE 可见(ACTIVE 锁,先停用);启用/停用随状态互斥。 */}
-            {spuEditable(r.status) && (
-              <Button
-                size="small"
-                type="link"
-                onClick={() => router.push(`/catalog/spus/${r.id}?edit=1`)}
-              >
-                编辑
-              </Button>
-            )}
-            <Button size="small" type="link" onClick={() => onToggle(r)}>
-              {spuNextAction(r.status).label}
-            </Button>
-            {spuDeletable(r.status) && (
-              <Popconfirm
-                title="删除该 SPU?"
-                description="逻辑删后从目录隐藏(仍有未删 SKU 时不可删)。"
-                okText="删除"
-                okButtonProps={{ danger: true }}
-                cancelText="取消"
-                onConfirm={() => onDelete(r.id)}
-              >
-                <Button size="small" type="link" danger>
-                  删除
+    ...(canManage
+      ? [
+          {
+            title: "操作",
+            width: 200,
+            className: "whitespace-nowrap",
+            render: (_: unknown, r: SpuListItem) => (
+              <Space size="small" onClick={(e) => e.stopPropagation()}>
+                {/* 编辑/删除仅 DRAFT/INACTIVE 可见(ACTIVE 锁,先停用);启用/停用随状态互斥。 */}
+                {spuEditable(r.status) && (
+                  <Button
+                    size="small"
+                    type="link"
+                    onClick={() => router.push(`/catalog/spus/${r.id}?edit=1`)}
+                  >
+                    编辑
+                  </Button>
+                )}
+                <Button size="small" type="link" onClick={() => onToggle(r)}>
+                  {spuNextAction(r.status).label}
                 </Button>
-              </Popconfirm>
-            )}
-          </Can>
-        </Space>
-      ),
-    },
+                {spuDeletable(r.status) && (
+                  <Popconfirm
+                    title="删除该 SPU?"
+                    description="逻辑删后从目录隐藏(仍有未删 SKU 时不可删)。"
+                    okText="删除"
+                    okButtonProps={{ danger: true }}
+                    cancelText="取消"
+                    onConfirm={() => onDelete(r.id)}
+                  >
+                    <Button size="small" type="link" danger>
+                      删除
+                    </Button>
+                  </Popconfirm>
+                )}
+              </Space>
+            ),
+          },
+        ]
+      : []),
   ];
 
   return (

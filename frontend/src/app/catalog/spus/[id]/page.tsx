@@ -142,45 +142,47 @@ export default function SpuDetailPage() {
         <Tag color={SKU_STATUS_META[v]?.color}>{SKU_STATUS_META[v]?.label ?? v}</Tag>
       ),
     },
-    {
-      title: "操作",
-      width: 220,
-      className: "whitespace-nowrap",
-      render: (_, r) => (
-        <Can perm="product:manage">
-          <Space size="small">
-            {/* SKU 增改删受父 SPU 锁;上下架(在售/停售)豁免 —— 启用中商品仍可停售单个缺货变体。 */}
-            {spuEditable(spu.status) && (
-              <Button size="small" type="link" onClick={() => setSkuForm({ open: true, sku: r })}>
-                编辑
-              </Button>
-            )}
-            {spuEditable(spu.status) && (
-              <Button size="small" type="link" onClick={() => setSkuForm({ open: true, copyFrom: r })}>
-                复制
-              </Button>
-            )}
-            <Button size="small" type="link" onClick={() => toggleSku(r)}>
-              {skuNextActionLabel(r.status)}
-            </Button>
-            {spuEditable(spu.status) && (
-              <Popconfirm
-                title="删除该 SKU?"
-                description="逻辑删后从目录隐藏。"
-                okText="删除"
-                okButtonProps={{ danger: true }}
-                cancelText="取消"
-                onConfirm={() => delSku(r.id)}
-              >
-                <Button size="small" type="link" danger>
-                  删除
+    ...(canManage
+      ? [
+          {
+            title: "操作",
+            width: 220,
+            className: "whitespace-nowrap",
+            render: (_: unknown, r: SkuDetailItem) => (
+              <Space size="small">
+                {/* SKU 增改删受父 SPU 锁;上下架(在售/停售)豁免 —— 启用中商品仍可停售单个缺货变体。 */}
+                {spuEditable(spu.status) && (
+                  <Button size="small" type="link" onClick={() => setSkuForm({ open: true, sku: r })}>
+                    编辑
+                  </Button>
+                )}
+                {spuEditable(spu.status) && (
+                  <Button size="small" type="link" onClick={() => setSkuForm({ open: true, copyFrom: r })}>
+                    复制
+                  </Button>
+                )}
+                <Button size="small" type="link" onClick={() => toggleSku(r)}>
+                  {skuNextActionLabel(r.status)}
                 </Button>
-              </Popconfirm>
-            )}
-          </Space>
-        </Can>
-      ),
-    },
+                {spuEditable(spu.status) && (
+                  <Popconfirm
+                    title="删除该 SKU?"
+                    description="逻辑删后从目录隐藏。"
+                    okText="删除"
+                    okButtonProps={{ danger: true }}
+                    cancelText="取消"
+                    onConfirm={() => delSku(r.id)}
+                  >
+                    <Button size="small" type="link" danger>
+                      删除
+                    </Button>
+                  </Popconfirm>
+                )}
+              </Space>
+            ),
+          },
+        ]
+      : []),
   ];
 
   return (
