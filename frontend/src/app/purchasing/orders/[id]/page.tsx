@@ -13,6 +13,7 @@ import {
   purchaseOrderApi,
   type PurchaseOrderLineOut,
   type PurchaseOrderOut,
+  type RelatedInboundOrder,
 } from "@/lib/purchaseOrder";
 import {
   PURCHASE_ORDER_STATUS_META,
@@ -21,6 +22,11 @@ import {
   purchaseOrderDeletable,
   purchaseOrderEditable,
 } from "@/lib/purchaseOrderStatus";
+import {
+  INBOUND_ORDER_STATUS_META,
+  RECEIPT_PROGRESS_META,
+} from "@/lib/inboundOrderStatus";
+import { InTransitBadge } from "@/components/inbound/InTransitBadge";
 import { PurchaseOrderBuilder } from "@/components/purchasing/PurchaseOrderBuilder";
 
 export default function PurchaseOrderDetailPage() {
@@ -31,6 +37,7 @@ export default function PurchaseOrderDetailPage() {
 
   const [order, setOrder] = useState<PurchaseOrderOut | null>(null);
   const [lines, setLines] = useState<PurchaseOrderLineOut[]>([]);
+  const [inbounds, setInbounds] = useState<RelatedInboundOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -38,9 +45,10 @@ export default function PurchaseOrderDetailPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const { order: o, lines: ls } = await purchaseOrderApi.get(id);
+      const { order: o, lines: ls, inbound_orders: ibs } = await purchaseOrderApi.get(id);
       setOrder(o);
       setLines(ls);
+      setInbounds(ibs);
     } catch (e) {
       message.error(purchaseErrorMessage(e, "加载失败"));
     } finally {
@@ -84,6 +92,31 @@ export default function PurchaseOrderDetailPage() {
       { title: "规格", dataIndex: "spec_text_snapshot", ellipsis: true, render: (v) => v || "—" },
       { title: "单位", dataIndex: "unit_snapshot", width: 70 },
       { title: "数量", dataIndex: "qty", width: 90, align: "right", render: formatQty },
+      {
+        title: "在途",
+        dataIndex: "in_transit_qty",
+        width: 80,
+        align: "right",
+        render: (v) => (v === undefined || v === null ? "—" : formatQty(v)),
+      },
+      {
+        title: "已入",
+        dataIndex: "received_qty",
+        width: 80,
+        align: "right",
+        render: (v) => (v === undefined || v === null ? "—" : formatQty(v)),
+      },
+      {
+        title: "剩余",
+        key: "remaining",
+        width: 80,
+        align: "right",
+        render: (_, r) => {
+          if (r.received_qty === undefined || r.received_qty === null) return "—";
+          const remaining = Number(r.qty) - Number(r.received_qty) - Number(r.in_transit_qty ?? 0);
+          return formatQty(remaining);
+        },
+      },
       { title: "采购价", dataIndex: "unit_price", width: 120, align: "right", render: formatCost },
       { title: "行额", dataIndex: "line_total", width: 130, align: "right", render: formatCost },
       { title: "备注", dataIndex: "remark", ellipsis: true, render: (v) => v || "—" },
@@ -109,6 +142,13 @@ export default function PurchaseOrderDetailPage() {
             />
             <span>{order.no}</span>
             <Tag color={meta.color}>{meta.label}</Tag>
+            {order.receipt_progress && (
+              <Tag color={RECEIPT_PROGRESS_META[order.receipt_progress].color}>
+                {RECEIPT_PROGRESS_META[order.receipt_progress].label}
+              </Tag>
+            )}
+            {/* 在途信号从已加载的入库记录派生(IN_TRANSIT 计数),与收货进度并列弱化。 */}
+            <InTransitBadge count={inbounds.filter((i) => i.status === "IN_TRANSIT").length} />
           </Space>
         }
         extra={
@@ -203,7 +243,64 @@ export default function PurchaseOrderDetailPage() {
           columns={columns}
           dataSource={lines}
           pagination={false}
-          scroll={{ x: 960 }}
+          scroll={{ x: 1200 }}
+        />
+      </Card>
+
+      <Card title="入库记录">
+        <Table<RelatedInboundOrder>
+          rowKey="id"
+          size="small"
+          columns={[
+            {
+              title: "入库单号",
+              dataIndex: "no",
+              width: 160,
+              render: (v: string, r) => (
+                // 无 inbound:read → 降级纯文本(单号可见,不可点)。DESIGN §7。
+                <Can perm={Permissions.INBOUND_READ} fallback={<span>{v}</span>}>
+                  <Button
+                    type="link"
+                    size="small"
+                    style={{ padding: 0 }}
+                    onClick={() => router.push(`/inbound/${r.id}`)}
+                  >
+                    {v}
+                  </Button>
+                </Can>
+              ),
+            },
+            {
+              title: "状态",
+              dataIndex: "status",
+              width: 100,
+              render: (s: RelatedInboundOrder["status"]) => {
+                const m = INBOUND_ORDER_STATUS_META[s];
+                return <Tag color={m.color}>{m.label}</Tag>;
+              },
+            },
+            {
+              title: "承运商 / 头程单号",
+              key: "carrier",
+              width: 200,
+              render: (_, r) => {
+                const parts = [r.carrier_name, r.tracking_no].filter(Boolean);
+                return parts.length ? parts.join(" · ") : "—";
+              },
+            },
+            { title: "预计到货", dataIndex: "eta", width: 120, render: (v: string | null) => v || "—" },
+            { title: "实际到货", dataIndex: "arrived_at", width: 120, render: (v: string | null) => v || "—" },
+            {
+              title: "创建时间",
+              dataIndex: "created_at",
+              width: 170,
+              render: (v: string) => v?.replace("T", " ").slice(0, 16),
+            },
+          ]}
+          dataSource={inbounds}
+          pagination={false}
+          scroll={{ x: 870 }}
+          locale={{ emptyText: "暂无入库记录" }}
         />
       </Card>
 

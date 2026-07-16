@@ -10,6 +10,21 @@ export type PurchaseOrderStatus = "DRAFT" | "CONFIRMED" | "CANCELLED";
 /** 采购进度(销售单相对采购覆盖度的派生态)。 */
 export type PurchaseProgress = "NOT_ORDERED" | "PARTIALLY_ORDERED" | "FULLY_ORDERED";
 
+/** 收货进度(采购单相对入库覆盖度的派生态;入库步为 PO 详情/列表新增)。 */
+export type ReceiptProgress = "NOT_RECEIVED" | "PARTIALLY_RECEIVED" | "FULLY_RECEIVED";
+
+/** PO 详情「入库记录区」项(含 CANCELLED 并标状态,可追溯)。无成本字段。 */
+export interface RelatedInboundOrder {
+  id: number;
+  no: string;
+  status: "IN_TRANSIT" | "RECEIVED" | "CANCELLED";
+  carrier_name: string | null;
+  tracking_no: string | null;
+  eta: string | null;
+  arrived_at: string | null;
+  created_at: string;
+}
+
 export interface PurchaseOrderOut {
   id: number;
   no: string;
@@ -23,6 +38,8 @@ export interface PurchaseOrderOut {
   updated_at: string;
   supplier_display?: string;
   source_sales_order_no?: string | null;
+  /** 收货进度(入库步新增,详情响应附带)。 */
+  receipt_progress?: ReceiptProgress;
 }
 
 export interface PurchaseOrderLineOut {
@@ -41,6 +58,9 @@ export interface PurchaseOrderLineOut {
   language: string;
   sort_order: number;
   remark: string | null;
+  /** 入库覆盖度(入库步新增,详情响应附带每行)。 */
+  received_qty?: number | string;
+  in_transit_qty?: number | string;
 }
 
 export interface PurchaseOrderListItem {
@@ -56,6 +76,10 @@ export interface PurchaseOrderListItem {
   total_amount: number | string | null;
   line_count: number;
   created_at: string;
+  /** 收货进度徽标(入库步新增,列表响应附带)。 */
+  receipt_progress?: ReceiptProgress | null;
+  /** 次要在途信号:已登记未收货的入库单数(与收货进度互补,回答「有几张货在路上」)。 */
+  in_transit_count?: number;
 }
 
 /** 建单器可采行(GET /purchase-orders/purchasable-lines)。 */
@@ -153,7 +177,9 @@ export const purchaseOrderApi = {
   list: (p: PurchaseOrderListFilters) =>
     api.get<Page<PurchaseOrderListItem>>(`/api/v1/purchase-orders${qs(p as Record<string, unknown>)}`),
   get: (id: number) =>
-    api.get<{ order: PurchaseOrderOut; lines: PurchaseOrderLineOut[] }>(`/api/v1/purchase-orders/${id}`),
+    api.get<{ order: PurchaseOrderOut; lines: PurchaseOrderLineOut[]; inbound_orders: RelatedInboundOrder[] }>(
+      `/api/v1/purchase-orders/${id}`,
+    ),
   purchasableLines: (sourceSalesOrderId: number) =>
     api.get<{ items: PurchasableLine[] }>(
       `/api/v1/purchase-orders/purchasable-lines?source_sales_order_id=${sourceSalesOrderId}`,

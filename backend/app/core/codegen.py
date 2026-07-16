@@ -22,6 +22,7 @@ class NumberScope(str, Enum):
     QUOTATION      = "QUOTATION",      "Q",   4, True
     SALES_ORDER    = "SALES_ORDER",    "SO",  4, True
     PURCHASE_ORDER = "PURCHASE_ORDER", "PO",  4, True   # 采购单:前缀+年月+期内序号,PO{YYYYMM}{seq:04d}
+    INBOUND        = "INBOUND",        "IN",  4, True   # 入库单:IN{YYYYMM}{seq:04d}(应付款账层无业务号,见契约 D9)
 
     def __new__(cls, value: str, prefix: str, pad: int, periodic: bool):
         obj = str.__new__(cls, value)

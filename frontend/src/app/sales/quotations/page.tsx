@@ -38,6 +38,8 @@ export default function QuotationListPage() {
   const router = useRouter();
   const { message } = App.useApp();
   const userId = useAuthStore((s) => s.user?.id);
+  // 无 quote:manage → 操作整列不渲染(权限=用户级定列去留;状态=行级定单元格内容)。
+  const canManage = useAuthStore((s) => s.hasPermission(Permissions.QUOTE_MANAGE));
 
   const [rows, setRows] = useState<QuotationListItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -130,66 +132,68 @@ export default function QuotationListPage() {
     },
     { title: "有效期", dataIndex: "valid_until", width: 110, render: (v) => v || "—" },
     { title: "创建时间", dataIndex: "created_at", width: 170, render: (v: string) => v?.replace("T", " ").slice(0, 16) },
-    {
-      title: "操作",
-      key: "actions",
-      width: 220,
-      fixed: "right",
-      className: "whitespace-nowrap",
-      // 行主操作=看详情(点整行,见 onRow);操作列只放编辑/作废/删除,点击不触发行下钻。
-      render: (_, r) => (
-        <Space size="small" onClick={(e) => e.stopPropagation()}>
-          <Can perm={Permissions.QUOTE_MANAGE}>
-            {quotationEditable(r.status) && (
-              <Button
-                type="link"
-                size="small"
-                onClick={() => router.push(`/sales/quotations/${r.id}?edit=1`)}
-              >
-                编辑
-              </Button>
-            )}
-            {quotationConvertible(r.status) && (
-              <Popconfirm
-                title="转为销售单?"
-                description="转换后此报价进入已转销售终态,并生成销售单。"
-                okText="确认转销售"
-                okButtonProps={{ danger: true }}
-                onConfirm={() => onConvert(r.id)}
-              >
-                <Button type="link" size="small" danger loading={convertingId === r.id}>
-                  转销售
-                </Button>
-              </Popconfirm>
-            )}
-            {(r.status === "DRAFT" || r.status === "LOCKED") && (
-              <Popconfirm
-                title="作废该报价?"
-                description="作废后不可编辑,可留档备查。"
-                okButtonProps={{ danger: true }}
-                onConfirm={() => onVoid(r.id)}
-              >
-                <Button type="link" size="small" danger>
-                  作废
-                </Button>
-              </Popconfirm>
-            )}
-            {quotationDeletable(r.status) && (
-              <Popconfirm
-                title="删除草稿?"
-                description="草稿将被永久删除,不可恢复。"
-                okButtonProps={{ danger: true }}
-                onConfirm={() => onDelete(r.id)}
-              >
-                <Button type="link" size="small" danger>
-                  删除
-                </Button>
-              </Popconfirm>
-            )}
-          </Can>
-        </Space>
-      ),
-    },
+    ...(canManage
+      ? [
+          {
+            title: "操作",
+            key: "actions",
+            width: 220,
+            fixed: "right" as const,
+            className: "whitespace-nowrap",
+            // 行主操作=看详情(点整行,见 onRow);操作列只放编辑/作废/删除,点击不触发行下钻。
+            render: (_: unknown, r: QuotationListItem) => (
+              <Space size="small" onClick={(e) => e.stopPropagation()}>
+                {quotationEditable(r.status) && (
+                  <Button
+                    type="link"
+                    size="small"
+                    onClick={() => router.push(`/sales/quotations/${r.id}?edit=1`)}
+                  >
+                    编辑
+                  </Button>
+                )}
+                {quotationConvertible(r.status) && (
+                  <Popconfirm
+                    title="转为销售单?"
+                    description="转换后此报价进入已转销售终态,并生成销售单。"
+                    okText="确认转销售"
+                    okButtonProps={{ danger: true }}
+                    onConfirm={() => onConvert(r.id)}
+                  >
+                    <Button type="link" size="small" danger loading={convertingId === r.id}>
+                      转销售
+                    </Button>
+                  </Popconfirm>
+                )}
+                {(r.status === "DRAFT" || r.status === "LOCKED") && (
+                  <Popconfirm
+                    title="作废该报价?"
+                    description="作废后不可编辑,可留档备查。"
+                    okButtonProps={{ danger: true }}
+                    onConfirm={() => onVoid(r.id)}
+                  >
+                    <Button type="link" size="small" danger>
+                      作废
+                    </Button>
+                  </Popconfirm>
+                )}
+                {quotationDeletable(r.status) && (
+                  <Popconfirm
+                    title="删除草稿?"
+                    description="草稿将被永久删除,不可恢复。"
+                    okButtonProps={{ danger: true }}
+                    onConfirm={() => onDelete(r.id)}
+                  >
+                    <Button type="link" size="small" danger>
+                      删除
+                    </Button>
+                  </Popconfirm>
+                )}
+              </Space>
+            ),
+          },
+        ]
+      : []),
   ];
 
   return (

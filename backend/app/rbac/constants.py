@@ -42,6 +42,13 @@ class Permissions:
     # (入库仓库角色将持 purchase:read 见 PO/供应商/数量,但无 read_cost 不见成本)。
     PURCHASE_READ_COST = "purchase:read_cost"
 
+    # ----- 履约:inbound(入库单)/ payable(应付款)-----
+    # 入库单据零成本列(契约 D3),故无 inbound:read_cost 轴。
+    INBOUND_MANAGE = "inbound:manage"
+    INBOUND_READ = "inbound:read"
+    # 🔴红线开关:应付款整域(供应商 + 成本)可见;端点级门控,无此权限则整块不下发。
+    PAYABLE_READ = "payable:read"
+
 
 # auth:* 是系统底层会话权限,不归任何资源域(供启动同步识别,不进矩阵)
 SYSTEM_RESERVED_CODES = frozenset({
@@ -82,6 +89,10 @@ PERMISSION_META: dict[str, dict[str, str]] = {
     Permissions.PURCHASE_MANAGE: {"name": "采购管理", "module": ModuleLabel.FULFILLMENT},
     Permissions.PURCHASE_READ: {"name": "采购查看", "module": ModuleLabel.FULFILLMENT},
     Permissions.PURCHASE_READ_COST: {"name": "采购成本查看", "module": ModuleLabel.FULFILLMENT},
+
+    Permissions.INBOUND_MANAGE: {"name": "入库管理", "module": ModuleLabel.FULFILLMENT},
+    Permissions.INBOUND_READ: {"name": "入库查看", "module": ModuleLabel.FULFILLMENT},
+    Permissions.PAYABLE_READ: {"name": "应付款查看", "module": ModuleLabel.FULFILLMENT},
 }
 
 

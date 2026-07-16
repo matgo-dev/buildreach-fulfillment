@@ -15,6 +15,8 @@ import {
   type PurchaseOrderListItem,
 } from "@/lib/purchaseOrder";
 import { PURCHASE_ORDER_STATUS_META } from "@/lib/purchaseOrderStatus";
+import { RECEIPT_PROGRESS_META } from "@/lib/inboundOrderStatus";
+import { InTransitBadge } from "@/components/inbound/InTransitBadge";
 import { colors } from "@/lib/tokens";
 
 const STATUS_TABS = [
@@ -126,6 +128,21 @@ export default function PurchaseOrderListPage() {
     },
     { title: "行数", dataIndex: "line_count", width: 70, align: "right" },
     {
+      title: "收货进度",
+      dataIndex: "receipt_progress",
+      width: 150,
+      render: (p: PurchaseOrderListItem["receipt_progress"], r) => {
+        // 收货进度(实收口径的语义徽标)+ 弱化在途信号,后者只回答「有货在路上」。
+        const m = p ? RECEIPT_PROGRESS_META[p] : null;
+        return (
+          <Space size={4}>
+            {m ? <Tag color={m.color}>{m.label}</Tag> : <span>—</span>}
+            <InTransitBadge count={r.in_transit_count} />
+          </Space>
+        );
+      },
+    },
+    {
       title: "创建时间",
       dataIndex: "created_at",
       width: 170,
@@ -134,53 +151,52 @@ export default function PurchaseOrderListPage() {
   ];
 
   return (
-    <Card
-      title="采购单"
-      extra={
+    <Card>
+      {/* 工具条统一次序(DESIGN §7):状态 → 搜索 → 参照维度;标题由面包屑承担,不重复。 */}
+      <Space style={{ marginBottom: 16, width: "100%", justifyContent: "space-between" }} wrap>
+        <Space wrap>
+          <Segmented
+            options={STATUS_TABS}
+            value={status}
+            onChange={(v) => {
+              setStatus(v as string);
+              setPage(1);
+            }}
+          />
+          <Input.Search
+            allowClear
+            placeholder="来源销售单号"
+            style={{ width: 200 }}
+            defaultValue={soNo}
+            onSearch={(v) => {
+              setSoNo(v.trim());
+              setPage(1);
+            }}
+          />
+          <Select
+            allowClear
+            showSearch
+            placeholder="供应商"
+            optionFilterProp="label"
+            style={{ width: 220 }}
+            value={supplierId}
+            onChange={(v) => {
+              setSupplierId(v);
+              setPage(1);
+            }}
+            options={suppliers.map((s) => ({ value: s.id, label: `${s.code} · ${s.name}` }))}
+          />
+          {sourceSalesOrderId && (
+            <Button size="small" onClick={() => router.push("/purchasing/orders")}>
+              清除来源销售单筛选
+            </Button>
+          )}
+        </Space>
         <Can perm={Permissions.PURCHASE_MANAGE}>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setPickerOpen(true)}>
             新建采购单
           </Button>
         </Can>
-      }
-    >
-      <Space style={{ marginBottom: 16, width: "100%" }} wrap>
-        <Segmented
-          options={STATUS_TABS}
-          value={status}
-          onChange={(v) => {
-            setStatus(v as string);
-            setPage(1);
-          }}
-        />
-        <Select
-          allowClear
-          showSearch
-          placeholder="供应商"
-          optionFilterProp="label"
-          style={{ width: 220 }}
-          value={supplierId}
-          onChange={(v) => {
-            setSupplierId(v);
-            setPage(1);
-          }}
-          options={suppliers.map((s) => ({ value: s.id, label: `${s.code} · ${s.name}` }))}
-        />
-        <Input.Search
-          allowClear
-          placeholder="来源销售单号"
-          style={{ width: 200 }}
-          defaultValue={soNo}
-          onSearch={(v) => {
-            setSoNo(v.trim());
-            setPage(1);
-          }}
-        />
-        {sourceSalesOrderId && (
-          <Button size="small" onClick={() => router.push("/purchasing/orders")}>
-            清除来源销售单筛选
-          </Button>
-        )}
       </Space>
 
       {loadError && !rows.length ? (
@@ -196,7 +212,7 @@ export default function PurchaseOrderListPage() {
           columns={columns}
           dataSource={rows}
           loading={loading}
-          scroll={{ x: 1050 }}
+          scroll={{ x: 1170 }}
           locale={{ emptyText: "暂无采购单" }}
           onRow={(r) => ({
             onClick: () => router.push(`/purchasing/orders/${r.id}`),

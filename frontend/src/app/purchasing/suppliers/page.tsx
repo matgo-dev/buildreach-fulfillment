@@ -32,7 +32,7 @@ import {
 import { colors } from "@/lib/tokens";
 
 // 默认币种可选值(ISO4217,与报价/销售币种口径一致)。可空。
-const CURRENCIES = ["USD", "CNY", "KES", "TZS", "EUR"];
+import { CURRENCY_OPTIONS } from "@/lib/currencies";
 
 const STATUS_TABS = [
   { label: "启用", value: "ACTIVE" },
@@ -164,7 +164,7 @@ export default function SupplierListPage() {
   const columns: ColumnsType<SupplierListItem> = [
     { title: "编码", dataIndex: "code", width: 140 },
     { title: "名称", dataIndex: "name", ellipsis: true },
-    { title: "默认币种", dataIndex: "default_currency", width: 100, render: (v) => v || "—" },
+    { title: "币种", dataIndex: "default_currency", width: 100, render: (v) => v || "—" },
     { title: "联系人", dataIndex: "contact_name", width: 140, render: (v) => v || "—" },
     {
       title: "状态",
@@ -300,7 +300,7 @@ export default function SupplierListPage() {
             <Descriptions column={1} size="small" bordered>
               <Descriptions.Item label="编码">{current.code}</Descriptions.Item>
               <Descriptions.Item label="名称">{current.name}</Descriptions.Item>
-              <Descriptions.Item label="默认币种">{current.default_currency || "—"}</Descriptions.Item>
+              <Descriptions.Item label="币种">{current.default_currency || "—"}</Descriptions.Item>
               <Descriptions.Item label="联系人">{current.contact_name || "—"}</Descriptions.Item>
               <Descriptions.Item label="电话">{current.contact_phone || "—"}</Descriptions.Item>
               <Descriptions.Item label="邮箱">{current.contact_email || "—"}</Descriptions.Item>
@@ -317,11 +317,11 @@ export default function SupplierListPage() {
             <Form.Item name="name" label="名称" rules={[{ required: true, message: "请输入供应商名称" }]}>
               <Input maxLength={120} placeholder="供应商名称" />
             </Form.Item>
-            <Form.Item name="default_currency" label="默认币种">
+            <Form.Item name="default_currency" label="币种">
               <Select
                 allowClear
                 placeholder="可空"
-                options={CURRENCIES.map((c) => ({ value: c, label: c }))}
+                options={CURRENCY_OPTIONS}
               />
             </Form.Item>
             <Row gutter={16}>

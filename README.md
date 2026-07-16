@@ -149,6 +149,36 @@
     「发起采购」入口→选供应商→可采行录量价→建草稿 PO);SO 详情/列表采购进度扩展。金额列为红线:对无 `purchase:read_cost` 者后端置
     null、前端显「—」(当前 `PURCHASER` 全看,此脱敏为入库仓库角色预埋)。迁移 `0017_supplier` + `0018_purchase_order`。
 
+- **入库 + 应付款骨架(主流程第四步,分支 `feat/inbound-order`)**:入库单(ASN)= 把「订货承诺」变成「实收事实」;
+  基于某张 `CONFIRMED` 采购单(PO)分批到货登记。参照 SAP/Oracle/NetSuite 共性:PO → GR(收货)→ IR(发票),
+  **应付随收货成立**(非采购确认)。
+  - **状态机(两态 + 作废,无草稿)**:`IN_TRANSIT→{RECEIVED,CANCELLED}`、`RECEIVED→IN_TRANSIT`(撤销入库,守卫式纠错口);
+    建单事件=供应商已发货,在途本身即可编辑工作态。无硬删(对应真实发货事件)。收货进度轴2(机器派生)PO 的
+    `receipt_progress`(未/部分/全部收,**仅 RECEIVED 计入**)**不落列**,列表/详情 JOIN 派生。PO 状态机本步零改动,
+    仅加取消守卫:CONFIRMED→CANCELLED 需**无活动入库单**(`IN_TRANSIT`/`RECEIVED`),否则 `41609`。
+  - **1 PO : N 入库单**(分批到货):`inbound_orders.purchase_order_id`(FK RESTRICT,index,**不 UNIQUE**);入库行
+    `purchase_order_line_id`(FK RESTRICT,入复合 `UNIQUE(inbound_order_id, purchase_order_line_id)`= 单内唯一,跨单允许分批)。
+  - **超收守卫(单一口径)**:`compute_inbounded_qty`(Σ 非 CANCELLED 入库行 qty,**含在途**=守卫口径)/ `compute_received_qty`
+    (Σ 仅 RECEIVED=进度/库存口径)函数族守卫/进度/可收行三处共用;`assert_within_po_line_quota` 同事务 `FOR UPDATE` 锁 PO 行,
+    超收 `41703`。建单/确认先锁 PO 头校 `CONFIRMED`,与 PO 取消并发闭环锁序统一(PO 头→PO 行)。
+  - **零成本入库单据(红线面最小化)**:入库单/行**不落任何价格/金额列**(契约 D3),入库 UI 对无成本权限者天然无红线字段;
+    应付金额在确认入库事务内读 PO 行价(逐行 `quantize` 2dp 再求和)计算,只落 `payables`。详情内嵌 PO 摘要走既有
+    `PurchaseOrderOut.build(can_see_cost=)` 脱敏。
+  - **应付款账层(财务域全局表,独立迁移 `0020_payable`)**:粒度 = **每张入库单一张**;幂等键 = 活动行偏唯一
+    `UNIQUE(inbound_order_id) WHERE voided_at IS NULL`(重复确认不生第二张;撤销入库作废后可重收)。`balance` = **本仓首个生成列**
+    `GENERATED ALWAYS AS (amount_original - amount_allocated) STORED`(恒等式落 DB 最强层)。`amount_original` 创建即定死;
+    `status`(未付/部分付/已付清)完全派生不落列。撤销入库同事务 **void payable**(置 `voided_at/by/reason`,行留痕不硬删);
+    所有余额/列表聚合 `WHERE voided_at IS NULL`。payments/allocations/receivables + 发票接入 = 财务步。
+  - **RBAC**:权限点 `inbound:manage`/`inbound:read`(入库单据零成本,无 `read_cost` 轴)+ `payable:read`(🔴 应付整域端点级门控);
+    P0 由 `PURCHASER` 兼收货(WAREHOUSE 角色触发式后置)。审计加 `RECEIVE`/`UNRECEIVE` 动作 + `inbound_order`/`payable` 资源类型。
+  - **端点**:入库单 `POST /inbound-orders`、列表/详情、`PUT`(仅在途整单重写)、`receive`/`unreceive`/`cancel`、
+    `GET /inbound-orders/receivable-lines`(建单器数据源);`GET /payables`(🔴 `payable:read`);PO 列表/详情增补
+    `receipt_progress` 徽标 + 行级在途/已入 + 入库记录区。单号 `NumberScope.INBOUND`(`IN{YYYYMM}####`);应付账层无业务号。
+    错误码段 17(入库/应付 `417xx`)+ PO 取消守卫 `41609`。
+  - **前端**(`/inbound` + `/finance/payables`):入库列表/详情(状态门禁动作:确认入库/撤销入库/作废)/ 建单抽屉
+    (选 CONFIRMED PO→可收行录量→在途/已入/剩余镜像 quota);PO 详情/列表收货进度扩展;应付款极简列表(🔴 `payable:read`)。
+    入库单据前端零成本列。迁移 `0019_inbound_order` + `0020_payable`。
+
 ## 本地开发
 
 本地开发**复用现有 brew PostgreSQL**(`@ :5433`),不用下面 `docker-compose.yml` 里的 `db` 服务

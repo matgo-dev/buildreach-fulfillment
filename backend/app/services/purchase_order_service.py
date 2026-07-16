@@ -339,9 +339,16 @@ async def confirm_order(db: AsyncSession, *, order_id, actor_user_id, actor_user
 
 async def cancel_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_email,
                        request: Request | None = None) -> PurchaseOrder:
-    """→CANCELLED(DRAFT 或 CONFIRMED 皆可取消;释放其占用的 SO 行额度)。"""
+    """→CANCELLED(DRAFT 或 CONFIRMED 皆可取消;释放其占用的 SO 行额度)。
+    新守卫(契约 D5):CONFIRMED 有活动入库单({IN_TRANSIT,RECEIVED})不可取消——货已在途/已收,
+    订货承诺不可单方作废,须先作废/撤销入库。"""
     po = await get_order_for_update(db, order_id)
     _assert_transition(po.status, PurchaseOrderStatus.CANCELLED)
+    # 延迟导入避免循环依赖(inbound_order_service 依赖 PO 模型)。
+    from app.core.exceptions import PurchaseOrderHasActiveInboundError
+    from app.services import inbound_order_service
+    if await inbound_order_service.has_active_inbound(db, po.id):
+        raise PurchaseOrderHasActiveInboundError()
     return await _transition(db, po, PurchaseOrderStatus.CANCELLED, AuditAction.CANCEL,
                              actor_user_id=actor_user_id, actor_user_email=actor_user_email,
                              request=request)

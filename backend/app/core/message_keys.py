@@ -58,3 +58,15 @@ class MessageKey:
     PURCHASE_ORDER_SUPPLIER_INACTIVE = "error.purchase_order.supplier_inactive"
     PURCHASE_ORDER_NOT_DRAFT = "error.purchase_order.not_draft"
     PURCHASE_ORDER_EMPTY = "error.purchase_order.empty"
+    PURCHASE_ORDER_HAS_ACTIVE_INBOUND = "error.purchase_order.has_active_inbound"
+
+    # inbound_order 入库单 / payable 应付款(模块段 17)
+    INBOUND_ORDER_NOT_FOUND = "error.inbound_order.not_found"
+    INBOUND_ORDER_SOURCE_PO_INVALID = "error.inbound_order.source_po_invalid"
+    INBOUND_ORDER_OVER_RECEIPT = "error.inbound_order.over_receipt"
+    INBOUND_ORDER_INVALID_TRANSITION = "error.inbound_order.invalid_transition"
+    INBOUND_ORDER_NOT_IN_TRANSIT = "error.inbound_order.not_in_transit"
+    INBOUND_ORDER_LINE_NOT_IN_PO = "error.inbound_order.line_not_in_po"
+    INBOUND_ORDER_EMPTY = "error.inbound_order.empty"
+    INBOUND_ORDER_EDIT_CONFLICT = "error.inbound_order.edit_conflict"
+    PAYABLE_ALLOCATED_CANNOT_UNRECEIVE = "error.payable.allocated_cannot_unreceive"
