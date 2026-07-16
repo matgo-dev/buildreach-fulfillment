@@ -8,7 +8,6 @@ import {
   Form,
   Input,
   Modal,
-  Popconfirm,
   Segmented,
   Select,
   Space,
