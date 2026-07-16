@@ -101,6 +101,8 @@ export interface InboundOrderUpdateBody {
   eta?: string | null;
   remark?: string | null;
   lines: InboundOrderLineIn[];
+  /** 乐观锁基线 = 打开编辑时的 order.updated_at(对齐 PO)。 */
+  expected_updated_at: string;
 }
 
 // 后端错误码 → 中文 toast(镜像 exceptions.py 段 16/17)。未列出的沿用后端 message。
@@ -114,6 +116,7 @@ const INBOUND_ERROR_MESSAGES: Record<number, string> = {
   41706: "入库行引用的采购行不属于该采购单",
   41707: "入库单至少需要一行",
   41708: "对应应付款已有核销,不可撤销入库",
+  41709: "入库单已被他人修改,请刷新后重试",
 };
 
 export function inboundErrorMessage(e: unknown, fallback: string): string {

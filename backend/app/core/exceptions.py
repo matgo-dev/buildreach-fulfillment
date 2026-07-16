@@ -365,5 +365,13 @@ class PayableAllocatedCannotUnreceiveError(BusinessError):
                          message_key=MessageKey.PAYABLE_ALLOCATED_CANNOT_UNRECEIVE)
 
 
+class InboundOrderEditConflictError(BusinessError):
+    """乐观锁:expected_updated_at 与库中不一致(整单保存被并发修改抢先)。"""
+
+    def __init__(self, message: str = "Inbound order was modified by someone else"):
+        super().__init__(status.HTTP_409_CONFLICT, 41709, message,
+                         message_key=MessageKey.INBOUND_ORDER_EDIT_CONFLICT)
+
+
 def success(data: Any = None, message: str = "ok") -> dict:
     return {"code": 0, "message": message, "data": data}

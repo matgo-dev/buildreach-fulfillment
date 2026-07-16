@@ -29,14 +29,15 @@ class PayableStatus:
 
 
 def derive_payable_status(amount_original, amount_allocated) -> str:
-    """单一派生口径:allocated=0→未付;=original→已付清;之间→部分付。"""
+    """单一派生口径:先判付清(allocated=original,含 0 金额单据——余额 0 即无欠款),
+    再判未付;之间→部分付。判序不可倒:先判 alloc<=0 会把 0 金额单永远钉在「未付」。"""
     from decimal import Decimal
     orig = Decimal(str(amount_original))
     alloc = Decimal(str(amount_allocated))
-    if alloc <= 0:
-        return PayableStatus.UNPAID
     if alloc >= orig:
         return PayableStatus.PAID
+    if alloc <= 0:
+        return PayableStatus.UNPAID
     return PayableStatus.PARTIALLY_PAID
 
 

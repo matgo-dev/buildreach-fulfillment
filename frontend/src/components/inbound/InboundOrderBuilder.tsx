@@ -65,6 +65,8 @@ export function InboundOrderBuilder({
   const [rows, setRows] = useState<BuilderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // 乐观锁基线 = 打开编辑时的 updated_at;保存时随 payload 上送,后端不一致 → 41709(对齐 PO)。
+  const [expectedUpdatedAt, setExpectedUpdatedAt] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -90,6 +92,7 @@ export function InboundOrderBuilder({
 
       if (mode === "edit" && orderId) {
         const { order, lines } = await inboundOrderApi.get(orderId);
+        setExpectedUpdatedAt(order.updated_at);
         form.setFieldsValue({
           carrier_name: order.carrier_name ?? undefined,
           tracking_no: order.tracking_no ?? undefined,
@@ -119,6 +122,7 @@ export function InboundOrderBuilder({
       } else {
         // 建单态:清空头程物流字段,避免复用同一实例连选多张 PO 时残留上次输入。
         form.resetFields();
+        setExpectedUpdatedAt(null);
       }
       setRows(Array.from(byLine.values()));
     } catch (e) {
@@ -202,7 +206,10 @@ export function InboundOrderBuilder({
         });
         message.success(`已生成入库单 ${order.no}`);
       } else if (orderId) {
-        await inboundOrderApi.update(orderId, payload);
+        await inboundOrderApi.update(orderId, {
+          ...payload,
+          expected_updated_at: expectedUpdatedAt as string,
+        });
         message.success("已保存");
       }
       onSaved();

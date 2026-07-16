@@ -73,3 +73,31 @@ async def test_amount_quantize_3dp_qty(client, db_session, sales_headers, purcha
                            json={})
     # 1.50 × 3.333 = 4.9995 → quantize(0.01) = 5.00。
     assert rc.json()["data"]["payable"]["amount_original"] == 5.0
+
+
+async def test_amount_rounding_is_half_up(client, db_session, sales_headers, purchaser_headers):
+    """钉死舍入模式:0.03 × 1.5 = 0.045 → HALF_UP = 0.05(half-even 会得 0.04,此值区分两种模式)。"""
+    po_id, po_lines = await setup_confirmed_po(
+        client, db_session, sales_headers, purchaser_headers, so_qty=10, unit_price="0.03")
+    cr = await client.post("/api/v1/inbound-orders", headers=purchaser_headers, json={
+        "purchase_order_id": po_id,
+        "lines": [{"purchase_order_line_id": po_lines[0]["id"], "qty": 1.5}]})
+    inb_id = cr.json()["data"]["order"]["id"]
+    rc = await client.post(f"/api/v1/inbound-orders/{inb_id}/receive", headers=purchaser_headers,
+                           json={})
+    assert rc.json()["data"]["payable"]["amount_original"] == 0.05
+
+
+async def test_zero_amount_payable_is_paid(client, db_session, sales_headers, purchaser_headers):
+    """0 价 PO(unit_price=0 合法)→ payable 金额 0,余额 0 即无欠款,状态 = PAID 而非「未付」。"""
+    po_id, po_lines = await setup_confirmed_po(
+        client, db_session, sales_headers, purchaser_headers, so_qty=10, unit_price="0.00")
+    cr = await client.post("/api/v1/inbound-orders", headers=purchaser_headers, json={
+        "purchase_order_id": po_id,
+        "lines": [{"purchase_order_line_id": po_lines[0]["id"], "qty": 3}]})
+    inb_id = cr.json()["data"]["order"]["id"]
+    rc = await client.post(f"/api/v1/inbound-orders/{inb_id}/receive", headers=purchaser_headers,
+                           json={})
+    pay = rc.json()["data"]["payable"]
+    assert pay["amount_original"] == 0.0 and pay["balance"] == 0.0
+    assert pay["status"] == "PAID"

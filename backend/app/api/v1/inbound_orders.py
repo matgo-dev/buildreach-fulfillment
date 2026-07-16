@@ -109,7 +109,8 @@ async def update_inbound_order(order_id: int, body: InboundOrderUpdateIn, reques
     order = await inbound_order_service.save_order(
         db, order_id=order_id, carrier_name=body.carrier_name, tracking_no=body.tracking_no,
         shipped_at=body.shipped_at, eta=body.eta, remark=body.remark,
-        lines=[ln.model_dump() for ln in body.lines], actor_user_id=current.id,
+        lines=[ln.model_dump() for ln in body.lines],
+        expected_updated_at=body.expected_updated_at, actor_user_id=current.id,
         actor_user_email=current.email, request=request)
     return success(await _detail_payload(db, order, current))
 

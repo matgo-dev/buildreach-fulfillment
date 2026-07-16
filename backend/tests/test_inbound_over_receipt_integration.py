@@ -56,12 +56,27 @@ async def test_edit_excludes_self(client, db_session, sales_headers, purchaser_h
     r1 = await _create(client, purchaser_headers, po_id, pl, 8)
     inb_id = r1.json()["data"]["order"]["id"]
     r2 = await client.put(f"/api/v1/inbound-orders/{inb_id}", headers=purchaser_headers, json={
-        "lines": [{"purchase_order_line_id": pl, "qty": 10}]})
+        "lines": [{"purchase_order_line_id": pl, "qty": 10}],
+        "expected_updated_at": r1.json()["data"]["order"]["updated_at"]})
     assert r2.status_code == 200, r2.text
     # 但改到 11 应被拒(超 PO 行量）。
     r3 = await client.put(f"/api/v1/inbound-orders/{inb_id}", headers=purchaser_headers, json={
-        "lines": [{"purchase_order_line_id": pl, "qty": 11}]})
+        "lines": [{"purchase_order_line_id": pl, "qty": 11}],
+        "expected_updated_at": r2.json()["data"]["order"]["updated_at"]})
     assert r3.status_code == 409 and r3.json()["code"] == 41703
+
+
+async def test_edit_optimistic_lock_conflict(client, db_session, sales_headers, purchaser_headers):
+    """乐观锁:陈旧 expected_updated_at → 41709(镜像 PO 41605)。"""
+    po_id, po_lines = await setup_confirmed_po(
+        client, db_session, sales_headers, purchaser_headers, so_qty=10)
+    pl = po_lines[0]["id"]
+    r1 = await _create(client, purchaser_headers, po_id, pl, 5)
+    inb_id = r1.json()["data"]["order"]["id"]
+    r = await client.put(f"/api/v1/inbound-orders/{inb_id}", headers=purchaser_headers, json={
+        "lines": [{"purchase_order_line_id": pl, "qty": 6}],
+        "expected_updated_at": "2000-01-01T00:00:00"})
+    assert r.status_code == 409 and r.json()["code"] == 41709
 
 
 async def test_line_not_in_po_rejected(client, db_session, sales_headers, purchaser_headers):

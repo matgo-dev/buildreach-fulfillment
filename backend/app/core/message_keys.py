@@ -68,4 +68,5 @@ class MessageKey:
     INBOUND_ORDER_NOT_IN_TRANSIT = "error.inbound_order.not_in_transit"
     INBOUND_ORDER_LINE_NOT_IN_PO = "error.inbound_order.line_not_in_po"
     INBOUND_ORDER_EMPTY = "error.inbound_order.empty"
+    INBOUND_ORDER_EDIT_CONFLICT = "error.inbound_order.edit_conflict"
     PAYABLE_ALLOCATED_CANNOT_UNRECEIVE = "error.payable.allocated_cannot_unreceive"
