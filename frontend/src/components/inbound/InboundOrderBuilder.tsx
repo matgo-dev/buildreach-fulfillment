@@ -14,6 +14,7 @@ import {
   Space,
   Spin,
   Table,
+  Typography,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
@@ -38,6 +39,7 @@ interface BuilderRow {
   in_transit_qty?: number;
   received_qty?: number;
   remaining_qty?: number; // 来自可收行;既有行未出现在可收集时为 undefined
+  original_qty?: number;  // 编辑态本单该行的原数量(算可收上限时排除自身,镜像后端 exclude self)
   selected: boolean;
   qty: number;
 }
@@ -108,6 +110,7 @@ export function InboundOrderBuilder({
             in_transit_qty: existing?.in_transit_qty,
             received_qty: existing?.received_qty,
             remaining_qty: existing?.remaining_qty,
+            original_qty: Number(l.qty),
             selected: true,
             qty: Number(l.qty),
           };
@@ -134,6 +137,11 @@ export function InboundOrderBuilder({
   const patchRow = (lid: number, patch: Partial<BuilderRow>) =>
     setRows((rs) => rs.map((r) => (r.purchase_order_line_id === lid ? { ...r, ...patch } : r)));
 
+  // 本次可收上限:新行=剩余;编辑态既有行=剩余+本行原量(排除自身,镜像后端 exclude self)。
+  // remaining 未知(源不在可收集)则不设客户端上限,交后端为准。
+  const maxReceivable = (r: BuilderRow): number | undefined =>
+    r.remaining_qty === undefined ? undefined : r.remaining_qty + (r.original_qty ?? 0);
+
   const selectedRows = useMemo(() => rows.filter((r) => r.selected), [rows]);
   const totalQty = useMemo(
     () => selectedRows.reduce((s, r) => s + (r.qty || 0), 0),
@@ -157,14 +165,15 @@ export function InboundOrderBuilder({
       message.error("至少勾选一行");
       return;
     }
-    // 逐行校验:数量>0;新增行(非既有)客户端拦超收(数量≤剩余可收量)。
+    // 逐行校验:数量>0;超可收上限拦下(与输入即时提示同一 maxReceivable 口径,编辑态排除自身)。
     for (const r of selectedRows) {
       if (!r.qty || r.qty <= 0) {
         message.error(`「${r.name_snapshot}」数量需大于 0`);
         return;
       }
-      if (!r.existing && r.remaining_qty !== undefined && r.qty > r.remaining_qty) {
-        message.error(`「${r.name_snapshot}」数量超过剩余可收量 ${formatQty(r.remaining_qty)}`);
+      const max = maxReceivable(r);
+      if (max !== undefined && r.qty > max) {
+        message.error(`「${r.name_snapshot}」数量超过可收 ${formatQty(max)}`);
         return;
       }
     }
@@ -204,8 +213,22 @@ export function InboundOrderBuilder({
     }
   }
 
-  const numCell = (v?: number) =>
-    v === undefined ? <span style={{ color: colors.muted }}>—</span> : formatQty(v);
+  // 数字单元:tabular-nums 对齐(DESIGN §数字列)。muted=收货参考的次要数字弱化,
+  // strong=「剩余」是本次录入的约束基准,保持强调不弱化。
+  const numCell = (v?: number, o?: { muted?: boolean; strong?: boolean }) => {
+    if (v === undefined) return <span style={{ color: colors.muted }}>—</span>;
+    return (
+      <span style={{
+        fontVariantNumeric: "tabular-nums",
+        color: o?.muted ? colors.muted : undefined,
+        fontWeight: o?.strong ? 600 : undefined,
+      }}>{formatQty(v)}</span>
+    );
+  };
+  const refCol = (title: string, get: (r: BuilderRow) => number | undefined, strong = false) => ({
+    title, key: title, width: 76, align: "right" as const,
+    render: (_: unknown, r: BuilderRow) => numCell(get(r), strong ? { strong: true } : { muted: true }),
+  });
 
   const columns: ColumnsType<BuilderRow> = [
     {
@@ -227,25 +250,46 @@ export function InboundOrderBuilder({
       render: (v) => v || <span style={{ color: colors.muted }}>—</span>,
     },
     { title: "单位", dataIndex: "unit_snapshot", width: 64 },
-    { title: "已订", key: "ordered", width: 72, align: "right", render: (_, r) => numCell(r.ordered_qty) },
-    { title: "在途", key: "intransit", width: 72, align: "right", render: (_, r) => numCell(r.in_transit_qty) },
-    { title: "已入", key: "received", width: 72, align: "right", render: (_, r) => numCell(r.received_qty) },
-    { title: "剩余", key: "remaining", width: 72, align: "right", render: (_, r) => numCell(r.remaining_qty) },
+    // 四个数字归到「收货参考」分组表头,视觉括成一块次要上下文;弱化订/途/入,
+    // 只强调「剩余」(本次可收上限)——与右侧「本次数量」主输入拉开层级。
+    {
+      title: "收货参考",
+      align: "center",
+      children: [
+        refCol("已订", (r) => r.ordered_qty),
+        refCol("在途", (r) => r.in_transit_qty),
+        refCol("已入", (r) => r.received_qty),
+        refCol("剩余", (r) => r.remaining_qty, true),
+      ],
+    },
     {
       title: "本次数量",
       key: "qty",
-      width: 120,
-      render: (_, r) => (
-        <InputNumber
-          min={0.001}
-          value={r.qty}
-          onChange={(v) =>
-            // 一动数量即自动勾选该行(免去先找左侧复选框);取消勾选仍走复选框。
-            patchRow(r.purchase_order_line_id, { qty: Number(v) || 0, selected: true })
-          }
-          style={{ width: "100%" }}
-        />
-      ),
+      width: 140,
+      render: (_, r) => {
+        const max = maxReceivable(r);
+        const over = max !== undefined && r.qty > max;
+        return (
+          <div>
+            <InputNumber
+              min={0.001}
+              status={over ? "error" : undefined}
+              value={r.qty}
+              onChange={(v) =>
+                // 一动数量即自动勾选该行(免去先找左侧复选框);取消勾选仍走复选框。
+                patchRow(r.purchase_order_line_id, { qty: Number(v) || 0, selected: true })
+              }
+              style={{ width: "100%" }}
+            />
+            {/* 即时超量提示(不硬夹断,红字给出可收上限,运营自改;后端仍为最终守卫)。 */}
+            {over && (
+              <Typography.Text type="danger" style={{ fontSize: 12 }}>
+                超过可收 {formatQty(max!)}
+              </Typography.Text>
+            )}
+          </div>
+        );
+      },
     },
   ];
 
@@ -281,12 +325,13 @@ export function InboundOrderBuilder({
               <Row gutter={16}>
                 <Col span={12}>
                   <Form.Item name="carrier_name" label="承运商">
-                    <Input placeholder="选填,如 头程货代 / 船公司" />
+                    {/* 头程=国内首程(供应商多在中国→货代仓),国内承运;海运/提单在发运步。 */}
+                    <Input placeholder="选填,如 顺丰 / 德邦 / 专线物流" />
                   </Form.Item>
                 </Col>
                 <Col span={12}>
                   <Form.Item name="tracking_no" label="头程单号">
-                    <Input placeholder="选填,如 提单号 / 运单号" />
+                    <Input placeholder="选填,如 国内快递 / 物流单号" />
                   </Form.Item>
                 </Col>
                 <Col span={12}>

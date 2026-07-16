@@ -143,7 +143,8 @@ export default function InboundOrderDetailPage() {
                   type="primary"
                   loading={busy}
                   onClick={() => {
-                    setArrivedAt(dayjs());
+                    // 默认取预计到货日(运营自己填的到货估计,少改一次);未填才退回今天。
+                    setArrivedAt(order.eta ? dayjs(order.eta) : dayjs());
                     setReceiveOpen(true);
                   }}
                 >

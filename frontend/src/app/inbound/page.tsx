@@ -62,7 +62,28 @@ export default function InboundOrderListPage() {
   // 入库单据零成本列(契约 D3):列表无任何金额/成本列。
   const columns: ColumnsType<InboundOrderListItem> = [
     { title: "入库单号", dataIndex: "no", width: 160 },
-    { title: "采购单号", dataIndex: "purchase_order_no", width: 160 },
+    {
+      // 上游单据:有 purchase:read 即可点击跳采购单详情,无权限降级纯文本(DESIGN §7)。
+      // 行本身点击进入库详情,故 PO 链接需 stopPropagation 阻止冒泡。
+      title: "采购单号",
+      dataIndex: "purchase_order_no",
+      width: 160,
+      render: (v: string, r) => (
+        <Can perm={Permissions.PURCHASE_READ} fallback={<span>{v}</span>}>
+          <Button
+            type="link"
+            size="small"
+            style={{ padding: 0 }}
+            onClick={(e) => {
+              e.stopPropagation();
+              router.push(`/purchasing/orders/${r.purchase_order_id}`);
+            }}
+          >
+            {v}
+          </Button>
+        </Can>
+      ),
+    },
     { title: "供应商", dataIndex: "supplier_display", width: 170, ellipsis: true },
     {
       title: "承运商 / 头程单号",
