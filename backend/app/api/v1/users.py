@@ -101,3 +101,12 @@ async def reset_password(user_id: int, body: AdminUserResetPasswordIn, request: 
         db, target_user_id=user_id, new_password=body.password,
         actor_user_id=current.id, actor_user_email=current.email, request=request)
     return success(_user_out(u, await user_service.get_user_roles(db, u.id)))
+
+
+@router.put("/{user_id}/role", summary="替换角色(单角色;不改自己/super admin/最后 ADMIN)")
+async def change_role(user_id: int, body: AdminUserRoleIn, request: Request,
+                      current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
+    u = await user_service.change_role(
+        db, target_user_id=user_id, new_role=body.role,
+        actor_user_id=current.id, actor_user_email=current.email, request=request)
+    return success(_user_out(u, await user_service.get_user_roles(db, u.id)))

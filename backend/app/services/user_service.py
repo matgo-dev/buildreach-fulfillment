@@ -358,6 +358,67 @@ async def enable_user(
     return target
 
 
+async def change_role(
+    db: AsyncSession,
+    *,
+    target_user_id: int,
+    new_role: str,
+    actor_user_id: int,
+    actor_user_email: str,
+    request: Request | None = None,
+) -> User:
+    """替换用户角色(内部用户恒单角色)。守卫镜像停用三件套。
+
+    规则:
+    - new_role ∈ ALLOWED_INTERNAL_ROLES(单一源头白名单)
+    - 不能改自己的角色(防自锁/自提权)
+    - 不能改 super admin
+    - 不能把最后一个可用 ADMIN 改走(防系统失联)
+    - 已是该角色 → 幂等返回,不写审计
+    权限每请求查库(core/dependencies),改角色即时生效,无需踢会话。
+    """
+    if new_role not in ALLOWED_INTERNAL_ROLES:
+        raise ValidationFailedError(f"角色必须是 {sorted(ALLOWED_INTERNAL_ROLES)} 之一")
+    target = await db.get(User, target_user_id)
+    if target is None:
+        raise NotFoundError("User not found")
+    if target.id == actor_user_id:
+        raise ValidationFailedError("不能修改自己的角色")
+    if _is_super_admin(target):
+        raise ValidationFailedError("不能修改 super admin 的角色")
+
+    old_roles = await get_user_roles(db, target.id)
+    if old_roles == [new_role]:
+        return target  # 幂等
+
+    if RoleCode.ADMIN in old_roles and new_role != RoleCode.ADMIN:
+        if target.status == UserStatus.ACTIVE and await _count_active_admins(db) <= 1:
+            raise ValidationFailedError("系统至少保留一个可用 ADMIN,无法改走该账号角色")
+
+    role_row = await db.execute(select(Role).where(Role.code == new_role))
+    role_obj = role_row.scalar_one_or_none()
+    if role_obj is None:
+        raise NotFoundError(f"Role not found: {new_role}")
+
+    await db.execute(delete(UserRole).where(UserRole.user_id == target.id))
+    db.add(UserRole(user_id=target.id, role_id=role_obj.id))
+
+    await write_audit(
+        db,
+        resource_type=AuditResourceType.USER_ROLE,
+        action=AuditAction.ROLE_ASSIGN,
+        user_id=actor_user_id,
+        user_email=actor_user_email,
+        resource_id=target.id,
+        request=request,
+        extra={"target_user_id": target.id, "old": old_roles, "new": new_role},
+        commit=False,
+    )
+    await db.commit()
+    await db.refresh(target)
+    return target
+
+
 async def reset_password(
     db: AsyncSession,
     *,
