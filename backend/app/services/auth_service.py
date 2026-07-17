@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from jose import JWTError
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
@@ -51,18 +51,26 @@ def _classify_identifier(identifier: str) -> str:
     return "email" if "@" in identifier.strip() else "username"
 
 
-async def _find_user_by_identifier(db: AsyncSession, identifier: str) -> User | None:
+async def _find_user_by_identifier(db: AsyncSession, identifier: str, *,
+                                   for_update: bool = False) -> User | None:
     """二选一识别:邮箱(含 @) / 用户名。
 
     只查 ACTIVE 用户:DISABLED/DEACTIVATED 账号不允许登录,
     且同一邮箱可能同时存在 ACTIVE + 非活跃记录导致 MultipleResultsFound。
+
+    for_update=True 时对命中行加悲观锁(SELECT ... FOR UPDATE),把同账号登录的
+    「查锁定态 → 验密码 → 递增/锁定」串行化到事务提交,堵住并发失败请求绕过锁检查
+    污染计数、漏判 429 的 TOCTOU 窗口。
     """
     ident = identifier.strip()
     active_filter = User.status == UserStatus.ACTIVE
     if _classify_identifier(ident) == "email":
-        row = await db.execute(select(User).where(User.email == ident, active_filter))
+        stmt = select(User).where(User.email == ident, active_filter)
     else:
-        row = await db.execute(select(User).where(User.username == ident, active_filter))
+        stmt = select(User).where(User.username == ident, active_filter)
+    if for_update:
+        stmt = stmt.with_for_update()
+    row = await db.execute(stmt)
     return row.scalar_one_or_none()
 
 
@@ -109,7 +117,8 @@ async def login(
         )
         raise TooManyAttemptsError()
 
-    user = await _find_user_by_identifier(db, identifier)
+    # 悲观行锁:同账号并发登录串行化,锁持到本请求事务提交(见 helper docstring)。
+    user = await _find_user_by_identifier(db, identifier, for_update=True)
 
     # 账号级锁定:在密码校验之前判;锁定期间的尝试不递增计数。
     # 锁定提示暴露「账号存在」—— 公网下锁定可用性(用户须知道为何登不上、找管理员解锁)
@@ -139,17 +148,13 @@ async def login(
         mem_locked_now = login_rate_limiter.record_failure(rate_key, ip)
 
         # 账号级失败计数(仅命中真实 ACTIVE 用户时):达到阈值 → 锁定 + 计数清零。
-        # SQL 原子自增(SET n = n + 1 RETURNING),并发失败登录不丢计数——匹配该列
-        # 「落库最强层」的定位,不依赖 ORM 读改写。
+        # user 由 FOR UPDATE 持锁读入,同账号请求已串行化,ORM 读改写即安全;
+        # 并发的下一次失败请求会阻塞到本次提交,拿锁后读到 locked_until 已设、
+        # 在锁检查处直接 429 返回,不会走到这里污染计数。
         account_locked_now = False
         if user is not None:
-            new_count = (await db.execute(
-                update(User)
-                .where(User.id == user.id)
-                .values(failed_login_attempts=User.failed_login_attempts + 1)
-                .returning(User.failed_login_attempts)
-            )).scalar_one()
-            if new_count >= settings.ACCOUNT_LOCK_THRESHOLD:
+            user.failed_login_attempts += 1
+            if user.failed_login_attempts >= settings.ACCOUNT_LOCK_THRESHOLD:
                 user.locked_until = datetime.now(timezone.utc) + timedelta(
                     minutes=settings.ACCOUNT_LOCK_MINUTES
                 )
