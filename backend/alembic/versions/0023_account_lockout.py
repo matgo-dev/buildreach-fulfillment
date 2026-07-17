@@ -6,7 +6,7 @@
 重置密码(人工解锁通道)清零并解除锁定。
 
 Revision ID: 0023_account_lockout
-Revises: 0021_so_cancel
+Revises: 0022_spec_descriptor
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0023_account_lockout"
-down_revision: Union[str, None] = "0021_so_cancel"
+down_revision: Union[str, None] = "0022_spec_descriptor"
 branch_labels = None
 depends_on = None
 
