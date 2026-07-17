@@ -31,6 +31,14 @@ def _valid_email_opt(v: str | None) -> str | None:
     return v if v is None else _valid_email(v)
 
 
+def _none_if_blank(v):
+    """mode=before:空串/纯空白归 None —— NULL 不占唯一索引,空串会占
+    (uq_users_username/phone 全状态唯一,两个"输入后删光"会互撞)。"""
+    if isinstance(v, str) and not v.strip():
+        return None
+    return v
+
+
 class AdminUserCreateIn(BaseModel):
     """管理员建内部账号(指派单角色)。role 白名单校验在 service 层
     ALLOWED_INTERNAL_ROLES(单一源头,schema 不复制一份枚举)。"""
@@ -44,6 +52,7 @@ class AdminUserCreateIn(BaseModel):
 
     _v_email = field_validator("email")(_valid_email)
     _v_password = field_validator("password")(_valid_password)
+    _v_username = field_validator("username", mode="before")(_none_if_blank)
 
 
 class AdminUserOut(BaseModel):

@@ -212,15 +212,19 @@ async def update_user(
         changes["email"] = {"old": target.email, "new": email}
         target.email = email
 
-    if phone is not None and phone != target.phone:
-        # 全状态唯一(镜像 uq_users_phone):停用不释放手机号,恢复走启用流程
-        row = await db.execute(
-            select(User.id).where(User.phone == phone, User.id != target.id)
-        )
-        if row.scalar_one_or_none() is not None:
-            raise ConflictError("该手机号已被其他用户使用")
-        changes["phone"] = {"old": target.phone, "new": phone}
-        target.phone = phone
+    if phone is not None:
+        # 空串=清除→NULL(NULL 不占 uq_users_phone,空串会);非空改号才查占用。
+        new_phone = phone.strip() or None
+        if new_phone != target.phone:
+            if new_phone is not None:
+                # 全状态唯一(镜像 uq_users_phone):停用不释放手机号,恢复走启用流程
+                row = await db.execute(
+                    select(User.id).where(User.phone == new_phone, User.id != target.id)
+                )
+                if row.scalar_one_or_none() is not None:
+                    raise ConflictError("该手机号已被其他用户使用")
+            changes["phone"] = {"old": target.phone, "new": new_phone}
+            target.phone = new_phone
 
     if not changes:
         return target

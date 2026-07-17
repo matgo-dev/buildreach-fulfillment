@@ -157,3 +157,36 @@ async def test_users_admin_endpoints_require_user_manage(client, sales_headers):
     assert (await client.post("/api/v1/users", headers=sales_headers, json={
         "email": "x@x.com", "name": "x", "password": "Aa123456789",
         "role": "SALES"})).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_create_blank_username_stored_as_null(client, superadmin_headers):
+    """空串 username 归 NULL:两个"输入后又删光"的建号不得撞 uq_users_username
+    (空串会占唯一索引,NULL 不占)。"""
+    r1 = await client.post("/api/v1/users", headers=superadmin_headers, json={
+        "email": "blank1@fulfillment.local", "name": "甲", "password": "Aa123456789",
+        "role": "SALES", "username": ""})
+    assert r1.status_code == 200, r1.text
+    assert r1.json()["data"]["username"] is None
+    r2 = await client.post("/api/v1/users", headers=superadmin_headers, json={
+        "email": "blank2@fulfillment.local", "name": "乙", "password": "Aa123456789",
+        "role": "SALES", "username": ""})
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["data"]["username"] is None
+
+
+@pytest.mark.asyncio
+async def test_update_clear_phone_multiple_users(client, superadmin_headers):
+    """清空手机号=置 NULL:第二个人清空不得被第一个人的"空手机号"挡 409(空≠占用)。"""
+    a = await _create(client, superadmin_headers, email="clearph1@fulfillment.local")
+    b = await _create(client, superadmin_headers, email="clearph2@fulfillment.local")
+    for uid, ph in ((a["id"], "+255700000101"), (b["id"], "+255700000102")):
+        assert (await client.put(f"/api/v1/users/{uid}", headers=superadmin_headers,
+                                 json={"phone": ph})).status_code == 200
+    ra = await client.put(f"/api/v1/users/{a['id']}", headers=superadmin_headers,
+                          json={"phone": ""})
+    assert ra.status_code == 200 and ra.json()["data"]["phone"] is None
+    rb = await client.put(f"/api/v1/users/{b['id']}", headers=superadmin_headers,
+                          json={"phone": ""})
+    assert rb.status_code == 200, rb.text
+    assert rb.json()["data"]["phone"] is None
