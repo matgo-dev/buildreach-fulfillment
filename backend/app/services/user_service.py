@@ -1,7 +1,7 @@
 """内部账号管理 service。"""
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
@@ -46,6 +46,12 @@ ALLOWED_INTERNAL_ROLES = {RoleCode.ADMIN, RoleCode.PRODUCT_OPERATOR, RoleCode.SA
                           RoleCode.PURCHASER}
 
 
+def _is_super_admin(user: User) -> bool:
+    """super admin(env 零号账号)判定单一源头。守卫依赖此身份,故其 email 同时受
+    update_user 改写保护 —— 二者共同封死「先改邮箱再绕守卫」的两步绕过。"""
+    return user.email == settings.SUPER_ADMIN_EMAIL
+
+
 async def create_internal_user(
     db: AsyncSession,
     *,
@@ -66,16 +72,13 @@ async def create_internal_user(
         )
     if not validate_password_strength(password):
         raise ValidationFailedError(PASSWORD_RULE_MESSAGE)
-    # 排除已停用账号,允许复用
-    row = await db.execute(
-        select(User.id).where(User.email == email, User.status != UserStatus.DISABLED)
-    )
+    # 全状态唯一(镜像 uq_users_email):停用不释放邮箱,恢复走启用流程
+    row = await db.execute(select(User.id).where(User.email == email))
     if row.scalar_one_or_none() is not None:
         raise ConflictError("Email 已存在")
     if username:
-        row2 = await db.execute(
-            select(User.id).where(User.username == username, User.status != UserStatus.DISABLED)
-        )
+        # 全状态唯一(镜像 uq_users_username):停用不释放用户名,恢复走启用流程
+        row2 = await db.execute(select(User.id).where(User.username == username))
         if row2.scalar_one_or_none() is not None:
             raise ConflictError("用户名已存在")
 
@@ -126,16 +129,27 @@ async def create_internal_user(
 async def list_users(
     db: AsyncSession,
     *,
+    q: str | None = None,
+    status: str | None = None,
     page: int = 1,
     page_size: int = 50,
 ) -> tuple[list[tuple[User, list[str]]], int]:
+    """用户列表:筛选(状态/关键词 name|email|username)+ 分页,id 降序。"""
     page = max(1, page)
     page_size = max(1, min(page_size, 200))
     offset = (page - 1) * page_size
 
-    total = (await db.execute(select(func.count(User.id)))).scalar_one()
+    conds = []
+    if status:
+        conds.append(User.status == status)
+    if q:
+        like = f"%{q}%"
+        conds.append(or_(User.name.ilike(like), User.email.ilike(like),
+                         User.username.ilike(like)))
+
+    total = (await db.execute(select(func.count(User.id)).where(*conds))).scalar_one()
     rows = await db.execute(
-        select(User).order_by(User.id.desc()).offset(offset).limit(page_size)
+        select(User).where(*conds).order_by(User.id.desc()).offset(offset).limit(page_size)
     )
     users = list(rows.scalars().all())
     if not users:
@@ -154,6 +168,14 @@ async def list_users(
     return items, total
 
 
+async def get_user_roles(db: AsyncSession, user_id: int) -> list[str]:
+    """单用户角色 codes(写端点响应组装用)。"""
+    rows = await db.execute(
+        select(Role.code).join(UserRole, UserRole.role_id == Role.id)
+        .where(UserRole.user_id == user_id))
+    return sorted(r for (r,) in rows.all())
+
+
 async def update_user(
     db: AsyncSession,
     *,
@@ -170,6 +192,10 @@ async def update_user(
     if target is None:
         raise NotFoundError("User not found")
 
+    # super admin 的 email 是守卫判定的身份锚点,不允许改写(封死两步绕过)。
+    if email is not None and email != target.email and _is_super_admin(target):
+        raise ValidationFailedError("不能修改 super admin 的邮箱")
+
     changes: dict = {}
 
     if name is not None and name != target.name:
@@ -177,32 +203,28 @@ async def update_user(
         target.name = name
 
     if email is not None and email != target.email:
-        # 检查邮箱唯一(排除 DISABLED)
+        # 全状态唯一(镜像 uq_users_email):停用不释放邮箱,恢复走启用流程
         row = await db.execute(
-            select(User.id).where(
-                User.email == email,
-                User.status != UserStatus.DISABLED,
-                User.id != target.id,
-            )
+            select(User.id).where(User.email == email, User.id != target.id)
         )
         if row.scalar_one_or_none() is not None:
             raise ConflictError("该邮箱已被其他用户使用")
         changes["email"] = {"old": target.email, "new": email}
         target.email = email
 
-    if phone is not None and phone != target.phone:
-        # 检查手机号唯一(排除 DISABLED)
-        row = await db.execute(
-            select(User.id).where(
-                User.phone == phone,
-                User.status != UserStatus.DISABLED,
-                User.id != target.id,
-            )
-        )
-        if row.scalar_one_or_none() is not None:
-            raise ConflictError("该手机号已被其他用户使用")
-        changes["phone"] = {"old": target.phone, "new": phone}
-        target.phone = phone
+    if phone is not None:
+        # 空串=清除→NULL(NULL 不占 uq_users_phone,空串会);非空改号才查占用。
+        new_phone = phone.strip() or None
+        if new_phone != target.phone:
+            if new_phone is not None:
+                # 全状态唯一(镜像 uq_users_phone):停用不释放手机号,恢复走启用流程
+                row = await db.execute(
+                    select(User.id).where(User.phone == new_phone, User.id != target.id)
+                )
+                if row.scalar_one_or_none() is not None:
+                    raise ConflictError("该手机号已被其他用户使用")
+            changes["phone"] = {"old": target.phone, "new": new_phone}
+            target.phone = new_phone
 
     if not changes:
         return target
@@ -265,7 +287,7 @@ async def disable_user(
     if target.id == actor_user_id:
         raise ValidationFailedError("不能停用自己的账号")
 
-    if target.email == settings.SUPER_ADMIN_EMAIL:
+    if _is_super_admin(target):
         raise ValidationFailedError("不能停用 super admin 账号")
 
     if target.status == UserStatus.DISABLED:
@@ -317,6 +339,112 @@ async def enable_user(
         db,
         resource_type=AuditResourceType.USER,
         action=AuditAction.USER_ENABLE,
+        user_id=actor_user_id,
+        user_email=actor_user_email,
+        resource_id=target.id,
+        request=request,
+        extra={"target_user_id": target.id, "target_email": target.email},
+        commit=False,
+    )
+    await db.commit()
+    await db.refresh(target)
+    return target
+
+
+async def change_role(
+    db: AsyncSession,
+    *,
+    target_user_id: int,
+    new_role: str,
+    actor_user_id: int,
+    actor_user_email: str,
+    request: Request | None = None,
+) -> User:
+    """替换用户角色(内部用户恒单角色)。守卫镜像停用三件套。
+
+    规则:
+    - new_role ∈ ALLOWED_INTERNAL_ROLES(单一源头白名单)
+    - 不能改自己的角色(防自锁/自提权)
+    - 不能改 super admin
+    - 不能把最后一个可用 ADMIN 改走(防系统失联)
+    - 已是该角色 → 幂等返回,不写审计
+    权限每请求查库(core/dependencies),改角色即时生效,无需踢会话。
+    """
+    if new_role not in ALLOWED_INTERNAL_ROLES:
+        raise ValidationFailedError(f"角色必须是 {sorted(ALLOWED_INTERNAL_ROLES)} 之一")
+    target = await db.get(User, target_user_id)
+    if target is None:
+        raise NotFoundError("User not found")
+    if target.id == actor_user_id:
+        raise ValidationFailedError("不能修改自己的角色")
+    if _is_super_admin(target):
+        raise ValidationFailedError("不能修改 super admin 的角色")
+
+    old_roles = await get_user_roles(db, target.id)
+    if old_roles == [new_role]:
+        return target  # 幂等
+
+    if RoleCode.ADMIN in old_roles and new_role != RoleCode.ADMIN:
+        if target.status == UserStatus.ACTIVE and await _count_active_admins(db) <= 1:
+            raise ValidationFailedError("系统至少保留一个可用 ADMIN,无法改走该账号角色")
+
+    role_row = await db.execute(select(Role).where(Role.code == new_role))
+    role_obj = role_row.scalar_one_or_none()
+    if role_obj is None:
+        raise NotFoundError(f"Role not found: {new_role}")
+
+    await db.execute(delete(UserRole).where(UserRole.user_id == target.id))
+    db.add(UserRole(user_id=target.id, role_id=role_obj.id))
+
+    await write_audit(
+        db,
+        resource_type=AuditResourceType.USER_ROLE,
+        action=AuditAction.ROLE_ASSIGN,
+        user_id=actor_user_id,
+        user_email=actor_user_email,
+        resource_id=target.id,
+        request=request,
+        extra={"target_user_id": target.id, "old": old_roles, "new": new_role},
+        commit=False,
+    )
+    await db.commit()
+    await db.refresh(target)
+    return target
+
+
+async def reset_password(
+    db: AsyncSession,
+    *,
+    target_user_id: int,
+    new_password: str,
+    actor_user_id: int,
+    actor_user_email: str,
+    request: Request | None = None,
+) -> User:
+    """管理员代重置密码:临时密码 + 强制首登改密 + token_version+1 踢掉全部旧会话。
+
+    规则:
+    - 不能重置自己(自助走 /auth/change-password,须验旧密码)
+    - 不能重置 super admin(env 零号账号)
+    """
+    if not validate_password_strength(new_password):
+        raise ValidationFailedError(PASSWORD_RULE_MESSAGE)
+    target = await db.get(User, target_user_id)
+    if target is None:
+        raise NotFoundError("User not found")
+    if target.id == actor_user_id:
+        raise ValidationFailedError("不能重置自己的密码,请走修改密码")
+    if _is_super_admin(target):
+        raise ValidationFailedError("不能重置 super admin 密码")
+
+    target.password_hash = hash_password(new_password)
+    target.must_change_password = True
+    target.token_version += 1
+
+    await write_audit(
+        db,
+        resource_type=AuditResourceType.USER,
+        action=AuditAction.PASSWORD_RESET,
         user_id=actor_user_id,
         user_email=actor_user_email,
         resource_id=target.id,

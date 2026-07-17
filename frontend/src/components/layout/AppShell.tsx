@@ -11,6 +11,7 @@ import {
   AccountBookOutlined,
   UserOutlined,
   LogoutOutlined,
+  SafetyCertificateOutlined,
 } from "@ant-design/icons";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuthStore } from "@/stores/authStore";
@@ -32,6 +33,7 @@ const MENU_ITEMS = [
   { key: "/purchasing/orders", icon: <ShoppingCartOutlined />, label: "采购单", perm: Permissions.PURCHASE_READ },
   { key: "/inbound", icon: <InboxOutlined />, label: "入库单", perm: Permissions.INBOUND_READ },
   { key: "/finance/payables", icon: <AccountBookOutlined />, label: "财务·应付款", perm: Permissions.PAYABLE_READ },
+  { key: "/admin/users", icon: <SafetyCertificateOutlined />, label: "用户管理", perm: Permissions.USER_MANAGE },
 ];
 
 export function AppShell({ children, breadcrumb = [] }: { children: ReactNode; breadcrumb?: string[] }) {
