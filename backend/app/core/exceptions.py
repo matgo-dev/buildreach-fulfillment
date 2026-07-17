@@ -455,6 +455,14 @@ class SalesOrderHasActivePurchaseError(BusinessError):
                          message_key=MessageKey.SALES_ORDER_HAS_ACTIVE_PURCHASE)
 
 
+class SalesOrderHasActiveOutboundError(BusinessError):
+    """取消被拦:存在非 CANCELLED 的出库单(镜像 41802,下游轴从采购扩到出库)。
+    不级联砍下游——解链人工自下而上:先取消/撤销全部出库单再取消 SO。"""
+
+    def __init__(self, message: str = "Cannot cancel a sales order with active outbound orders"):
+        super().__init__(status.HTTP_409_CONFLICT, 41803, message)
+
+
 # 模块段 19 = 出库单(出库单状态机 + 确认装柜可发闸)。见 db/models/outbound_order.py。
 class OutboundOrderInvalidTransitionError(BusinessError):
     """状态转移不在 OUTBOUND_ORDER_TRANSITIONS 矩阵。"""

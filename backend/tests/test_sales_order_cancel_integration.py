@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.db.models.audit_log import AuditLog
 from app.db.models.sales_order import SalesOrderLine
+from tests.outbound_helpers import create_outbound, create_shipment
 from tests.purchase_helpers import (
     create_supplier,
     make_confirmed_sales_order,
@@ -69,6 +70,29 @@ async def test_cancel_blocked_by_active_po_then_allowed(
     assert r.status_code == 409 and r.json()["code"] == 41802
 
     await client.post(f"/api/v1/purchase-orders/{po['id']}/cancel", headers=purchaser_headers)
+    r2 = await _cancel(client, sales_headers, so["id"])
+    assert r2.status_code == 200, r2.text
+
+
+# ---------- 锚点 2b:活动出库单硬拦(含 DRAFT 草稿)→ 全取消后放行 ----------
+# 出库单不经采购/收货即可建 DRAFT(create_order 不校验可发库存,只校验 SO/柜状态),
+# 故用最小链路复现:草稿出库单未扣库存,但仍是「指向本 SO 的活动下游单据」,
+# 放行会留下一张挂在已取消 SO 下的活动出库单(悬空引用)。
+
+async def test_cancel_blocked_by_active_outbound_then_allowed(
+        client, db_session, sales_headers, logistics_headers):
+    so, so_lines = await _make_so(client, sales_headers, db_session)
+    ship = await create_shipment(client, logistics_headers)
+    cr = await create_outbound(client, logistics_headers, sales_order_id=so["id"],
+                               shipment_id=ship["id"],
+                               lines=[{"sales_order_line_id": so_lines[0]["id"], "qty": 1}])
+    assert cr.status_code == 200, cr.text
+    ob_id = cr.json()["data"]["order"]["id"]
+
+    r = await _cancel(client, sales_headers, so["id"])  # DRAFT 出库单也算活动
+    assert r.status_code == 409 and r.json()["code"] == 41803
+
+    await client.post(f"/api/v1/outbound-orders/{ob_id}/cancel", headers=logistics_headers)
     r2 = await _cancel(client, sales_headers, so["id"])
     assert r2.status_code == 200, r2.text
 
