@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Card, Input, Table, Tag, App } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useRouter } from "next/navigation";
-import { catalogApi, SkuSearchItem, specText } from "@/lib/catalog";
+import { catalogApi, SkuSearchItem, specAxisText } from "@/lib/catalog";
 import { display } from "@/lib/i18n";
 import { SKU_STATUS_META } from "@/lib/productStatus";
 
@@ -36,7 +36,7 @@ export default function SkuSearchPage() {
     { title: "编码", dataIndex: "sku_code", width: 150 },
     { title: "名称", dataIndex: "name_i18n", render: (v) => display(v) },
     { title: "单位", dataIndex: "unit", width: 80 },
-    { title: "规格", dataIndex: "spec_jsonb", render: (v) => specText(v) || "—" },
+    { title: "规格", dataIndex: "spec_display", render: (_, r) => specAxisText(r.spec_display) || "—" },
     {
       title: "状态",
       dataIndex: "status",

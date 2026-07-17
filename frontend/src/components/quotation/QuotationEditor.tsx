@@ -22,7 +22,7 @@ import type { ColumnsType } from "antd/es/table";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { display } from "@/lib/i18n";
-import { catalogApi, specDisplayText } from "@/lib/catalog";
+import { catalogApi, specAxisText } from "@/lib/catalog";
 import { quotationApi, type QuotationSaveBody } from "@/lib/quotation";
 import { customerApi, type CustomerListItem } from "@/lib/customer";
 import { ProductPickerDrawer, type PickedSku } from "@/components/quotation/ProductPickerDrawer";
@@ -139,7 +139,9 @@ export function QuotationEditor({ mode, orderId }: { mode: "create" | "edit"; or
     ]);
     try {
       const detail = await catalogApi.getSku(p.sku_id); // spec_display = SPU∪SKU 后端单一解析
-      patchLine(key, { spec_text: specDisplayText(detail.spec_display) || undefined });
+      // 预览须与保存时后端按 order.language 冻结的快照口径一致:只取 SKU 轴、按当前报价语言。
+      const lang = form.getFieldValue("language") as string | undefined;
+      patchLine(key, { spec_text: specAxisText(detail.spec_display, lang) || undefined });
     } catch {
       /* 规格预览失败不阻断录入;保存时后端仍会按 order_lang 冻结快照 */
     }
