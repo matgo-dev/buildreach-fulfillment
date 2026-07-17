@@ -23,7 +23,8 @@ from app.schemas.sales_order import (
     SalesOrderListItem,
     SalesOrderOut,
 )
-from app.services import purchase_order_service, sales_order_service
+from app.services import purchase_order_service, sales_order_service, stock_balance_service
+from app.services.stock_balance_service import StockScope
 
 router = APIRouter(prefix="/sales-orders", tags=["sales-orders"])
 
@@ -98,6 +99,12 @@ async def get_sales_order(
         order_out["related_purchase_orders"] = [
             RelatedPurchaseOrderItem.build(it, can_see_cost=can_see_cost(current))
             for it in related]
+    # 库存跟踪块:仅 inventory:read 者下发(响应键存在与否驱动前端,后端脱敏非前端隐藏)。
+    # scope=ALL:该 SO 全部 (sku) 行含已入 0,对照订购;无成本/供应商字段 → 非红线。
+    if has_permission(current, Permissions.INVENTORY_READ):
+        stock_rows, _ = await stock_balance_service.compute_stock_balance(
+            db, sales_order_id=order_id, scope=StockScope.ALL)
+        order_out["stock_balances"] = stock_rows
 
     line_outs = []
     for ln in lines:

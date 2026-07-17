@@ -23,6 +23,12 @@ import {
   PURCHASE_PROGRESS_META,
 } from "@/lib/purchaseOrderStatus";
 import { PurchaseOrderBuilder } from "@/components/purchasing/PurchaseOrderBuilder";
+import type { StockBalanceLine } from "@/lib/inventory";
+
+// 数字单元:tabular-nums 对齐(DESIGN §2 数字列),照库存列表页既有写法。
+function numCell(v: number | string) {
+  return <span style={{ fontVariantNumeric: "tabular-nums" }}>{formatQty(v)}</span>;
+}
 
 export default function SalesOrderDetailPage() {
   const params = useParams();
@@ -88,6 +94,7 @@ export default function SalesOrderDetailPage() {
   if (loading || !order) return <PageLoading />;
 
   const relatedPOs = order.related_purchase_orders; // undefined = 无 purchase:read,不渲染区块
+  const stockBalances = order.stock_balances; // undefined = 无 inventory:read,不渲染区块(响应键存在与否驱动渲染)
 
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
@@ -232,6 +239,41 @@ export default function SalesOrderDetailPage() {
             pagination={false}
             scroll={{ x: 720 }}
             locale={{ emptyText: "暂无关联采购单" }}
+          />
+        </Card>
+      )}
+
+      {/* 库存/到货:仅 inventory:read 者的响应带 stock_balances;无权者响应无此键,整块不渲染
+          (照关联采购单同一模式,前端不自判权限)。含全部行(未到货=0 也列出,对照订购)。 */}
+      {stockBalances && (
+        <Card title="库存 / 到货">
+          <Table<StockBalanceLine>
+            rowKey="sku_id"
+            size="small"
+            columns={[
+              { title: "SKU编码", dataIndex: "sku_code", width: 140 },
+              { title: "品名", dataIndex: "name", ellipsis: true },
+              { title: "规格", dataIndex: "spec_text", ellipsis: true, render: (v) => v || "—" },
+              { title: "单位", dataIndex: "unit", width: 70 },
+              { title: "订购量", dataIndex: "ordered_qty", width: 90, align: "right", render: numCell },
+              { title: "已入库", dataIndex: "inbound_qty", width: 90, align: "right", render: numCell },
+              { title: "已出库", dataIndex: "outbound_qty", width: 90, align: "right", render: numCell },
+              {
+                title: "可发量",
+                dataIndex: "available_qty",
+                width: 90,
+                align: "right",
+                render: (v: number | string) => (
+                  <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
+                    {formatQty(v)}
+                  </span>
+                ),
+              },
+            ]}
+            dataSource={stockBalances}
+            pagination={false}
+            scroll={{ x: 720 }}
+            locale={{ emptyText: "暂无库存数据" }}
           />
         </Card>
       )}
