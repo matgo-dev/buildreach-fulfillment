@@ -8,15 +8,17 @@ import {
   Descriptions,
   Popconfirm,
   Space,
-  Spin,
   Table,
-  Tag,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import { Can } from "@/components/common/Can";
+import { StatusTag } from "@/components/common/StatusTag";
+import { PageLoading } from "@/components/common/PageLoading";
 import { Permissions } from "@/config/permission-matrix";
 import { QuotationEditor } from "@/components/quotation/QuotationEditor";
+import { formatMoney } from "@/lib/format";
+import { resolveBizError } from "@/lib/errorMessages";
 import {
   quotationApi,
   type QuotationLineOut,
@@ -30,10 +32,6 @@ import {
   quotationUnlockable,
   quotationVoidable,
 } from "@/lib/quotationStatus";
-
-function money(v: number | string) {
-  return Number(v).toLocaleString(undefined, { minimumFractionDigits: 2 });
-}
 
 export default function QuotationDetailPage() {
   const params = useParams();
@@ -60,7 +58,7 @@ export default function QuotationDetailPage() {
       setCustomerName(o.customer_display ?? `#${o.customer_id}`);
       setSalespersonName(o.salesperson_display ?? `#${o.salesperson_id}`);
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "加载失败");
+      message.error(resolveBizError(e, "加载失败"));
     } finally {
       setLoading(false);
     }
@@ -77,7 +75,7 @@ export default function QuotationDetailPage() {
       message.success(ok);
       load();
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "操作失败");
+      message.error(resolveBizError(e, "操作失败"));
     } finally {
       setBusy(false);
     }
@@ -91,7 +89,7 @@ export default function QuotationDetailPage() {
       message.success(`已转销售单 ${so.no}`);
       router.push(`/sales/orders/${so.id}`);
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "转销售失败");
+      message.error(resolveBizError(e, "转销售失败"));
       setBusy(false);
     }
   }
@@ -102,18 +100,16 @@ export default function QuotationDetailPage() {
       { title: "商品", dataIndex: "name_snapshot", ellipsis: true },
       { title: "规格", dataIndex: "spec_text_snapshot", ellipsis: true, render: (v) => v || "—" },
       { title: "单位", dataIndex: "unit_snapshot", width: 70 },
-      { title: "数量", dataIndex: "qty", width: 90, align: "right", render: money },
-      { title: "单价", dataIndex: "unit_price", width: 110, align: "right", render: money },
-      { title: "金额", dataIndex: "line_total", width: 120, align: "right", render: money },
+      { title: "数量", dataIndex: "qty", width: 90, align: "right", render: formatMoney },
+      { title: "单价", dataIndex: "unit_price", width: 110, align: "right", render: formatMoney },
+      { title: "金额", dataIndex: "line_total", width: 120, align: "right", render: formatMoney },
       { title: "备注", dataIndex: "remark", ellipsis: true, render: (v) => v || "—" },
     ],
     [],
   );
 
   if (isEdit) return <QuotationEditor mode="edit" orderId={id} />;
-  if (loading || !order) return <Spin style={{ display: "block", marginTop: 80 }} />;
-
-  const meta = QUOTATION_STATUS_META[order.status];
+  if (loading || !order) return <PageLoading />;
 
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
@@ -128,7 +124,7 @@ export default function QuotationDetailPage() {
               aria-label="返回列表"
             />
             <span>{order.no}</span>
-            <Tag color={meta.color}>{meta.label}</Tag>
+            <StatusTag meta={QUOTATION_STATUS_META} value={order.status} />
           </Space>
         }
         extra={
@@ -189,7 +185,7 @@ export default function QuotationDetailPage() {
           <Descriptions.Item label="备注" span={2}>{order.remark || "—"}</Descriptions.Item>
           <Descriptions.Item label="总额" span={2}>
             <span style={{ fontWeight: 600 }}>
-              {order.currency} {money(order.total_amount)}
+              {order.currency} {formatMoney(order.total_amount)}
             </span>
           </Descriptions.Item>
         </Descriptions>

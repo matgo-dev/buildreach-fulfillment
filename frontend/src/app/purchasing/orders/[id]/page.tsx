@@ -1,15 +1,17 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { App, Button, Card, Descriptions, Popconfirm, Space, Spin, Table, Tag } from "antd";
+import { App, Button, Card, Descriptions, Popconfirm, Space, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import { Can } from "@/components/common/Can";
+import { StatusTag } from "@/components/common/StatusTag";
+import { PageLoading } from "@/components/common/PageLoading";
 import { Permissions } from "@/config/permission-matrix";
-import { formatQty } from "@/lib/salesOrder";
+import { formatDateTime, formatQty } from "@/lib/format";
+import { resolveBizError } from "@/lib/errorMessages";
 import {
   formatCost,
-  purchaseErrorMessage,
   purchaseOrderApi,
   type PurchaseOrderLineOut,
   type PurchaseOrderOut,
@@ -50,7 +52,7 @@ export default function PurchaseOrderDetailPage() {
       setLines(ls);
       setInbounds(ibs);
     } catch (e) {
-      message.error(purchaseErrorMessage(e, "加载失败"));
+      message.error(resolveBizError(e, "加载失败"));
     } finally {
       setLoading(false);
     }
@@ -67,7 +69,7 @@ export default function PurchaseOrderDetailPage() {
       message.success(ok);
       load();
     } catch (e) {
-      message.error(purchaseErrorMessage(e, "操作失败"));
+      message.error(resolveBizError(e, "操作失败"));
     } finally {
       setBusy(false);
     }
@@ -80,7 +82,7 @@ export default function PurchaseOrderDetailPage() {
       message.success("已删除");
       router.push("/purchasing/orders");
     } catch (e) {
-      message.error(purchaseErrorMessage(e, "删除失败"));
+      message.error(resolveBizError(e, "删除失败"));
       setBusy(false);
     }
   }
@@ -124,9 +126,7 @@ export default function PurchaseOrderDetailPage() {
     [],
   );
 
-  if (loading || !order) return <Spin style={{ display: "block", marginTop: 80 }} />;
-
-  const meta = PURCHASE_ORDER_STATUS_META[order.status];
+  if (loading || !order) return <PageLoading />;
 
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
@@ -141,11 +141,9 @@ export default function PurchaseOrderDetailPage() {
               aria-label="返回列表"
             />
             <span>{order.no}</span>
-            <Tag color={meta.color}>{meta.label}</Tag>
+            <StatusTag meta={PURCHASE_ORDER_STATUS_META} value={order.status} />
             {order.receipt_progress && (
-              <Tag color={RECEIPT_PROGRESS_META[order.receipt_progress].color}>
-                {RECEIPT_PROGRESS_META[order.receipt_progress].label}
-              </Tag>
+              <StatusTag meta={RECEIPT_PROGRESS_META} value={order.receipt_progress} />
             )}
             {/* 在途信号从已加载的入库记录派生(IN_TRANSIT 计数),与收货进度并列弱化。 */}
             <InTransitBadge count={inbounds.filter((i) => i.status === "IN_TRANSIT").length} />
@@ -223,7 +221,7 @@ export default function PurchaseOrderDetailPage() {
             )}
           </Descriptions.Item>
           <Descriptions.Item label="状态">
-            <Tag color={meta.color}>{meta.label}</Tag>
+            <StatusTag meta={PURCHASE_ORDER_STATUS_META} value={order.status} />
           </Descriptions.Item>
           <Descriptions.Item label="备注" span={2}>
             {order.remark || "—"}
@@ -274,10 +272,9 @@ export default function PurchaseOrderDetailPage() {
               title: "状态",
               dataIndex: "status",
               width: 100,
-              render: (s: RelatedInboundOrder["status"]) => {
-                const m = INBOUND_ORDER_STATUS_META[s];
-                return <Tag color={m.color}>{m.label}</Tag>;
-              },
+              render: (s: RelatedInboundOrder["status"]) => (
+                <StatusTag meta={INBOUND_ORDER_STATUS_META} value={s} />
+              ),
             },
             {
               title: "承运商 / 头程单号",
@@ -294,7 +291,7 @@ export default function PurchaseOrderDetailPage() {
               title: "创建时间",
               dataIndex: "created_at",
               width: 170,
-              render: (v: string) => v?.replace("T", " ").slice(0, 16),
+              render: (v: string) => formatDateTime(v),
             },
           ]}
           dataSource={inbounds}

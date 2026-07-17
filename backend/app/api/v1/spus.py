@@ -1,15 +1,15 @@
 """SPU 路由 /api/v1/spus。全端点:列表/详情/建/改/上下架/逻辑删。"""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import CurrentUser
 from app.core.exceptions import success
 from app.db.session import get_db
 from app.rbac.constants import Permissions
-from app.rbac.guards import require_permission
-from app.schemas.common import StatusPatchIn
+from app.rbac.guards import has_permission, require_permission
+from app.schemas.common import Page, PageParams, StatusPatchIn
 from app.schemas.spu import SpuCreateIn, SpuOut, SpuUpdateIn
 from app.schemas.sku import sku_out
 from app.services import category_service, image_service, sku_service, spu_service
@@ -20,18 +20,18 @@ router = APIRouter(prefix="/spus", tags=["spus"])
 
 @router.get("", summary="SPU 列表")
 async def list_spus(
+    page_params: PageParams = Depends(),
     category_code: str | None = None,
     status: str | None = None,
     keyword: str | None = None,
     include_descendants: bool = True,
-    page: int = Query(1, ge=1),
-    size: int = Query(20, ge=1, le=100),
     _current: CurrentUser = Depends(require_permission(Permissions.PRODUCT_READ)),
     db: AsyncSession = Depends(get_db),
 ):
     rows, total = await spu_service.list_spus(
         db, category_code=category_code, status=status, keyword=keyword,
-        include_descendants=include_descendants, page=page, size=size)
+        include_descendants=include_descendants,
+        page=page_params.page, size=page_params.size)
     active_ids = await sku_service.spu_ids_with_active_sku(db, [s.id for s in rows])
     covers = await image_service.cover_keys(db, [s.id for s in rows])
     cat_names = await category_service.names_by_code(db, [s.category_code for s in rows])
@@ -45,7 +45,8 @@ async def list_spus(
         d["main_image"] = covers.get(s.id)  # 封面 key(缩略/回退用),无图则 None
         d["category_name_i18n"] = cat_names.get(s.category_code)
         items.append(d)
-    return success({"items": items, "total": total, "page": page, "size": size})
+    return success(Page(items=items, total=total,
+                        page=page_params.page, size=page_params.size).model_dump())
 
 
 @router.get("/{spu_id}", summary="SPU 详情(含内嵌 SKU + 图集 + 派生可用性)")
@@ -56,7 +57,7 @@ async def get_spu(
 ):
     spu = await spu_service.get_spu(db, spu_id)
     skus = await sku_service.list_skus_by_spu(db, spu_id)
-    include_cost = Permissions.PRODUCT_MANAGE in current.permissions
+    include_cost = has_permission(current, Permissions.PRODUCT_MANAGE)
     images_by_sku = await image_service.sku_images_by_sku(db, [s.id for s in skus])
     sku_dicts = []
     for s in skus:

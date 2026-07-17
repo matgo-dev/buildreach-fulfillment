@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Drawer, Form, Input, TreeSelect, Button, Space, Divider, App } from "antd";
 import { catalogApi, CategoryNode, ImageRefIn, SpuDetail } from "@/lib/catalog";
 import { display } from "@/lib/i18n";
+import { resolveBizError } from "@/lib/errorMessages";
 import { SpuImageManager } from "@/components/catalog/ImageManager";
 import { SpecEditor, SpecEditorHandle } from "@/components/catalog/SpecEditor";
 import { colors } from "@/lib/tokens";
@@ -123,7 +124,7 @@ export function SpuForm({
       onSaved();
       onClose();
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "保存失败");
+      message.error(resolveBizError(e, "保存失败"));
     } finally {
       setSaving(false);
     }

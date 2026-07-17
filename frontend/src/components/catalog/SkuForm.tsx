@@ -20,6 +20,7 @@ import {
   UnitOut,
 } from "@/lib/catalog";
 import { display } from "@/lib/i18n";
+import { resolveBizError } from "@/lib/errorMessages";
 import { ImageZone } from "@/components/catalog/ImageManager";
 import { SpecEditor, SpecEditorHandle } from "@/components/catalog/SpecEditor";
 import { colors } from "@/lib/tokens";
@@ -105,7 +106,7 @@ export function SkuForm({
       onSaved();
       onClose();
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "保存失败");
+      message.error(resolveBizError(e, "保存失败"));
     } finally {
       setSaving(false);
     }

@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   App,
   Button,
@@ -15,13 +15,17 @@ import {
   Select,
   Space,
   Table,
-  Tag,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { PlusOutlined } from "@ant-design/icons";
 import { Can } from "@/components/common/Can";
+import { StatusTag } from "@/components/common/StatusTag";
+import { ListErrorState } from "@/components/common/ListErrorState";
+import { useListQuery } from "@/hooks/useListQuery";
+import { useCrudDrawer } from "@/hooks/useCrudDrawer";
 import { Permissions } from "@/config/permission-matrix";
 import { useAuthStore } from "@/stores/authStore";
+import { resolveBizError } from "@/lib/errorMessages";
 import {
   SUPPLIER_STATUS_META,
   supplierApi,
@@ -29,7 +33,6 @@ import {
   type SupplierOut,
   type SupplierSaveBody,
 } from "@/lib/supplier";
-import { colors } from "@/lib/tokens";
 
 // 默认币种可选值(ISO4217,与报价/销售币种口径一致)。可空。
 import { CURRENCY_OPTIONS } from "@/lib/currencies";
@@ -40,108 +43,39 @@ const STATUS_TABS = [
   { label: "全部", value: "" },
 ];
 
-type DrawerMode = "view" | "create" | "edit" | null;
-
 export default function SupplierListPage() {
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const canManage = useAuthStore((s) => s.hasPermission(Permissions.SUPPLIER_MANAGE));
 
-  const [rows, setRows] = useState<SupplierListItem[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [status, setStatus] = useState("ACTIVE");
   const [q, setQ] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState(false);
-
-  const [mode, setMode] = useState<DrawerMode>(null);
-  const [current, setCurrent] = useState<SupplierOut | null>(null);
-  const [saving, setSaving] = useState(false);
   const [rowBusyId, setRowBusyId] = useState<number | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setLoadError(false);
-    try {
-      const res = await supplierApi.list({
+  const fetcher = useCallback(
+    ({ page, size }: { page: number; size: number }) =>
+      supplierApi.list({
         status: status || undefined,
         q: q || undefined,
         page,
-        size: 20,
-      });
-      setRows(res.items);
-      setTotal(res.total);
-    } catch (e) {
-      setLoadError(true);
-      message.error(e instanceof Error ? e.message : "加载供应商列表失败");
-    } finally {
-      setLoading(false);
-    }
-  }, [status, q, page, message]);
+        size,
+      }),
+    [status, q],
+  );
+  const { rows, setPage, loading, loadError, load, pagination } = useListQuery<SupplierListItem>(
+    fetcher,
+    { errorMessage: "加载供应商列表失败" },
+  );
 
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  async function openView(id: number) {
-    setMode("view");
-    setCurrent(null);
-    try {
-      setCurrent(await supplierApi.get(id));
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : "加载供应商失败");
-      setMode(null);
-    }
-  }
-
-  async function openEdit(id: number) {
-    try {
-      const s = await supplierApi.get(id);
-      setCurrent(s);
-      form.setFieldsValue(s);
-      setMode("edit");
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : "加载供应商失败");
-    }
-  }
-
-  function openCreate() {
-    setCurrent(null);
-    form.resetFields();
-    setMode("create");
-  }
-
-  function closeDrawer() {
-    setMode(null);
-    setCurrent(null);
-    form.resetFields();
-  }
-
-  async function onSubmit() {
-    let values: SupplierSaveBody;
-    try {
-      values = await form.validateFields();
-    } catch {
-      return;
-    }
-    setSaving(true);
-    try {
-      if (mode === "create") {
-        await supplierApi.create(values);
-        message.success("已创建");
-      } else if (mode === "edit" && current) {
-        await supplierApi.update(current.id, values);
-        message.success("已保存");
-      }
-      closeDrawer();
-      load();
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : "保存失败");
-    } finally {
-      setSaving(false);
-    }
-  }
+  const drawer = useCrudDrawer<SupplierOut, SupplierSaveBody>({
+    form,
+    fetchDetail: supplierApi.get,
+    create: (values) => supplierApi.create(values),
+    update: (current, values) => supplierApi.update(current.id, values),
+    afterSubmit: load,
+    messages: { created: "已创建", saved: "已保存", loadFailed: "加载供应商失败" },
+  });
+  const { mode, current, saving, openView, openCreate, openEdit, closeDrawer, onSubmit } = drawer;
 
   async function toggleStatus(r: SupplierListItem) {
     setRowBusyId(r.id);
@@ -155,7 +89,7 @@ export default function SupplierListPage() {
       }
       load();
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "操作失败");
+      message.error(resolveBizError(e, "操作失败"));
     } finally {
       setRowBusyId(null);
     }
@@ -170,10 +104,7 @@ export default function SupplierListPage() {
       title: "状态",
       dataIndex: "status",
       width: 90,
-      render: (s: SupplierListItem["status"]) => {
-        const m = SUPPLIER_STATUS_META[s];
-        return <Tag color={m.color}>{m.label}</Tag>;
-      },
+      render: (s: SupplierListItem["status"]) => <StatusTag meta={SUPPLIER_STATUS_META} value={s} />,
     },
     ...(canManage
       ? [
@@ -240,12 +171,7 @@ export default function SupplierListPage() {
       </Space>
 
       {loadError && !rows.length ? (
-        <div style={{ textAlign: "center", padding: "48px 0", color: colors.muted }}>
-          加载失败
-          <div style={{ marginTop: 12 }}>
-            <Button onClick={load}>重试</Button>
-          </div>
-        </div>
+        <ListErrorState onRetry={load} />
       ) : (
         <Table<SupplierListItem>
           rowKey="id"
@@ -258,14 +184,7 @@ export default function SupplierListPage() {
             onClick: () => openView(r.id),
             style: { cursor: "pointer" },
           })}
-          pagination={{
-            current: page,
-            total,
-            pageSize: 20,
-            showSizeChanger: false,
-            showTotal: (t) => `共 ${t} 条`,
-            onChange: setPage,
-          }}
+          pagination={pagination}
         />
       )}
 
@@ -306,9 +225,7 @@ export default function SupplierListPage() {
               <Descriptions.Item label="邮箱">{current.contact_email || "—"}</Descriptions.Item>
               <Descriptions.Item label="地址">{current.address || "—"}</Descriptions.Item>
               <Descriptions.Item label="状态">
-                <Tag color={SUPPLIER_STATUS_META[current.status].color}>
-                  {SUPPLIER_STATUS_META[current.status].label}
-                </Tag>
+                <StatusTag meta={SUPPLIER_STATUS_META} value={current.status} />
               </Descriptions.Item>
             </Descriptions>
           ) : null

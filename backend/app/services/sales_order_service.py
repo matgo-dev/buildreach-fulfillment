@@ -14,6 +14,7 @@ from starlette.requests import Request
 from app.audit.constants import AuditAction, AuditResourceType
 from app.audit.logger import write_audit
 from app.core.codegen import NumberScope, format_code
+from app.core.statemachine import assert_transition
 from app.core.exceptions import (
     NotFoundError,
     QuotationCannotConvertError,
@@ -31,6 +32,7 @@ from app.db.models.sales_order import (
 from app.db.models.user import User
 from app.services import quotation_service
 from app.services.numbering import allocate
+from app.services.repo import get_or_404, paginate
 
 
 async def _next_so_no(db: AsyncSession) -> str:
@@ -97,21 +99,14 @@ async def find_by_source_quotation(db: AsyncSession, quotation_id: int) -> dict 
 
 
 async def get_order(db: AsyncSession, order_id: int) -> SalesOrder:
-    so = (await db.execute(
-        select(SalesOrder).where(SalesOrder.id == order_id))).scalar_one_or_none()
-    if so is None:
-        raise NotFoundError(f"销售单不存在: {order_id}")
-    return so
+    return await get_or_404(db, SalesOrder, order_id,
+                            error_cls=NotFoundError, message=f"销售单不存在: {order_id}")
 
 
 async def get_order_for_update(db: AsyncSession, order_id: int) -> SalesOrder:
     """悲观锁读 SO 头行(状态跃迁竞态守卫;镜像报价/PO/入库同名口径)。"""
-    so = (await db.execute(
-        select(SalesOrder).where(SalesOrder.id == order_id)
-        .with_for_update())).scalar_one_or_none()
-    if so is None:
-        raise NotFoundError(f"销售单不存在: {order_id}")
-    return so
+    return await get_or_404(db, SalesOrder, order_id, for_update=True,
+                            error_cls=NotFoundError, message=f"销售单不存在: {order_id}")
 
 
 async def cancel_order(db: AsyncSession, *, order_id: int, reason: str | None, actor_user_id: int,
@@ -126,8 +121,8 @@ async def cancel_order(db: AsyncSession, *, order_id: int, reason: str | None, a
     from app.db.models.purchase_order import PurchaseOrder, PurchaseOrderStatus
 
     so = await get_order_for_update(db, order_id)
-    if SalesOrderStatus.CANCELLED not in SALES_ORDER_TRANSITIONS[so.status]:
-        raise SalesOrderInvalidTransitionError(f"非法转移: {so.status} → CANCELLED")
+    assert_transition(SALES_ORDER_TRANSITIONS, so.status, SalesOrderStatus.CANCELLED,
+                      SalesOrderInvalidTransitionError)
     active_po = (await db.execute(
         select(PurchaseOrder.id).where(
             PurchaseOrder.source_sales_order_id == so.id,
@@ -238,9 +233,9 @@ async def list_orders(db: AsyncSession, *, status=None, customer_id=None, salesp
 
     # 无派生筛选:DB 分页,进度仅对当前页派生(不全表物化)。
     if not purchase_progress and not purchasable_only:
-        total = (await db.execute(
-            select(func.count(SalesOrder.id)).where(*conds))).scalar_one()
-        rows = (await db.execute(base.offset((page - 1) * size).limit(size))).all()
+        rows, total = await paginate(
+            db, base, page=page, size=size,
+            count_stmt=select(func.count(SalesOrder.id)).where(*conds), scalars=False)
         prog = await purchase_order_service.progress_for_sales_orders(
             db, [o.id for (o, *_) in rows])
         return [_item(o, c, s, lc, prog.get(o.id)) for (o, c, s, lc) in rows], total

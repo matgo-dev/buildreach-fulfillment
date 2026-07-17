@@ -16,6 +16,7 @@ from app.db.models.role_permission import RolePermission
 from app.db.models.user import User, UserStatus
 from app.db.models.user_role import UserRole
 from app.rbac.constants import Permissions
+from app.services.repo import paginate
 
 
 def _selectable_salespersons_stmt():
@@ -137,7 +138,6 @@ async def list_users(
     """用户列表:筛选(状态/关键词 name|email|username)+ 分页,id 降序。"""
     page = max(1, page)
     page_size = max(1, min(page_size, 200))
-    offset = (page - 1) * page_size
 
     conds = []
     if status:
@@ -147,11 +147,10 @@ async def list_users(
         conds.append(or_(User.name.ilike(like), User.email.ilike(like),
                          User.username.ilike(like)))
 
-    total = (await db.execute(select(func.count(User.id)).where(*conds))).scalar_one()
-    rows = await db.execute(
-        select(User).where(*conds).order_by(User.id.desc()).offset(offset).limit(page_size)
-    )
-    users = list(rows.scalars().all())
+    users, total = await paginate(
+        db, select(User).where(*conds).order_by(User.id.desc()),
+        page=page, size=page_size,
+        count_stmt=select(func.count(User.id)).where(*conds))
     if not users:
         return [], total
 

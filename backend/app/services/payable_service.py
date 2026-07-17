@@ -6,13 +6,14 @@ status(未付/部分付/已付清)派生自 amount_*,不落列(见 payable.deriv
 """
 from __future__ import annotations
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.inbound_order import InboundOrder
 from app.db.models.payable import Payable, PayableStatus
 from app.db.models.purchase_order import PurchaseOrder
 from app.db.models.supplier import Supplier
+from app.services.repo import paginate
 
 # 派生状态 → SQL 谓词(**镜像 derive_payable_status 判序**:先付清含 0 金额单,勿倒序改)。
 _STATUS_CONDS = {
@@ -47,11 +48,10 @@ async def list_payables(db: AsyncSession, *, supplier_id=None, currency=None,
             .join(InboundOrder, InboundOrder.id == Payable.inbound_order_id)
             .join(PurchaseOrder, PurchaseOrder.id == Payable.purchase_order_id)
             .where(*conds))
-    total = (await db.execute(
-        select(func.count()).select_from(base.subquery()))).scalar_one()
-    rows = (await db.execute(
-        base.order_by(Payable.created_at.desc())
-        .offset((page - 1) * size).limit(size))).all()
+    # count 走 paginate 缺省口径(去排序后包子查询),与原 select_from(base.subquery()) 同形。
+    rows, total = await paginate(
+        db, base.order_by(Payable.created_at.desc()),
+        page=page, size=size, scalars=False)
     items = [{
         "id": p.id, "inbound_order_id": p.inbound_order_id, "inbound_order_no": inb_no,
         "purchase_order_id": p.purchase_order_id, "purchase_order_no": po_no,

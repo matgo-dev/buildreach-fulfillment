@@ -1,9 +1,9 @@
 // 采购单前端类型 + API。对齐后端 schemas/purchase_order.py。
 // 红线字段(unit_price / line_total / total_amount)后端对无 purchase:read_cost 者脱敏为 null;
 // 前端只需把 null 渲染成「—」(见 formatCost),不做任何客户端隐藏逻辑。
-import { ApiError, api } from "./api";
+import { api } from "./api";
 import type { Page } from "./catalog";
-import { formatMoney } from "./salesOrder";
+import { formatMoney } from "./format";
 
 export type PurchaseOrderStatus = "DRAFT" | "CONFIRMED" | "CANCELLED";
 
@@ -137,22 +137,6 @@ export interface RelatedPurchaseOrder {
 /** 红线金额渲染:null(无成本权限)→ 静音「—」,绝不显示 0。 */
 export function formatCost(v: number | string | null | undefined): string {
   return v === null || v === undefined ? "—" : formatMoney(v);
-}
-
-// 后端错误码 → 中文 toast。未列出的沿用后端 message。
-const PURCHASE_ERROR_MESSAGES: Record<number, string> = {
-  41603: "数量超过销售单剩余额度",
-  41606: "供应商已停用,不可选用",
-  41604: "来源销售单无效",
-  41605: "采购单已被他人修改,请刷新后重试",
-  41607: "仅草稿可编辑 / 删除",
-  41608: "采购单至少需要一行",
-  41501: "供应商不存在",
-};
-
-export function purchaseErrorMessage(e: unknown, fallback: string): string {
-  if (e instanceof ApiError && PURCHASE_ERROR_MESSAGES[e.code]) return PURCHASE_ERROR_MESSAGES[e.code];
-  return e instanceof Error ? e.message : fallback;
 }
 
 function qs(p: Record<string, unknown>): string {

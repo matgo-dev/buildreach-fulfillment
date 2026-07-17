@@ -25,6 +25,7 @@ from starlette.requests import Request
 from app.audit.constants import AuditAction, AuditResourceType
 from app.audit.logger import write_audit
 from app.core.codegen import NumberScope, format_code
+from app.core.statemachine import assert_transition
 from app.core.exceptions import (
     InboundLineNotInPurchaseOrderError,
     InboundOrderEditConflictError,
@@ -51,6 +52,7 @@ from app.db.models.purchase_order import (
     PurchaseOrderStatus,
 )
 from app.services.numbering import allocate
+from app.services.repo import assert_no_edit_conflict, get_or_404, paginate
 
 _CENT = Decimal("0.01")
 
@@ -195,20 +197,15 @@ def _payload_qty_by_poline(lines) -> dict[int, Decimal]:
 
 
 async def get_order(db: AsyncSession, order_id: int) -> InboundOrder:
-    o = (await db.execute(
-        select(InboundOrder).where(InboundOrder.id == order_id))).scalar_one_or_none()
-    if o is None:
-        raise InboundOrderNotFoundError(f"入库单不存在: {order_id}")
-    return o
+    return await get_or_404(db, InboundOrder, order_id,
+                            error_cls=InboundOrderNotFoundError,
+                            message=f"入库单不存在: {order_id}")
 
 
 async def get_order_for_update(db: AsyncSession, order_id: int) -> InboundOrder:
-    o = (await db.execute(
-        select(InboundOrder).where(InboundOrder.id == order_id)
-        .with_for_update())).scalar_one_or_none()
-    if o is None:
-        raise InboundOrderNotFoundError(f"入库单不存在: {order_id}")
-    return o
+    return await get_or_404(db, InboundOrder, order_id, for_update=True,
+                            error_cls=InboundOrderNotFoundError,
+                            message=f"入库单不存在: {order_id}")
 
 
 async def list_lines(db: AsyncSession, order_id: int) -> list[InboundOrderLine]:
@@ -300,8 +297,7 @@ async def save_order(db: AsyncSession, *, order_id, carrier_name, tracking_no, s
     order = await get_order_for_update(db, order_id)
     if order.status not in INBOUND_ORDER_EDITABLE_STATUSES:
         raise InboundOrderNotInTransitError()
-    if expected_updated_at is not None and order.updated_at != expected_updated_at:
-        raise InboundOrderEditConflictError()
+    assert_no_edit_conflict(order, expected_updated_at, InboundOrderEditConflictError)
     if not lines:
         raise InboundOrderEmptyError()
     po_lines = await _load_po_lines(db, order.purchase_order_id)
@@ -330,11 +326,6 @@ async def save_order(db: AsyncSession, *, order_id, carrier_name, tracking_no, s
 # ---------- 状态跃迁 ----------
 
 
-def _assert_transition(current: str, target: str) -> None:
-    if target not in INBOUND_ORDER_TRANSITIONS[current]:
-        raise InboundOrderInvalidTransitionError(f"非法转移: {current} → {target}")
-
-
 async def _compute_payable_amount(db: AsyncSession, order: InboundOrder,
                                   po_lines: dict[int, PurchaseOrderLine]) -> Decimal:
     """应付原始额 = Σ(行实收 qty × PO 行 unit_price),逐行 quantize 2dp 再求和。
@@ -351,7 +342,8 @@ async def receive_order(db: AsyncSession, *, order_id, arrived_at: date | None, 
     """确认入库(IN_TRANSIT→RECEIVED)。同事务生成 payable:读 PO 行价算金额,只落 payables。
     幂等:头行锁 + 转移守卫先挡重复;活动行偏唯一为并发兜底(撞则转友好非法转移错)。"""
     order = await get_order_for_update(db, order_id)
-    _assert_transition(order.status, InboundOrderStatus.RECEIVED)
+    assert_transition(INBOUND_ORDER_TRANSITIONS, order.status, InboundOrderStatus.RECEIVED,
+                      InboundOrderInvalidTransitionError)
     lines = await list_lines(db, order.id)
     if not lines:
         raise InboundOrderEmptyError()
@@ -395,7 +387,8 @@ async def unreceive_order(db: AsyncSession, *, order_id, void_reason: str | None
     """撤销入库(RECEIVED→IN_TRANSIT)。守卫:payable 未核销(allocated=0)。
     同事务作废(void)payable —— 置 voided_at/by/reason,行留痕不硬删。撤销后重收 = 新建活动 payable。"""
     order = await get_order_for_update(db, order_id)
-    _assert_transition(order.status, InboundOrderStatus.IN_TRANSIT)
+    assert_transition(INBOUND_ORDER_TRANSITIONS, order.status, InboundOrderStatus.IN_TRANSIT,
+                      InboundOrderInvalidTransitionError)
     payable = await get_active_payable(db, order.id)
     if payable is not None and Decimal(str(payable.amount_allocated)) > 0:
         raise PayableAllocatedCannotUnreceiveError()
@@ -420,7 +413,8 @@ async def cancel_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_
                        request: Request | None = None) -> InboundOrder:
     """作废入库单(仅 IN_TRANSIT;释放 quota)。已入库须先撤销入库再作废。"""
     order = await get_order_for_update(db, order_id)
-    _assert_transition(order.status, InboundOrderStatus.CANCELLED)
+    assert_transition(INBOUND_ORDER_TRANSITIONS, order.status, InboundOrderStatus.CANCELLED,
+                      InboundOrderInvalidTransitionError)
     order.status = InboundOrderStatus.CANCELLED
     await db.flush()
     await write_audit(db, resource_type=AuditResourceType.INBOUND_ORDER, action=AuditAction.CANCEL,
@@ -495,10 +489,9 @@ async def list_orders(db: AsyncSession, *, status=None, purchase_order_id=None, 
             .join(Supplier, Supplier.id == PurchaseOrder.supplier_id))
     count_stmt = (select(func.count(InboundOrder.id))
                   .join(PurchaseOrder, PurchaseOrder.id == InboundOrder.purchase_order_id))
-    total = (await db.execute(count_stmt.where(*conds))).scalar_one()
-    rows = (await db.execute(
-        base.where(*conds).order_by(InboundOrder.created_at.desc())
-        .offset((page - 1) * size).limit(size))).all()
+    rows, total = await paginate(
+        db, base.where(*conds).order_by(InboundOrder.created_at.desc()),
+        page=page, size=size, count_stmt=count_stmt.where(*conds), scalars=False)
     items = [{
         "id": o.id, "no": o.no, "purchase_order_id": o.purchase_order_id,
         "purchase_order_no": po_no, "supplier_display": sup_name, "status": o.status,

@@ -1,14 +1,18 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { App, Button, Card, Input, Segmented, Select, Space, Table, Tag } from "antd";
+import { Button, Card, Input, Segmented, Select, Space, Table } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { Can } from "@/components/common/Can";
+import { StatusTag } from "@/components/common/StatusTag";
+import { ListErrorState } from "@/components/common/ListErrorState";
+import { useListQuery } from "@/hooks/useListQuery";
 import { Permissions } from "@/config/permission-matrix";
 import { PurchaseOrderBuilder } from "@/components/purchasing/PurchaseOrderBuilder";
 import { SalesOrderPicker } from "@/components/purchasing/SalesOrderPicker";
 import { supplierApi, type SupplierListItem } from "@/lib/supplier";
+import { formatDateTime } from "@/lib/format";
 import {
   formatCost,
   purchaseOrderApi,
@@ -17,7 +21,6 @@ import {
 import { PURCHASE_ORDER_STATUS_META } from "@/lib/purchaseOrderStatus";
 import { RECEIPT_PROGRESS_META } from "@/lib/inboundOrderStatus";
 import { InTransitBadge } from "@/components/inbound/InTransitBadge";
-import { colors } from "@/lib/tokens";
 
 const STATUS_TABS = [
   { label: "全部", value: "" },
@@ -29,47 +32,30 @@ const STATUS_TABS = [
 export default function PurchaseOrderListPage() {
   const router = useRouter();
   const search = useSearchParams();
-  const { message } = App.useApp();
   const sourceSalesOrderId = search.get("source_sales_order_id");
 
-  const [rows, setRows] = useState<PurchaseOrderListItem[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [status, setStatus] = useState("");
   const [supplierId, setSupplierId] = useState<number | undefined>(undefined);
   const [soNo, setSoNo] = useState("");
   const [suppliers, setSuppliers] = useState<SupplierListItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState(false);
   // 建单 pull 入口:先选一张 SO(picker),选定后带 SO id 打开建单器。
   const [pickerOpen, setPickerOpen] = useState(false);
   const [builderSourceId, setBuilderSourceId] = useState<number | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setLoadError(false);
-    try {
-      const res = await purchaseOrderApi.list({
+  const fetcher = useCallback(
+    ({ page, size }: { page: number; size: number }) =>
+      purchaseOrderApi.list({
         status: status || undefined,
         supplier_id: supplierId,
         source_sales_order_id: sourceSalesOrderId ? Number(sourceSalesOrderId) : undefined,
         source_sales_order_no: soNo || undefined,
         page,
-        size: 20,
-      });
-      setRows(res.items);
-      setTotal(res.total);
-    } catch (e) {
-      setLoadError(true);
-      message.error(e instanceof Error ? e.message : "加载采购单列表失败");
-    } finally {
-      setLoading(false);
-    }
-  }, [status, supplierId, soNo, sourceSalesOrderId, page, message]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+        size,
+      }),
+    [status, supplierId, soNo, sourceSalesOrderId],
+  );
+  const { rows, setPage, loading, loadError, load, pagination } =
+    useListQuery<PurchaseOrderListItem>(fetcher, { errorMessage: "加载采购单列表失败" });
 
   // 供应商筛选下拉数据(启用+停用都要,便于筛历史)。
   useEffect(() => {
@@ -113,10 +99,9 @@ export default function PurchaseOrderListPage() {
       title: "状态",
       dataIndex: "status",
       width: 100,
-      render: (s: PurchaseOrderListItem["status"]) => {
-        const m = PURCHASE_ORDER_STATUS_META[s];
-        return <Tag color={m.color}>{m.label}</Tag>;
-      },
+      render: (s: PurchaseOrderListItem["status"]) => (
+        <StatusTag meta={PURCHASE_ORDER_STATUS_META} value={s} />
+      ),
     },
     { title: "币种", dataIndex: "currency", width: 70 },
     {
@@ -131,22 +116,19 @@ export default function PurchaseOrderListPage() {
       title: "收货进度",
       dataIndex: "receipt_progress",
       width: 150,
-      render: (p: PurchaseOrderListItem["receipt_progress"], r) => {
+      render: (p: PurchaseOrderListItem["receipt_progress"], r) => (
         // 收货进度(实收口径的语义徽标)+ 弱化在途信号,后者只回答「有货在路上」。
-        const m = p ? RECEIPT_PROGRESS_META[p] : null;
-        return (
-          <Space size={4}>
-            {m ? <Tag color={m.color}>{m.label}</Tag> : <span>—</span>}
-            <InTransitBadge count={r.in_transit_count} />
-          </Space>
-        );
-      },
+        <Space size={4}>
+          {p ? <StatusTag meta={RECEIPT_PROGRESS_META} value={p} /> : <span>—</span>}
+          <InTransitBadge count={r.in_transit_count} />
+        </Space>
+      ),
     },
     {
       title: "创建时间",
       dataIndex: "created_at",
       width: 170,
-      render: (v: string) => v?.replace("T", " ").slice(0, 16),
+      render: (v: string) => formatDateTime(v),
     },
   ];
 
@@ -200,12 +182,7 @@ export default function PurchaseOrderListPage() {
       </Space>
 
       {loadError && !rows.length ? (
-        <div style={{ textAlign: "center", padding: "48px 0", color: colors.muted }}>
-          加载失败
-          <div style={{ marginTop: 12 }}>
-            <Button onClick={load}>重试</Button>
-          </div>
-        </div>
+        <ListErrorState onRetry={load} />
       ) : (
         <Table<PurchaseOrderListItem>
           rowKey="id"
@@ -218,14 +195,7 @@ export default function PurchaseOrderListPage() {
             onClick: () => router.push(`/purchasing/orders/${r.id}`),
             style: { cursor: "pointer" },
           })}
-          pagination={{
-            current: page,
-            total,
-            pageSize: 20,
-            showSizeChanger: false,
-            showTotal: (t) => `共 ${t} 条`,
-            onChange: setPage,
-          }}
+          pagination={pagination}
         />
       )}
 

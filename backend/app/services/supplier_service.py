@@ -11,6 +11,7 @@ from app.core.codegen import NumberScope, format_code
 from app.core.exceptions import SupplierNotFoundError
 from app.db.models.supplier import Supplier, SupplierStatus
 from app.services.numbering import allocate
+from app.services.repo import get_or_404, paginate
 
 
 async def create_supplier(db: AsyncSession, *, name, default_currency=None, contact_name=None,
@@ -33,11 +34,9 @@ async def create_supplier(db: AsyncSession, *, name, default_currency=None, cont
 
 
 async def get_supplier(db: AsyncSession, supplier_id: int) -> Supplier:
-    s = (await db.execute(
-        select(Supplier).where(Supplier.id == supplier_id))).scalar_one_or_none()
-    if s is None:
-        raise SupplierNotFoundError(f"供应商不存在: {supplier_id}")
-    return s
+    return await get_or_404(db, Supplier, supplier_id,
+                            error_cls=SupplierNotFoundError,
+                            message=f"供应商不存在: {supplier_id}")
 
 
 async def list_suppliers(db: AsyncSession, *, status=None, keyword=None,
@@ -50,12 +49,9 @@ async def list_suppliers(db: AsyncSession, *, status=None, keyword=None,
         like = f"%{keyword}%"
         conds.append(or_(Supplier.code.ilike(like), Supplier.name.ilike(like),
                          Supplier.contact_name.ilike(like)))
-    total = (await db.execute(
-        select(func.count(Supplier.id)).where(*conds))).scalar_one()
-    rows = list((await db.execute(
-        select(Supplier).where(*conds).order_by(Supplier.updated_at.desc())
-        .offset((page - 1) * size).limit(size))).scalars().all())
-    return rows, total
+    return await paginate(
+        db, select(Supplier).where(*conds).order_by(Supplier.updated_at.desc()),
+        page=page, size=size, count_stmt=select(func.count(Supplier.id)).where(*conds))
 
 
 async def update_supplier(db: AsyncSession, *, supplier_id, name, default_currency=None,

@@ -7,6 +7,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, condecimal, field_validator
 
 from app.core.exceptions import SpecContractError
+from app.rbac.redaction import SKU_COST_FIELDS, redact_cost
 from app.schemas.common import validate_i18n
 
 
@@ -145,9 +146,8 @@ def sku_out(sku, *, include_cost: bool, spu_main_image: str | None = None,
     spu_main_image 给定时附加同名字段,供前端跨 SPU 场景(搜索行)做
     `SKU 首图 ?? spu_main_image` 回退——本模型不存 SPU 信息,只搭一个字段。
     """
-    data = SkuOut.model_validate(sku).model_dump()
-    if not include_cost:
-        data["reference_price"] = None
+    data = redact_cost(SkuOut.model_validate(sku).model_dump(),
+                       SKU_COST_FIELDS, can_see_cost=include_cost)
     if images is not None:
         data["images"] = images
     if spu_main_image is not None:

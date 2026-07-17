@@ -4,7 +4,7 @@
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import CurrentUser
@@ -12,6 +12,7 @@ from app.core.exceptions import success
 from app.db.session import get_db
 from app.rbac.constants import Permissions
 from app.rbac.guards import require_permission
+from app.schemas.common import Page, PageParams
 from app.schemas.user import (
     AdminUserCreateIn,
     AdminUserOut,
@@ -43,15 +44,14 @@ async def selectable_users(
 
 
 @router.get("", summary="用户列表(筛选/分页)")
-async def list_users(q: str | None = None, status: str | None = None,
-                     page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
+async def list_users(page_params: PageParams = Depends(),
+                     q: str | None = None, status: str | None = None,
                      _current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
     items, total = await user_service.list_users(
-        db, q=q, status=status, page=page, page_size=size)
-    return success({
-        "items": [_user_out(u, roles) for u, roles in items],
-        "total": total, "page": page, "size": size,
-    })
+        db, q=q, status=status, page=page_params.page, page_size=page_params.size)
+    return success(Page(
+        items=[_user_out(u, roles) for u, roles in items],
+        total=total, page=page_params.page, size=page_params.size).model_dump())
 
 
 @router.post("", summary="建内部账号(指派单角色)")

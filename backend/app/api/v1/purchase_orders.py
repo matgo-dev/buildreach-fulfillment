@@ -15,6 +15,8 @@ from app.core.exceptions import success
 from app.db.session import get_db
 from app.rbac.constants import Permissions
 from app.rbac.guards import require_any_permission, require_permission
+from app.rbac.redaction import can_see_cost
+from app.schemas.common import Page, PageParams
 from app.schemas.inbound_order import RelatedInboundOrderItem
 from app.schemas.purchase_order import (
     PurchaseOrderCreateIn,
@@ -31,12 +33,8 @@ _READ = Depends(require_any_permission(Permissions.PURCHASE_READ, Permissions.PU
 _MANAGE = Depends(require_permission(Permissions.PURCHASE_MANAGE))
 
 
-def _can_see_cost(current: CurrentUser) -> bool:
-    return Permissions.PURCHASE_READ_COST in current.permissions
-
-
 async def _detail_payload(db, po, current) -> dict:
-    ccost = _can_see_cost(current)
+    ccost = can_see_cost(current)
     parties = await purchase_order_service.resolve_order_parties(db, po)
     lines = await purchase_order_service.list_lines(db, po.id)
     # 收货进度(轴2 派生)+ 行级在途/已入(入库步增强,不新增成本暴露)。
@@ -78,16 +76,17 @@ async def create_purchase_order(body: PurchaseOrderCreateIn, request: Request,
 
 
 @router.get("", summary="采购单列表(筛选/分页)")
-async def list_purchase_orders(status: str | None = None, supplier_id: int | None = None,
+async def list_purchase_orders(page_params: PageParams = Depends(),
+                               status: str | None = None, supplier_id: int | None = None,
                                source_sales_order_id: int | None = None,
                                source_sales_order_no: str | None = None,
-                               page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
                                current: CurrentUser = _READ, db: AsyncSession = Depends(get_db)):
     items, total = await purchase_order_service.list_orders(
         db, status=status, supplier_id=supplier_id,
         source_sales_order_id=source_sales_order_id,
-        source_sales_order_no=source_sales_order_no, page=page, size=size)
-    ccost = _can_see_cost(current)
+        source_sales_order_no=source_sales_order_no,
+        page=page_params.page, size=page_params.size)
+    ccost = can_see_cost(current)
     po_ids = [it["id"] for it in items]
     # 收货进度徽标(轴2 派生,一次聚合覆盖本页 PO;不新增成本暴露)。
     progress = await inbound_order_service.receipt_progress_for_purchase_orders(db, po_ids)
@@ -100,7 +99,8 @@ async def list_purchase_orders(status: str | None = None, supplier_id: int | Non
         d["receipt_progress"] = progress.get(it["id"])
         d["in_transit_count"] = in_transit.get(it["id"], 0)
         out.append(d)
-    return success({"items": out, "total": total, "page": page, "size": size})
+    return success(Page(items=out, total=total,
+                        page=page_params.page, size=page_params.size).model_dump())
 
 
 @router.get("/purchasable-lines", summary="某 SO 的可采行(建单器数据源)")

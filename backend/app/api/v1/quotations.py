@@ -16,6 +16,7 @@ from app.db.models.quotation import QuotationStatus
 from app.db.session import get_db
 from app.rbac.constants import Permissions
 from app.rbac.guards import require_permission
+from app.schemas.common import Page, PageParams
 from app.schemas.quotation import (
     QuotationLineOut,
     QuotationListItem,
@@ -38,6 +39,7 @@ def _order_out(order) -> dict:
 
 @router.get("", summary="报价列表(筛选/排序/分页)")
 async def list_quotations(
+    page_params: PageParams = Depends(),
     status: str | None = None,
     customer_id: int | None = None,
     salesperson_id: int | None = None,
@@ -45,19 +47,16 @@ async def list_quotations(
     created_from: date | None = None,
     created_to: date | None = None,
     sort: str = Query("created_at", pattern=r"^(created_at|total_amount)$"),
-    page: int = Query(1, ge=1),
-    size: int = Query(20, ge=1, le=100),
     _current: CurrentUser = _GUARD,
     db: AsyncSession = Depends(get_db),
 ):
     items, total = await quotation_service.list_orders(
         db, status=status, customer_id=customer_id, salesperson_id=salesperson_id,
         keyword=keyword, created_from=created_from, created_to=created_to,
-        sort=sort, page=page, size=size)
-    return success({
-        "items": [QuotationListItem.model_validate(it).model_dump() for it in items],
-        "total": total, "page": page, "size": size,
-    })
+        sort=sort, page=page_params.page, size=page_params.size)
+    return success(Page(
+        items=[QuotationListItem.model_validate(it).model_dump() for it in items],
+        total=total, page=page_params.page, size=page_params.size).model_dump())
 
 
 @router.post("", summary="新建报价(整单:表头 + 行数组)")

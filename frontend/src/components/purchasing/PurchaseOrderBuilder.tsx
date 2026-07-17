@@ -17,10 +17,10 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { colors } from "@/lib/tokens";
-import { formatQty } from "@/lib/salesOrder";
+import { formatMoney, formatQty } from "@/lib/format";
+import { resolveBizError } from "@/lib/errorMessages";
 import { supplierApi, type SupplierListItem } from "@/lib/supplier";
 import {
-  purchaseErrorMessage,
   purchaseOrderApi,
   type PurchaseOrderLineIn,
 } from "@/lib/purchaseOrder";
@@ -119,7 +119,7 @@ export function PurchaseOrderBuilder({
       }
       setRows(Array.from(byLine.values()));
     } catch (e) {
-      message.error(purchaseErrorMessage(e, "加载可采行失败"));
+      message.error(resolveBizError(e, "加载可采行失败"));
       onClose();
     } finally {
       setLoading(false);
@@ -206,7 +206,7 @@ export function PurchaseOrderBuilder({
       }
       onSaved();
     } catch (e) {
-      message.error(purchaseErrorMessage(e, "保存失败"));
+      message.error(resolveBizError(e, "保存失败"));
     } finally {
       setSaving(false);
     }
@@ -291,7 +291,7 @@ export function PurchaseOrderBuilder({
       footer={
         <Space style={{ width: "100%", justifyContent: "space-between" }} wrap>
           <span style={{ fontWeight: 600, color: colors.navy }}>
-            已选 {selectedRows.length} 行 · 合计 {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            已选 {selectedRows.length} 行 · 合计 {formatMoney(total)}
           </span>
           <Space>
             <Button onClick={onClose} disabled={saving}>

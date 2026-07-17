@@ -1,17 +1,19 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import { App, Button, Card, Empty, Input, Segmented, Space, Table, Tag } from "antd";
+import { Button, Card, Empty, Input, Segmented, Space, Table } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { Can } from "@/components/common/Can";
+import { StatusTag } from "@/components/common/StatusTag";
+import { ListErrorState } from "@/components/common/ListErrorState";
+import { useListQuery } from "@/hooks/useListQuery";
 import { Permissions } from "@/config/permission-matrix";
-import { formatQty } from "@/lib/salesOrder";
+import { formatDateTime, formatQty } from "@/lib/format";
 import { inboundOrderApi, type InboundOrderListItem } from "@/lib/inboundOrder";
 import { INBOUND_ORDER_STATUS_META } from "@/lib/inboundOrderStatus";
 import { InboundOrderBuilder } from "@/components/inbound/InboundOrderBuilder";
 import { PurchaseOrderPicker } from "@/components/inbound/PurchaseOrderPicker";
-import { colors } from "@/lib/tokens";
 
 const STATUS_TABS = [
   { label: "全部", value: "" },
@@ -22,42 +24,25 @@ const STATUS_TABS = [
 
 export default function InboundOrderListPage() {
   const router = useRouter();
-  const { message } = App.useApp();
 
-  const [rows, setRows] = useState<InboundOrderListItem[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [status, setStatus] = useState("");
   const [keyword, setKeyword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState(false);
   // 建单 pull 入口:先选一张 CONFIRMED PO(picker),选定后带 PO id 打开建单器。
   const [pickerOpen, setPickerOpen] = useState(false);
   const [builderSourceId, setBuilderSourceId] = useState<number | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setLoadError(false);
-    try {
-      const res = await inboundOrderApi.list({
+  const fetcher = useCallback(
+    ({ page, size }: { page: number; size: number }) =>
+      inboundOrderApi.list({
         status: status || undefined,
         keyword: keyword || undefined,
         page,
-        size: 20,
-      });
-      setRows(res.items);
-      setTotal(res.total);
-    } catch (e) {
-      setLoadError(true);
-      message.error(e instanceof Error ? e.message : "加载入库单列表失败");
-    } finally {
-      setLoading(false);
-    }
-  }, [status, keyword, page, message]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+        size,
+      }),
+    [status, keyword],
+  );
+  const { rows, setPage, loading, loadError, load, pagination } =
+    useListQuery<InboundOrderListItem>(fetcher, { errorMessage: "加载入库单列表失败" });
 
   // 入库单据零成本列(契约 D3):列表无任何金额/成本列。
   const columns: ColumnsType<InboundOrderListItem> = [
@@ -111,16 +96,15 @@ export default function InboundOrderListPage() {
       title: "状态",
       dataIndex: "status",
       width: 100,
-      render: (s: InboundOrderListItem["status"]) => {
-        const m = INBOUND_ORDER_STATUS_META[s];
-        return <Tag color={m.color}>{m.label}</Tag>;
-      },
+      render: (s: InboundOrderListItem["status"]) => (
+        <StatusTag meta={INBOUND_ORDER_STATUS_META} value={s} />
+      ),
     },
     {
       title: "创建时间",
       dataIndex: "created_at",
       width: 170,
-      render: (v: string) => v?.replace("T", " ").slice(0, 16),
+      render: (v: string) => formatDateTime(v),
     },
   ];
 
@@ -156,12 +140,7 @@ export default function InboundOrderListPage() {
       </Space>
 
       {loadError && !rows.length ? (
-        <div style={{ textAlign: "center", padding: "48px 0", color: colors.muted }}>
-          加载失败
-          <div style={{ marginTop: 12 }}>
-            <Button onClick={load}>重试</Button>
-          </div>
-        </div>
+        <ListErrorState onRetry={load} />
       ) : (
         <Table<InboundOrderListItem>
           rowKey="id"
@@ -184,14 +163,7 @@ export default function InboundOrderListPage() {
             onClick: () => router.push(`/inbound/${r.id}`),
             style: { cursor: "pointer" },
           })}
-          pagination={{
-            current: page,
-            total,
-            pageSize: 20,
-            showSizeChanger: false,
-            showTotal: (t) => `共 ${t} 条`,
-            onChange: setPage,
-          }}
+          pagination={pagination}
         />
       )}
 
