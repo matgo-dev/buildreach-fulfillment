@@ -7,9 +7,22 @@
 """
 from __future__ import annotations
 
+from app.core.dependencies import CurrentUser
+from app.rbac.constants import Permissions
+from app.rbac.guards import has_permission
+
 # 成本字段集(单一源头,按承载层分组)。
 PO_COST_FIELDS = frozenset({"total_amount"})          # 采购单头:金额合计
 PO_LINE_COST_FIELDS = frozenset({"unit_price", "line_total"})  # 采购单行:单价 + 行额
+SKU_COST_FIELDS = frozenset({"reference_price"})      # SKU:内部采购参考价
+
+
+def can_see_cost(current: CurrentUser) -> bool:
+    """成本红线可见性单点判定(purchase:read_cost)。采购单/入库单/销售单详情等
+    所有「无权→成本置 null」出口共用此谓词,不散内联判断。
+    注意:商品域 reference_price 的可见性走 PRODUCT_MANAGE(另一权限点,语义不同),
+    调用方直接用 has_permission,不并入本判定。"""
+    return has_permission(current, Permissions.PURCHASE_READ_COST)
 
 
 def redact_cost(payload: dict, fields, *, can_see_cost: bool) -> dict:

@@ -1,14 +1,16 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { App, Button, Card, Descriptions, Input, Modal, Space, Spin, Table, Tag } from "antd";
+import { App, Button, Card, Descriptions, Input, Modal, Space, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ArrowLeftOutlined, ShoppingCartOutlined } from "@ant-design/icons";
 import { Can } from "@/components/common/Can";
+import { StatusTag } from "@/components/common/StatusTag";
+import { PageLoading } from "@/components/common/PageLoading";
 import { Permissions } from "@/config/permission-matrix";
+import { formatDateTime, formatMoney, formatQty } from "@/lib/format";
+import { resolveBizError } from "@/lib/errorMessages";
 import {
-  formatMoney,
-  formatQty,
   salesOrderApi,
   type SalesOrderLineOut,
   type SalesOrderOut,
@@ -44,7 +46,7 @@ export default function SalesOrderDetailPage() {
       setOrder(o);
       setLines(ls);
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "加载失败");
+      message.error(resolveBizError(e, "加载失败"));
     } finally {
       setLoading(false);
     }
@@ -83,10 +85,8 @@ export default function SalesOrderDetailPage() {
     [],
   );
 
-  if (loading || !order) return <Spin style={{ display: "block", marginTop: 80 }} />;
+  if (loading || !order) return <PageLoading />;
 
-  const meta = SALES_ORDER_STATUS_META[order.status];
-  const progressMeta = order.purchase_progress ? PURCHASE_PROGRESS_META[order.purchase_progress] : null;
   const relatedPOs = order.related_purchase_orders; // undefined = 无 purchase:read,不渲染区块
 
   return (
@@ -102,10 +102,10 @@ export default function SalesOrderDetailPage() {
               aria-label="返回列表"
             />
             <span>{order.no}</span>
-            <Tag color={meta.color}>{meta.label}</Tag>
+            <StatusTag meta={SALES_ORDER_STATUS_META} value={order.status} />
             {/* CANCELLED 隐藏进度徽标:全 PO 已取消会回「未采购」,挂着误导(评审 S4)。 */}
-            {order.status === "CONFIRMED" && progressMeta && (
-              <Tag color={progressMeta.color}>{progressMeta.label}</Tag>
+            {order.status === "CONFIRMED" && order.purchase_progress && (
+              <StatusTag meta={PURCHASE_PROGRESS_META} value={order.purchase_progress} />
             )}
           </Space>
         }
@@ -164,7 +164,7 @@ export default function SalesOrderDetailPage() {
               {order.cancel_reason || "—"}
               {order.cancelled_at && (
                 <span style={{ marginLeft: 12, color: colors.muted }}>
-                  {order.cancelled_at.replace("T", " ").slice(0, 16)}
+                  {formatDateTime(order.cancelled_at)}
                 </span>
               )}
             </Descriptions.Item>
@@ -214,10 +214,9 @@ export default function SalesOrderDetailPage() {
                 title: "状态",
                 dataIndex: "status",
                 width: 100,
-                render: (s: RelatedPurchaseOrder["status"]) => {
-                  const m = PURCHASE_ORDER_STATUS_META[s];
-                  return <Tag color={m.color}>{m.label}</Tag>;
-                },
+                render: (s: RelatedPurchaseOrder["status"]) => (
+                  <StatusTag meta={PURCHASE_ORDER_STATUS_META} value={s} />
+                ),
               },
               { title: "供应商", dataIndex: "supplier_display", ellipsis: true },
               { title: "币种", dataIndex: "currency", width: 70 },
@@ -266,7 +265,7 @@ export default function SalesOrderDetailPage() {
             load();
           } catch (e) {
             // 41802(存在活动采购单)等后端 message 为中文,直显。
-            message.error(e instanceof Error ? e.message : "取消失败");
+            message.error(resolveBizError(e, "取消失败"));
           } finally {
             setCancelling(false);
           }

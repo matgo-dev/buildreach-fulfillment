@@ -14,7 +14,9 @@ from app.core.exceptions import success
 from app.db.models.inbound_order import InboundOrderStatus
 from app.db.session import get_db
 from app.rbac.constants import Permissions
-from app.rbac.guards import require_any_permission, require_permission
+from app.rbac.guards import has_permission, require_any_permission, require_permission
+from app.rbac.redaction import can_see_cost
+from app.schemas.common import Page, PageParams
 from app.schemas.inbound_order import (
     InboundOrderCreateIn,
     InboundOrderLineOut,
@@ -35,14 +37,6 @@ _READ = Depends(require_any_permission(Permissions.INBOUND_READ, Permissions.INB
 _MANAGE = Depends(require_permission(Permissions.INBOUND_MANAGE))
 
 
-def _can_see_cost(current: CurrentUser) -> bool:
-    return Permissions.PURCHASE_READ_COST in current.permissions
-
-
-def _can_see_payable(current: CurrentUser) -> bool:
-    return Permissions.PAYABLE_READ in current.permissions
-
-
 async def _detail_payload(db, order, current) -> dict:
     lines = await inbound_order_service.list_lines(db, order.id)
     # PO 摘要块(经既有脱敏工厂;无 read_cost → 成本 null)。
@@ -54,10 +48,11 @@ async def _detail_payload(db, order, current) -> dict:
             "supplier_display": parties["supplier_display"],
         }),
         "lines": [InboundOrderLineOut.build(ln) for ln in lines],
-        "purchase_order": PurchaseOrderOut.build(po, parties, can_see_cost=_can_see_cost(current)),
+        "purchase_order": PurchaseOrderOut.build(po, parties, can_see_cost=can_see_cost(current)),
     }
     # payable 块:仅持 payable:read 且已入库(有活动 payable)时下发。
-    if _can_see_payable(current) and order.status == InboundOrderStatus.RECEIVED:
+    if (has_permission(current, Permissions.PAYABLE_READ)
+            and order.status == InboundOrderStatus.RECEIVED):
         payable = await inbound_order_service.get_active_payable(db, order.id)
         if payable is not None:
             payload["payable"] = PayableOut.build(payable)
@@ -76,17 +71,16 @@ async def create_inbound_order(body: InboundOrderCreateIn, request: Request,
 
 
 @router.get("", summary="入库单列表(筛选/分页)")
-async def list_inbound_orders(status: str | None = None, purchase_order_id: int | None = None,
+async def list_inbound_orders(page_params: PageParams = Depends(),
+                              status: str | None = None, purchase_order_id: int | None = None,
                               supplier_id: int | None = None, keyword: str | None = None,
-                              page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
                               current: CurrentUser = _READ, db: AsyncSession = Depends(get_db)):
     items, total = await inbound_order_service.list_orders(
         db, status=status, purchase_order_id=purchase_order_id, supplier_id=supplier_id,
-        keyword=keyword, page=page, size=size)
-    return success({
-        "items": [InboundOrderListItem.model_validate(it).model_dump() for it in items],
-        "total": total, "page": page, "size": size,
-    })
+        keyword=keyword, page=page_params.page, size=page_params.size)
+    return success(Page(
+        items=[InboundOrderListItem.model_validate(it).model_dump() for it in items],
+        total=total, page=page_params.page, size=page_params.size).model_dump())
 
 
 @router.get("/receivable-lines", summary="某 CONFIRMED PO 的可收行(建单器数据源)")

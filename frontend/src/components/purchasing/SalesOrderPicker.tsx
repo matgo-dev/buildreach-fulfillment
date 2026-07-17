@@ -1,10 +1,12 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
-import { App, Button, Drawer, Input, Segmented, Space, Table, Tag } from "antd";
+import { useCallback, useState } from "react";
+import { Input, Segmented } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { formatMoney, salesOrderApi, type SalesOrderListItem } from "@/lib/salesOrder";
+import { PickerDrawer } from "@/components/common/PickerDrawer";
+import { StatusTag } from "@/components/common/StatusTag";
+import { formatMoney } from "@/lib/format";
+import { salesOrderApi, type SalesOrderListItem } from "@/lib/salesOrder";
 import { PURCHASE_PROGRESS_META } from "@/lib/purchaseOrderStatus";
-import { colors } from "@/lib/tokens";
 
 // 采购进度筛选(采购台常问「哪些 SO 还没下齐」)。复用 GET /sales-orders?purchase_progress=。
 const PROGRESS_TABS = [
@@ -26,40 +28,21 @@ export function SalesOrderPicker({
   onClose: () => void;
   onPick: (salesOrderId: number) => void;
 }) {
-  const { message } = App.useApp();
-  const [rows, setRows] = useState<SalesOrderListItem[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [progress, setProgress] = useState("");
   const [soNo, setSoNo] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setLoadError(false);
-    try {
-      const res = await salesOrderApi.list({
+  const fetcher = useCallback(
+    ({ page, size }: { page: number; size: number }) =>
+      salesOrderApi.list({
         status: "CONFIRMED",
         no: soNo || undefined,
         purchase_progress: progress || undefined,
         purchasable_only: true, // 只列可发起采购的 SO(已采完的排除,不在此展示)
         page,
-        size: 10,
-      });
-      setRows(res.items);
-      setTotal(res.total);
-    } catch (e) {
-      setLoadError(true);
-      message.error(e instanceof Error ? e.message : "加载销售单失败");
-    } finally {
-      setLoading(false);
-    }
-  }, [progress, soNo, page, message]);
-
-  useEffect(() => {
-    if (open) load();
-  }, [open, load]);
+        size,
+      }),
+    [progress, soNo],
+  );
 
   const columns: ColumnsType<SalesOrderListItem> = [
     { title: "销售单号", dataIndex: "no", width: 150 },
@@ -75,73 +58,44 @@ export function SalesOrderPicker({
       title: "采购进度",
       dataIndex: "purchase_progress",
       width: 110,
-      render: (p: SalesOrderListItem["purchase_progress"]) => {
-        if (!p) return "—";
-        const m = PURCHASE_PROGRESS_META[p];
-        return <Tag color={m.color}>{m.label}</Tag>;
-      },
-    },
-    {
-      title: "",
-      key: "action",
-      width: 72,
-      fixed: "right",
-      render: (_: unknown, r) => (
-        <Button type="link" size="small" onClick={() => onPick(r.id)}>
-          选择
-        </Button>
-      ),
+      render: (p: SalesOrderListItem["purchase_progress"]) =>
+        p ? <StatusTag meta={PURCHASE_PROGRESS_META} value={p} /> : "—",
     },
   ];
 
   return (
-    <Drawer title="选择销售单发起采购" width={720} open={open} onClose={onClose} destroyOnClose>
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Segmented
-          options={PROGRESS_TABS}
-          value={progress}
-          onChange={(v) => {
-            setProgress(v as string);
-            setPage(1);
-          }}
-        />
-        <Input.Search
-          allowClear
-          placeholder="销售单号"
-          style={{ width: 200 }}
-          defaultValue={soNo}
-          onSearch={(v) => {
-            setSoNo(v.trim());
-            setPage(1);
-          }}
-        />
-      </Space>
-      {loadError && !rows.length ? (
-        <div style={{ textAlign: "center", padding: "48px 0", color: colors.muted }}>
-          加载失败
-          <div style={{ marginTop: 12 }}>
-            <Button onClick={load}>重试</Button>
-          </div>
-        </div>
-      ) : (
-        <Table<SalesOrderListItem>
-          rowKey="id"
-          size="small"
-          columns={columns}
-          dataSource={rows}
-          loading={loading}
-          scroll={{ x: 640 }}
-          locale={{ emptyText: "暂无可发起采购的销售单" }}
-          pagination={{
-            current: page,
-            total,
-            pageSize: 10,
-            showSizeChanger: false,
-            showTotal: (t) => `共 ${t} 条`,
-            onChange: setPage,
-          }}
-        />
+    <PickerDrawer<SalesOrderListItem>
+      title="选择销售单发起采购"
+      open={open}
+      onClose={onClose}
+      onPick={(r) => onPick(r.id)}
+      columns={columns}
+      fetcher={fetcher}
+      toolbar={({ resetPage }) => (
+        <>
+          <Segmented
+            options={PROGRESS_TABS}
+            value={progress}
+            onChange={(v) => {
+              setProgress(v as string);
+              resetPage();
+            }}
+          />
+          <Input.Search
+            allowClear
+            placeholder="销售单号"
+            style={{ width: 200 }}
+            defaultValue={soNo}
+            onSearch={(v) => {
+              setSoNo(v.trim());
+              resetPage();
+            }}
+          />
+        </>
       )}
-    </Drawer>
+      errorMessage="加载销售单失败"
+      emptyText="暂无可发起采购的销售单"
+      scrollX={640}
+    />
   );
 }

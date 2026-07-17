@@ -1,7 +1,7 @@
 """客户路由 /api/v1/customers。CRUD + 启停(报价需选 ACTIVE)。守 customer:manage/read。"""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import CurrentUser
@@ -10,6 +10,7 @@ from app.db.models.customer import CustomerStatus
 from app.db.session import get_db
 from app.rbac.constants import Permissions
 from app.rbac.guards import require_any_permission, require_permission
+from app.schemas.common import Page, PageParams
 from app.schemas.customer import (
     CustomerCreateIn,
     CustomerListItem,
@@ -35,16 +36,15 @@ async def create_customer(body: CustomerCreateIn, request: Request,
 
 
 @router.get("", summary="客户列表(筛选/分页)")
-async def list_customers(status: str | None = None, q: str | None = None,
-                         page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
+async def list_customers(page_params: PageParams = Depends(),
+                         status: str | None = None, q: str | None = None,
                          _current: CurrentUser = _READ, db: AsyncSession = Depends(get_db)):
     rows, total = await customer_service.list_customers(
-        db, status=status, keyword=q, page=page, size=size)
-    return success({
-        "items": [CustomerListItem.model_validate(c, from_attributes=True).model_dump()
-                  for c in rows],
-        "total": total, "page": page, "size": size,
-    })
+        db, status=status, keyword=q, page=page_params.page, size=page_params.size)
+    return success(Page(
+        items=[CustomerListItem.model_validate(c, from_attributes=True).model_dump()
+               for c in rows],
+        total=total, page=page_params.page, size=page_params.size).model_dump())
 
 
 @router.get("/{customer_id}", summary="客户详情")

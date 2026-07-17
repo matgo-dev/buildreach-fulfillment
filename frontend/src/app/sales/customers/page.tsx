@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   App,
   Button,
@@ -15,13 +15,17 @@ import {
   Select,
   Space,
   Table,
-  Tag,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { PlusOutlined } from "@ant-design/icons";
 import { Can } from "@/components/common/Can";
+import { StatusTag } from "@/components/common/StatusTag";
+import { ListErrorState } from "@/components/common/ListErrorState";
+import { useListQuery } from "@/hooks/useListQuery";
+import { useCrudDrawer } from "@/hooks/useCrudDrawer";
 import { Permissions } from "@/config/permission-matrix";
 import { useAuthStore } from "@/stores/authStore";
+import { resolveBizError } from "@/lib/errorMessages";
 import {
   CUSTOMER_STATUS_META,
   customerApi,
@@ -30,7 +34,6 @@ import {
   type CustomerSaveBody,
 } from "@/lib/customer";
 import { QUOTE_LANGUAGE_OPTIONS, quoteLanguageLabel } from "@/lib/quote-languages";
-import { colors } from "@/lib/tokens";
 
 const STATUS_TABS = [
   { label: "启用", value: "ACTIVE" },
@@ -38,108 +41,39 @@ const STATUS_TABS = [
   { label: "全部", value: "" },
 ];
 
-type DrawerMode = "view" | "create" | "edit" | null;
-
 export default function CustomerListPage() {
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const canManage = useAuthStore((s) => s.hasPermission(Permissions.CUSTOMER_MANAGE));
 
-  const [rows, setRows] = useState<CustomerListItem[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [status, setStatus] = useState("ACTIVE");
   const [q, setQ] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState(false);
-
-  const [mode, setMode] = useState<DrawerMode>(null);
-  const [current, setCurrent] = useState<CustomerOut | null>(null);
-  const [saving, setSaving] = useState(false);
   const [rowBusyId, setRowBusyId] = useState<number | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setLoadError(false);
-    try {
-      const res = await customerApi.list({
+  const fetcher = useCallback(
+    ({ page, size }: { page: number; size: number }) =>
+      customerApi.list({
         status: status || undefined,
         q: q || undefined,
         page,
-        size: 20,
-      });
-      setRows(res.items);
-      setTotal(res.total);
-    } catch (e) {
-      setLoadError(true);
-      message.error(e instanceof Error ? e.message : "加载客户列表失败");
-    } finally {
-      setLoading(false);
-    }
-  }, [status, q, page, message]);
+        size,
+      }),
+    [status, q],
+  );
+  const { rows, setPage, loading, loadError, load, pagination } = useListQuery<CustomerListItem>(
+    fetcher,
+    { errorMessage: "加载客户列表失败" },
+  );
 
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  async function openView(id: number) {
-    setMode("view");
-    setCurrent(null);
-    try {
-      setCurrent(await customerApi.get(id));
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : "加载客户失败");
-      setMode(null);
-    }
-  }
-
-  async function openEdit(id: number) {
-    try {
-      const c = await customerApi.get(id);
-      setCurrent(c);
-      form.setFieldsValue(c);
-      setMode("edit");
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : "加载客户失败");
-    }
-  }
-
-  function openCreate() {
-    setCurrent(null);
-    form.resetFields();
-    setMode("create");
-  }
-
-  function closeDrawer() {
-    setMode(null);
-    setCurrent(null);
-    form.resetFields();
-  }
-
-  async function onSubmit() {
-    let values: CustomerSaveBody;
-    try {
-      values = await form.validateFields();
-    } catch {
-      return;
-    }
-    setSaving(true);
-    try {
-      if (mode === "create") {
-        await customerApi.create(values);
-        message.success("已创建");
-      } else if (mode === "edit" && current) {
-        await customerApi.update(current.id, values);
-        message.success("已保存");
-      }
-      closeDrawer();
-      load();
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : "保存失败");
-    } finally {
-      setSaving(false);
-    }
-  }
+  const drawer = useCrudDrawer<CustomerOut, CustomerSaveBody>({
+    form,
+    fetchDetail: customerApi.get,
+    create: (values) => customerApi.create(values),
+    update: (current, values) => customerApi.update(current.id, values),
+    afterSubmit: load,
+    messages: { created: "已创建", saved: "已保存", loadFailed: "加载客户失败" },
+  });
+  const { mode, current, saving, openView, openCreate, openEdit, closeDrawer, onSubmit } = drawer;
 
   async function toggleStatus(r: CustomerListItem) {
     setRowBusyId(r.id);
@@ -153,7 +87,7 @@ export default function CustomerListPage() {
       }
       load();
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "操作失败");
+      message.error(resolveBizError(e, "操作失败"));
     } finally {
       setRowBusyId(null);
     }
@@ -174,10 +108,7 @@ export default function CustomerListPage() {
       title: "状态",
       dataIndex: "status",
       width: 90,
-      render: (s: CustomerListItem["status"]) => {
-        const m = CUSTOMER_STATUS_META[s];
-        return <Tag color={m.color}>{m.label}</Tag>;
-      },
+      render: (s: CustomerListItem["status"]) => <StatusTag meta={CUSTOMER_STATUS_META} value={s} />,
     },
     ...(canManage
       ? [
@@ -244,12 +175,7 @@ export default function CustomerListPage() {
       </Space>
 
       {loadError && !rows.length ? (
-        <div style={{ textAlign: "center", padding: "48px 0", color: colors.muted }}>
-          加载失败
-          <div style={{ marginTop: 12 }}>
-            <Button onClick={load}>重试</Button>
-          </div>
-        </div>
+        <ListErrorState onRetry={load} />
       ) : (
         <Table<CustomerListItem>
           rowKey="id"
@@ -262,14 +188,7 @@ export default function CustomerListPage() {
             onClick: () => openView(r.id),
             style: { cursor: "pointer" },
           })}
-          pagination={{
-            current: page,
-            total,
-            pageSize: 20,
-            showSizeChanger: false,
-            showTotal: (t) => `共 ${t} 条`,
-            onChange: setPage,
-          }}
+          pagination={pagination}
         />
       )}
 
@@ -312,9 +231,7 @@ export default function CustomerListPage() {
               <Descriptions.Item label="邮箱">{current.contact_email || "—"}</Descriptions.Item>
               <Descriptions.Item label="地址">{current.address || "—"}</Descriptions.Item>
               <Descriptions.Item label="状态">
-                <Tag color={CUSTOMER_STATUS_META[current.status].color}>
-                  {CUSTOMER_STATUS_META[current.status].label}
-                </Tag>
+                <StatusTag meta={CUSTOMER_STATUS_META} value={current.status} />
               </Descriptions.Item>
             </Descriptions>
           ) : null

@@ -14,7 +14,6 @@ import {
   Row,
   Select,
   Space,
-  Spin,
   Table,
 } from "antd";
 import { colors } from "@/lib/tokens";
@@ -22,6 +21,9 @@ import type { ColumnsType } from "antd/es/table";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { display } from "@/lib/i18n";
+import { formatMoney } from "@/lib/format";
+import { resolveBizError } from "@/lib/errorMessages";
+import { PageLoading } from "@/components/common/PageLoading";
 import { catalogApi, specAxisText } from "@/lib/catalog";
 import { quotationApi, type QuotationSaveBody } from "@/lib/quotation";
 import { customerApi, type CustomerListItem } from "@/lib/customer";
@@ -111,7 +113,7 @@ export function QuotationEditor({ mode, orderId }: { mode: "create" | "edit"; or
         );
       }
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "加载失败");
+      message.error(resolveBizError(e, "加载失败"));
     } finally {
       setLoading(false);
     }
@@ -196,7 +198,7 @@ export function QuotationEditor({ mode, orderId }: { mode: "create" | "edit"; or
       message.success("已保存");
       router.push(`/sales/quotations/${saved.id}`);
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "保存失败");
+      message.error(resolveBizError(e, "保存失败"));
     } finally {
       setSaving(false);
     }
@@ -241,7 +243,7 @@ export function QuotationEditor({ mode, orderId }: { mode: "create" | "edit"; or
       key: "amount",
       width: 120,
       align: "right",
-      render: (_, r) => ((r.unit_price || 0) * (r.qty || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 }),
+      render: (_, r) => formatMoney((r.unit_price || 0) * (r.qty || 0)),
     },
     {
       title: "明细备注",
@@ -261,7 +263,7 @@ export function QuotationEditor({ mode, orderId }: { mode: "create" | "edit"; or
     },
   ];
 
-  if (loading) return <Spin style={{ display: "block", marginTop: 80 }} />;
+  if (loading) return <PageLoading />;
 
   return (
     <Card
@@ -343,7 +345,7 @@ export function QuotationEditor({ mode, orderId }: { mode: "create" | "edit"; or
               添加商品
             </Button>
             <span style={{ fontWeight: 600, color: colors.navy }}>
-              合计 {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              合计 {formatMoney(total)}
             </span>
           </Space>
         )}

@@ -3,7 +3,7 @@
 // 只在响应含 payable 键 / /payables 返回 200 时渲染。
 import { api } from "./api";
 import type { Page } from "./catalog";
-import { formatMoney } from "./salesOrder";
+import { formatMoney } from "./format";
 
 /** 派生状态:未付 / 部分付 / 已付清(后端由 amount_* 单一口径派生)。 */
 export type PayableStatus = "UNPAID" | "PARTIALLY_PAID" | "PAID";

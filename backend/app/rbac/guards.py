@@ -32,6 +32,12 @@ def _raise_if_must_change(current: CurrentUser, code: str | None = None) -> None
     raise PasswordChangeRequiredError()
 
 
+def has_permission(current: CurrentUser, code: str) -> bool:
+    """单点权限谓词:端点体内的条件分支(如响应块门控/字段可见性)用它,
+    不散写 `code in current.permissions`;依赖注入式守卫仍走 require_permission。"""
+    return code in current.permissions
+
+
 def require_permission(code: str):
     async def checker(current: CurrentUser = Depends(get_current_user)) -> CurrentUser:
         if code not in current.permissions:

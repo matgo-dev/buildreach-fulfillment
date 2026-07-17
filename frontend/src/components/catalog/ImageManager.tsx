@@ -5,6 +5,7 @@ import { PlusOutlined, LoadingOutlined, StarFilled, StarOutlined, CloseOutlined 
 import { uploadImage } from "@/lib/upload";
 import { imageUrl } from "@/lib/image";
 import { ImageRefIn } from "@/lib/catalog";
+import { resolveBizError } from "@/lib/errorMessages";
 import { colors } from "@/lib/tokens";
 
 const { Text } = Typography;
@@ -47,7 +48,7 @@ export function ImageZone({
       const key = await uploadImage(file);
       onChange([...keys, key]);
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "上传失败");
+      message.error(resolveBizError(e, "上传失败"));
     } finally {
       setLoading(false);
     }

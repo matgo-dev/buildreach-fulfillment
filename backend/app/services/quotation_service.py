@@ -26,6 +26,7 @@ from app.core.exceptions import (
 )
 from app.core.i18n import compose_spec_text, display
 from app.core.languages import DEFAULT_QUOTE_LANGUAGE
+from app.core.statemachine import assert_transition
 from app.db.models.quotation import (
     QUOTATION_DELETABLE,
     QUOTATION_EDITABLE,
@@ -42,6 +43,7 @@ from app.db.models.unit import Unit
 from app.db.models.user import User
 from app.services import customer_service, sku_service, spec_template_service as tmpl, user_service
 from app.services.numbering import allocate
+from app.services.repo import assert_no_edit_conflict, get_or_404, paginate
 
 
 def _compose_snapshot(sku: Sku, spu: Spu, by_key: dict, unit_row: Unit | None,
@@ -92,11 +94,8 @@ async def _next_quote_no(db: AsyncSession) -> str:
 
 
 async def get_order(db: AsyncSession, order_id: int) -> QuotationOrder:
-    order = (await db.execute(
-        select(QuotationOrder).where(QuotationOrder.id == order_id))).scalar_one_or_none()
-    if order is None:
-        raise NotFoundError(f"报价单不存在: {order_id}")
-    return order
+    return await get_or_404(db, QuotationOrder, order_id,
+                            error_cls=NotFoundError, message=f"报价单不存在: {order_id}")
 
 
 async def get_order_for_update(db: AsyncSession, order_id: int) -> QuotationOrder:
@@ -104,12 +103,8 @@ async def get_order_for_update(db: AsyncSession, order_id: int) -> QuotationOrde
     硬删)都经它取单:锁持到本事务提交,并发写被串行化,堵住无锁 RMW 的丢更新。
     乐观锁 expected_updated_at 是另一层职责——只探测"客户端视图过期"(GET 后别人改过),
     防丢更新靠这把行锁。纯读路径(GET 详情)不锁。"""
-    order = (await db.execute(
-        select(QuotationOrder).where(QuotationOrder.id == order_id)
-        .with_for_update())).scalar_one_or_none()
-    if order is None:
-        raise NotFoundError(f"报价单不存在: {order_id}")
-    return order
+    return await get_or_404(db, QuotationOrder, order_id, for_update=True,
+                            error_cls=NotFoundError, message=f"报价单不存在: {order_id}")
 
 
 async def list_lines(db: AsyncSession, order_id: int) -> list[QuotationLine]:
@@ -242,8 +237,7 @@ async def save_order(db: AsyncSession, *, order_id: int | None, customer_id, cur
         order = await get_order_for_update(db, order_id)
         if order.status not in QUOTATION_EDITABLE:
             raise QuotationNotDraftError()
-        if expected_updated_at is not None and order.updated_at != expected_updated_at:
-            raise QuotationEditConflictError()
+        assert_no_edit_conflict(order, expected_updated_at, QuotationEditConflictError)
         # 只拦"换客户"到停用户;不换客户的常规保存放行(客户后停用不锁旧单据收尾)。
         if customer_id != order.customer_id:
             switched = await customer_service.get_customer(db, customer_id)
@@ -268,17 +262,12 @@ async def save_order(db: AsyncSession, *, order_id: int | None, customer_id, cur
     return order
 
 
-def _assert_transition(current: str, target: str) -> None:
-    """合法转移守卫,读 model 层矩阵单一源头(QUOTATION_TRANSITIONS)。"""
-    if target not in QUOTATION_TRANSITIONS[current]:
-        raise QuotationInvalidTransitionError(f"非法转移: {current} → {target}")
-
-
 async def _transition(db: AsyncSession, order_id: int, target: str, audit_action: AuditAction,
                       *, actor_user_id, actor_user_email, request: Request | None,
                       extra: dict | None = None) -> QuotationOrder:
     order = await get_order_for_update(db, order_id)
-    _assert_transition(order.status, target)
+    assert_transition(QUOTATION_TRANSITIONS, order.status, target,
+                      QuotationInvalidTransitionError)
     order.status = target
     await db.flush()
     await write_audit(db, resource_type=AuditResourceType.QUOTATION, action=audit_action,
@@ -298,7 +287,8 @@ async def lock_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_em
     order = await get_order_for_update(db, order_id)
     if order.status != QuotationStatus.DRAFT:
         raise QuotationNotDraftError("Only a draft quotation can be locked via this endpoint")
-    _assert_transition(order.status, QuotationStatus.LOCKED)
+    assert_transition(QUOTATION_TRANSITIONS, order.status, QuotationStatus.LOCKED,
+                      QuotationInvalidTransitionError)
     if not await list_lines(db, order_id):
         raise QuotationEmptyLinesError()
     return await _transition(db, order_id, QuotationStatus.LOCKED, AuditAction.LOCK,
@@ -355,22 +345,22 @@ async def list_orders(db: AsyncSession, *, status=None, customer_id=None, salesp
         conds.append(or_(QuotationOrder.no.ilike(like),
                          Customer.name.ilike(like)))
 
-    total = (await db.execute(
-        select(func.count(QuotationOrder.id))
-        .join(Customer, Customer.id == QuotationOrder.customer_id)
-        .where(*conds))).scalar_one()
+    count_stmt = (select(func.count(QuotationOrder.id))
+                  .join(Customer, Customer.id == QuotationOrder.customer_id)
+                  .where(*conds))
 
     line_count = (select(func.count(QuotationLine.id))
                   .where(QuotationLine.quotation_order_id == QuotationOrder.id)
                   .scalar_subquery())
     order_col = (QuotationOrder.total_amount.desc() if sort == "total_amount"
                  else QuotationOrder.created_at.desc())
-    rows = (await db.execute(
+    rows, total = await paginate(
+        db,
         select(QuotationOrder, Customer.name, User.name, line_count.label("lc"))
         .join(Customer, Customer.id == QuotationOrder.customer_id)
         .join(User, User.id == QuotationOrder.salesperson_id)
-        .where(*conds).order_by(order_col)
-        .offset((page - 1) * size).limit(size))).all()
+        .where(*conds).order_by(order_col),
+        page=page, size=size, count_stmt=count_stmt, scalars=False)
 
     items = [{
         "id": o.id, "no": o.no, "summary": o.summary,

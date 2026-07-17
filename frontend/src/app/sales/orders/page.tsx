@@ -1,14 +1,19 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { App, Button, Card, Drawer, Input, Popconfirm, Segmented, Space, Switch, Table, Tag } from "antd";
+import { App, Button, Card, Drawer, Input, Popconfirm, Segmented, Space, Switch, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { FileAddOutlined } from "@ant-design/icons";
 import { Can } from "@/components/common/Can";
+import { StatusTag } from "@/components/common/StatusTag";
+import { ListErrorState } from "@/components/common/ListErrorState";
+import { useListQuery } from "@/hooks/useListQuery";
 import { Permissions } from "@/config/permission-matrix";
 import { useAuthStore } from "@/stores/authStore";
+import { formatDateTime, formatMoney } from "@/lib/format";
+import { resolveBizError } from "@/lib/errorMessages";
 import { quotationApi, type QuotationListItem } from "@/lib/quotation";
-import { formatMoney, salesOrderApi, type SalesOrderListItem } from "@/lib/salesOrder";
+import { salesOrderApi, type SalesOrderListItem } from "@/lib/salesOrder";
 import { SALES_ORDER_STATUS_META } from "@/lib/salesOrderStatus";
 import { PURCHASE_PROGRESS_META } from "@/lib/purchaseOrderStatus";
 import { colors } from "@/lib/tokens";
@@ -31,16 +36,12 @@ export default function SalesOrderListPage() {
   const { message } = App.useApp();
   const userId = useAuthStore((s) => s.user?.id);
 
-  const [rows, setRows] = useState<SalesOrderListItem[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [status, setStatus] = useState("");
   const [keyword, setKeyword] = useState("");
   const [purchaseProgress, setPurchaseProgress] = useState("");
   const [mineOnly, setMineOnly] = useState(false);
   const [sort, setSort] = useState<"created_at" | "total_amount">("created_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const [loading, setLoading] = useState(false);
   const [quoteDrawerOpen, setQuoteDrawerOpen] = useState(false);
   const [quoteKeyword, setQuoteKeyword] = useState("");
   const [quoteLoading, setQuoteLoading] = useState(false);
@@ -48,10 +49,9 @@ export default function SalesOrderListPage() {
   const [selectedQuoteId, setSelectedQuoteId] = useState<number | null>(null);
   const [converting, setConverting] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await salesOrderApi.list({
+  const fetcher = useCallback(
+    ({ page, size }: { page: number; size: number }) =>
+      salesOrderApi.list({
         status: status || undefined,
         no: keyword.trim() || undefined,
         purchase_progress: purchaseProgress || undefined,
@@ -59,20 +59,14 @@ export default function SalesOrderListPage() {
         sort,
         dir: sortDir,
         page,
-        size: 20,
-      });
-      setRows(res.items);
-      setTotal(res.total);
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : "加载销售单列表失败");
-    } finally {
-      setLoading(false);
-    }
-  }, [status, keyword, purchaseProgress, mineOnly, userId, sort, sortDir, page, message]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+        size,
+      }),
+    [status, keyword, purchaseProgress, mineOnly, userId, sort, sortDir],
+  );
+  const { rows, setPage, loading, loadError, load, pagination } = useListQuery<SalesOrderListItem>(
+    fetcher,
+    { errorMessage: "加载销售单列表失败" },
+  );
 
   const loadLockedQuotations = useCallback(async (keyword = quoteKeyword) => {
     setQuoteLoading(true);
@@ -87,7 +81,7 @@ export default function SalesOrderListPage() {
       setQuoteRows(res.items);
       setSelectedQuoteId(null);
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "加载锁档报价失败");
+      message.error(resolveBizError(e, "加载锁档报价失败"));
     } finally {
       setQuoteLoading(false);
     }
@@ -109,7 +103,7 @@ export default function SalesOrderListPage() {
       await load();
       router.push(`/sales/orders/${order.id}`);
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "生成销售单失败");
+      message.error(resolveBizError(e, "生成销售单失败"));
     } finally {
       setConverting(false);
     }
@@ -123,10 +117,7 @@ export default function SalesOrderListPage() {
       title: "状态",
       dataIndex: "status",
       width: 110,
-      render: (s: SalesOrderListItem["status"]) => {
-        const m = SALES_ORDER_STATUS_META[s];
-        return <Tag color={m.color}>{m.label}</Tag>;
-      },
+      render: (s: SalesOrderListItem["status"]) => <StatusTag meta={SALES_ORDER_STATUS_META} value={s} />,
     },
     {
       title: "采购进度",
@@ -135,11 +126,8 @@ export default function SalesOrderListPage() {
       filters: PROGRESS_FILTERS,
       filterMultiple: false,
       filteredValue: purchaseProgress ? [purchaseProgress] : null,
-      render: (p: SalesOrderListItem["purchase_progress"]) => {
-        if (!p) return "—";
-        const m = PURCHASE_PROGRESS_META[p];
-        return <Tag color={m.color}>{m.label}</Tag>;
-      },
+      render: (p: SalesOrderListItem["purchase_progress"]) =>
+        p ? <StatusTag meta={PURCHASE_PROGRESS_META} value={p} /> : "—",
     },
     { title: "币种", dataIndex: "currency", width: 70 },
     {
@@ -155,7 +143,7 @@ export default function SalesOrderListPage() {
       title: "创建时间",
       dataIndex: "created_at",
       width: 170,
-      render: (v: string) => v?.replace("T", " ").slice(0, 16),
+      render: (v: string) => formatDateTime(v),
     },
   ];
 
@@ -168,9 +156,9 @@ export default function SalesOrderListPage() {
       key: "amount",
       width: 120,
       align: "right",
-      render: (_, r) => `${r.currency} ${Number(r.total_amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+      render: (_, r) => `${r.currency} ${formatMoney(r.total_amount)}`,
     },
-    { title: "创建时间", dataIndex: "created_at", width: 150, render: (v: string) => v?.replace("T", " ").slice(0, 16) },
+    { title: "创建时间", dataIndex: "created_at", width: 150, render: (v: string) => formatDateTime(v) },
   ];
 
   const selectedQuote = useMemo(
@@ -217,37 +205,34 @@ export default function SalesOrderListPage() {
           </Button>
         </Can>
       </Space>
-      <Table<SalesOrderListItem>
-        rowKey="id"
-        columns={columns}
-        dataSource={rows}
-        loading={loading}
-        scroll={{ x: 1120 }}
-        locale={{ emptyText: "暂无销售单" }}
-        onRow={(r) => ({
-          onClick: () => router.push(`/sales/orders/${r.id}`),
-          style: { cursor: "pointer" },
-        })}
-        pagination={{
-          current: page,
-          total,
-          pageSize: 20,
-          showSizeChanger: false,
-          showTotal: (t) => `共 ${t} 条`,
-          onChange: setPage,
-        }}
-        onChange={(_p, filters, sorter) => {
-          const s = Array.isArray(sorter) ? sorter[0] : sorter;
-          setSort(s?.field === "total_amount" ? "total_amount" : "created_at");
-          setSortDir(s?.order === "ascend" ? "asc" : "desc");
-          // 列头采购进度筛选 → 服务端过滤(单选)。
-          const p = (filters.purchase_progress?.[0] as string) || "";
-          if (p !== purchaseProgress) {
-            setPurchaseProgress(p);
-            setPage(1);
-          }
-        }}
-      />
+      {loadError && !rows.length ? (
+        <ListErrorState onRetry={load} />
+      ) : (
+        <Table<SalesOrderListItem>
+          rowKey="id"
+          columns={columns}
+          dataSource={rows}
+          loading={loading}
+          scroll={{ x: 1120 }}
+          locale={{ emptyText: "暂无销售单" }}
+          onRow={(r) => ({
+            onClick: () => router.push(`/sales/orders/${r.id}`),
+            style: { cursor: "pointer" },
+          })}
+          pagination={pagination}
+          onChange={(_p, filters, sorter) => {
+            const s = Array.isArray(sorter) ? sorter[0] : sorter;
+            setSort(s?.field === "total_amount" ? "total_amount" : "created_at");
+            setSortDir(s?.order === "ascend" ? "asc" : "desc");
+            // 列头采购进度筛选 → 服务端过滤(单选)。
+            const p = (filters.purchase_progress?.[0] as string) || "";
+            if (p !== purchaseProgress) {
+              setPurchaseProgress(p);
+              setPage(1);
+            }
+          }}
+        />
+      )}
       <Drawer
         title="从锁档报价生成销售单"
         open={quoteDrawerOpen}
@@ -258,7 +243,7 @@ export default function SalesOrderListPage() {
           <Space style={{ width: "100%", justifyContent: "space-between" }} wrap>
             <span style={{ color: colors.muted }}>
               {selectedQuote
-                ? `已选择 ${selectedQuote.no} · ${selectedQuote.customer_display} · ${selectedQuote.currency} ${Number(selectedQuote.total_amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}`
+                ? `已选择 ${selectedQuote.no} · ${selectedQuote.customer_display} · ${selectedQuote.currency} ${formatMoney(selectedQuote.total_amount)}`
                 : "选择一张锁档报价作为销售单来源"}
             </span>
             <Space>

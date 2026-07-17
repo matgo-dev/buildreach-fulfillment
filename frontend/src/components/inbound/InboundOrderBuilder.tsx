@@ -19,9 +19,9 @@ import {
 import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
 import { colors } from "@/lib/tokens";
-import { formatQty } from "@/lib/salesOrder";
+import { formatQty } from "@/lib/format";
+import { resolveBizError } from "@/lib/errorMessages";
 import {
-  inboundErrorMessage,
   inboundOrderApi,
   type InboundOrderLineIn,
 } from "@/lib/inboundOrder";
@@ -126,7 +126,7 @@ export function InboundOrderBuilder({
       }
       setRows(Array.from(byLine.values()));
     } catch (e) {
-      message.error(inboundErrorMessage(e, "加载可收行失败"));
+      message.error(resolveBizError(e, "加载可收行失败"));
       onClose();
     } finally {
       setLoading(false);
@@ -214,7 +214,7 @@ export function InboundOrderBuilder({
       }
       onSaved();
     } catch (e) {
-      message.error(inboundErrorMessage(e, "保存失败"));
+      message.error(resolveBizError(e, "保存失败"));
     } finally {
       setSaving(false);
     }

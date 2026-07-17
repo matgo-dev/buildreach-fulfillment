@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   App,
   Button,
@@ -18,7 +18,12 @@ import {
 import type { ColumnsType } from "antd/es/table";
 import { DownOutlined, PlusOutlined } from "@ant-design/icons";
 import { Drawer } from "antd";
+import { StatusTag } from "@/components/common/StatusTag";
+import { ListErrorState } from "@/components/common/ListErrorState";
+import { useListQuery } from "@/hooks/useListQuery";
+import { useCrudDrawer } from "@/hooks/useCrudDrawer";
 import { useAuthStore } from "@/stores/authStore";
+import { resolveBizError } from "@/lib/errorMessages";
 import {
   ROLE_OPTIONS,
   USER_STATUS_META,
@@ -36,24 +41,13 @@ const STATUS_TABS = [
   { label: "全部", value: "" },
 ];
 
-type DrawerMode = "create" | "edit" | null;
-
 export default function UserAdminPage() {
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const me = useAuthStore((s) => s.user);
 
-  const [rows, setRows] = useState<UserItem[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [status, setStatus] = useState("ACTIVE");
   const [q, setQ] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState(false);
-
-  const [mode, setMode] = useState<DrawerMode>(null);
-  const [current, setCurrent] = useState<UserItem | null>(null);
-  const [saving, setSaving] = useState(false);
   const [rowBusyId, setRowBusyId] = useState<number | null>(null);
 
   // 改角色 / 重置密码 小 Modal
@@ -63,73 +57,31 @@ export default function UserAdminPage() {
   const [resetPwd, setResetPwd] = useState("");
   const [modalBusy, setModalBusy] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setLoadError(false);
-    try {
-      const res = await userAdminApi.list({
+  const fetcher = useCallback(
+    ({ page, size }: { page: number; size: number }) =>
+      userAdminApi.list({
         status: status || undefined,
         q: q || undefined,
         page,
-        size: 20,
-      });
-      setRows(res.items);
-      setTotal(res.total);
-    } catch (e) {
-      setLoadError(true);
-      message.error(e instanceof Error ? e.message : "加载用户列表失败");
-    } finally {
-      setLoading(false);
-    }
-  }, [status, q, page, message]);
+        size,
+      }),
+    [status, q],
+  );
+  const { rows, setPage, loading, loadError, load, pagination } = useListQuery<UserItem>(fetcher, {
+    errorMessage: "加载用户列表失败",
+  });
 
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  function openCreate() {
-    setCurrent(null);
-    form.resetFields();
-    form.setFieldsValue({ must_change_password: true });
-    setMode("create");
-  }
-
-  function openEdit(r: UserItem) {
-    setCurrent(r);
-    form.setFieldsValue({ email: r.email, phone: r.phone, name: r.name });
-    setMode("edit");
-  }
-
-  function closeDrawer() {
-    setMode(null);
-    setCurrent(null);
-    form.resetFields();
-  }
-
-  async function onSubmit() {
-    let values: UserCreateBody & UserUpdateBody;
-    try {
-      values = await form.validateFields();
-    } catch {
-      return;
-    }
-    setSaving(true);
-    try {
-      if (mode === "create") {
-        await userAdminApi.create(values as UserCreateBody);
-        message.success("已创建,首次登录须改密");
-      } else if (mode === "edit" && current) {
-        await userAdminApi.update(current.id, values as UserUpdateBody);
-        message.success("已保存");
-      }
-      closeDrawer();
-      load();
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : "保存失败");
-    } finally {
-      setSaving(false);
-    }
-  }
+  // 列表行即完整编辑数据(无详情接口),openEdit 直接吃行对象;回显仅取可编辑子集。
+  const drawer = useCrudDrawer<UserItem, UserCreateBody & UserUpdateBody>({
+    form,
+    fillForm: (r) => form.setFieldsValue({ email: r.email, phone: r.phone, name: r.name }),
+    prepareCreate: () => form.setFieldsValue({ must_change_password: true }),
+    create: (values) => userAdminApi.create(values as UserCreateBody),
+    update: (current, values) => userAdminApi.update(current.id, values as UserUpdateBody),
+    afterSubmit: load,
+    messages: { created: "已创建,首次登录须改密", saved: "已保存", loadFailed: "加载用户失败" },
+  });
+  const { mode, saving, openCreate, openEdit, closeDrawer, onSubmit } = drawer;
 
   async function toggleStatus(r: UserItem) {
     setRowBusyId(r.id);
@@ -143,7 +95,7 @@ export default function UserAdminPage() {
       }
       load();
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "操作失败");
+      message.error(resolveBizError(e, "操作失败"));
     } finally {
       setRowBusyId(null);
     }
@@ -158,7 +110,7 @@ export default function UserAdminPage() {
       setRoleTarget(null);
       load();
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "改角色失败");
+      message.error(resolveBizError(e, "改角色失败"));
     } finally {
       setModalBusy(false);
     }
@@ -174,7 +126,7 @@ export default function UserAdminPage() {
       setResetPwd("");
       load();
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "重置失败");
+      message.error(resolveBizError(e, "重置失败"));
     } finally {
       setModalBusy(false);
     }
@@ -195,10 +147,7 @@ export default function UserAdminPage() {
       title: "状态",
       dataIndex: "status",
       width: 90,
-      render: (s: UserItem["status"]) => {
-        const m = USER_STATUS_META[s];
-        return <Tag color={m.color}>{m.label}</Tag>;
-      },
+      render: (s: UserItem["status"]) => <StatusTag meta={USER_STATUS_META} value={s} />,
     },
     {
       title: "操作",
@@ -284,12 +233,7 @@ export default function UserAdminPage() {
       </Space>
 
       {loadError && !rows.length ? (
-        <div style={{ textAlign: "center", padding: "48px 0", color: colors.muted }}>
-          加载失败
-          <div style={{ marginTop: 12 }}>
-            <Button onClick={load}>重试</Button>
-          </div>
-        </div>
+        <ListErrorState onRetry={load} />
       ) : (
         <Table<UserItem>
           rowKey="id"
@@ -298,14 +242,7 @@ export default function UserAdminPage() {
           loading={loading}
           scroll={{ x: 900 }}
           locale={{ emptyText: "暂无用户" }}
-          pagination={{
-            current: page,
-            total,
-            pageSize: 20,
-            showSizeChanger: false,
-            showTotal: (t) => `共 ${t} 条`,
-            onChange: setPage,
-          }}
+          pagination={pagination}
         />
       )}
 

@@ -20,6 +20,7 @@ from starlette.requests import Request
 from app.audit.constants import AuditAction, AuditResourceType
 from app.audit.logger import write_audit
 from app.core.codegen import NumberScope, format_code
+from app.core.statemachine import assert_transition
 from app.core.exceptions import (
     PurchaseOrderEditConflictError,
     PurchaseOrderEmptyError,
@@ -44,6 +45,7 @@ from app.db.models.sales_order import SalesOrder, SalesOrderLine, SalesOrderStat
 from app.db.models.sku import Sku
 from app.db.models.supplier import Supplier, SupplierStatus
 from app.services.numbering import allocate
+from app.services.repo import assert_no_edit_conflict, get_or_404, paginate
 
 
 async def _next_po_no(db: AsyncSession) -> str:
@@ -145,20 +147,15 @@ async def assert_within_so_line_quota(db: AsyncSession, so_line_id: int, add_qty
 
 
 async def get_order(db: AsyncSession, order_id: int) -> PurchaseOrder:
-    po = (await db.execute(
-        select(PurchaseOrder).where(PurchaseOrder.id == order_id))).scalar_one_or_none()
-    if po is None:
-        raise PurchaseOrderNotFoundError(f"采购单不存在: {order_id}")
-    return po
+    return await get_or_404(db, PurchaseOrder, order_id,
+                            error_cls=PurchaseOrderNotFoundError,
+                            message=f"采购单不存在: {order_id}")
 
 
 async def get_order_for_update(db: AsyncSession, order_id: int) -> PurchaseOrder:
-    po = (await db.execute(
-        select(PurchaseOrder).where(PurchaseOrder.id == order_id)
-        .with_for_update())).scalar_one_or_none()
-    if po is None:
-        raise PurchaseOrderNotFoundError(f"采购单不存在: {order_id}")
-    return po
+    return await get_or_404(db, PurchaseOrder, order_id, for_update=True,
+                            error_cls=PurchaseOrderNotFoundError,
+                            message=f"采购单不存在: {order_id}")
 
 
 async def list_lines(db: AsyncSession, order_id: int) -> list[PurchaseOrderLine]:
@@ -283,8 +280,7 @@ async def save_order(db: AsyncSession, *, order_id, supplier_id, currency, remar
     po = await get_order_for_update(db, order_id)
     if po.status not in PURCHASE_ORDER_EDITABLE_STATUSES:
         raise PurchaseOrderNotDraftError()
-    if expected_updated_at is not None and po.updated_at != expected_updated_at:
-        raise PurchaseOrderEditConflictError()
+    assert_no_edit_conflict(po, expected_updated_at, PurchaseOrderEditConflictError)
     if not lines:
         raise PurchaseOrderEmptyError()
 
@@ -319,17 +315,12 @@ async def save_order(db: AsyncSession, *, order_id, supplier_id, currency, remar
 # ---------- 状态跃迁 ----------
 
 
-def _assert_transition(current: str, target: str) -> None:
-    """合法转移守卫,读 model 层矩阵单一源头(PURCHASE_ORDER_TRANSITIONS)。"""
-    if target not in PURCHASE_ORDER_TRANSITIONS[current]:
-        raise PurchaseOrderInvalidTransitionError(f"非法转移: {current} → {target}")
-
-
 async def confirm_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_email,
                         request: Request | None = None) -> PurchaseOrder:
     """DRAFT→CONFIRMED(下单)。确认前:至少 1 行 + 超采重校验(防并发草稿抢额度)。"""
     po = await get_order_for_update(db, order_id)
-    _assert_transition(po.status, PurchaseOrderStatus.CONFIRMED)
+    assert_transition(PURCHASE_ORDER_TRANSITIONS, po.status, PurchaseOrderStatus.CONFIRMED,
+                      PurchaseOrderInvalidTransitionError)
     lines = await list_lines(db, order_id)
     if not lines:
         raise PurchaseOrderEmptyError()
@@ -348,7 +339,8 @@ async def cancel_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_
     新守卫(契约 D5):CONFIRMED 有活动入库单({IN_TRANSIT,RECEIVED})不可取消——货已在途/已收,
     订货承诺不可单方作废,须先作废/撤销入库。"""
     po = await get_order_for_update(db, order_id)
-    _assert_transition(po.status, PurchaseOrderStatus.CANCELLED)
+    assert_transition(PURCHASE_ORDER_TRANSITIONS, po.status, PurchaseOrderStatus.CANCELLED,
+                      PurchaseOrderInvalidTransitionError)
     # 延迟导入避免循环依赖(inbound_order_service 依赖 PO 模型)。
     from app.core.exceptions import PurchaseOrderHasActiveInboundError
     from app.services import inbound_order_service
@@ -409,17 +401,17 @@ async def list_orders(db: AsyncSession, *, status=None, supplier_id=None,
     if need_so_join:
         count_stmt = count_stmt.join(
             SalesOrder, SalesOrder.id == PurchaseOrder.source_sales_order_id)
-    total = (await db.execute(count_stmt.where(*conds))).scalar_one()
 
     line_count = (select(func.count(PurchaseOrderLine.id))
                   .where(PurchaseOrderLine.purchase_order_id == PurchaseOrder.id)
                   .scalar_subquery())
-    rows = (await db.execute(
+    rows, total = await paginate(
+        db,
         select(PurchaseOrder, Supplier.name, SalesOrder.no, line_count.label("lc"))
         .join(Supplier, Supplier.id == PurchaseOrder.supplier_id)
         .join(SalesOrder, SalesOrder.id == PurchaseOrder.source_sales_order_id)
-        .where(*conds).order_by(PurchaseOrder.created_at.desc())
-        .offset((page - 1) * size).limit(size))).all()
+        .where(*conds).order_by(PurchaseOrder.created_at.desc()),
+        page=page, size=size, count_stmt=count_stmt.where(*conds), scalars=False)
 
     items = [{
         "id": o.id, "no": o.no, "source_sales_order_id": o.source_sales_order_id,

@@ -1,24 +1,20 @@
 """通用响应包装。"""
 from __future__ import annotations
 
-from typing import Any, Generic, Literal, TypeVar
+from typing import Generic, Literal, TypeVar
 
-from pydantic import BaseModel, Field
+from fastapi import Query
+from pydantic import BaseModel
 
 T = TypeVar("T")
 
 
-class Response(BaseModel, Generic[T]):
-    code: int = 0
-    message: str = "ok"
-    data: T | None = None
-
-
-class ErrorResponse(BaseModel):
-    code: int
-    message: str
-    data: Any | None = None
-    trace_id: str | None = Field(default=None)
+class Page(BaseModel, Generic[T]):
+    """分页响应体(success() 的 data 部分),与列表端点既有 JSON 形状逐字段一致。"""
+    items: list[T]
+    total: int
+    page: int
+    size: int
 
 
 LANGS = {"zh", "en", "sw"}
@@ -38,9 +34,17 @@ def validate_i18n(v: dict) -> dict:
     return v
 
 
-class PageParams(BaseModel):
-    page: int = Field(default=1, ge=1)
-    size: int = Field(default=20, ge=1, le=100)
+class PageParams:
+    """分页查询参数依赖(`Depends()` 注入):page/size 声明单点,与原各 router 手写
+    Query 对完全同构(默认值/上下限/422 报错 loc 均不变)。
+    注:不用 Pydantic query 模型(Annotated[Model, Query()])——本 FastAPI 版本下该形态
+    与端点其它查询参数并存时失效(model 被当必填标量),普通依赖类无此坑。"""
+
+    def __init__(self,
+                 page: int = Query(1, ge=1),
+                 size: int = Query(20, ge=1, le=100)) -> None:
+        self.page = page
+        self.size = size
 
 
 class StatusPatchIn(BaseModel):

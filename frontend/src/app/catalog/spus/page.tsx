@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   Table,
   Input,
@@ -20,7 +20,11 @@ import { useRouter } from "next/navigation";
 import { catalogApi, SpuListItem } from "@/lib/catalog";
 import { display } from "@/lib/i18n";
 import { Can } from "@/components/common/Can";
+import { StatusTag } from "@/components/common/StatusTag";
+import { ListErrorState } from "@/components/common/ListErrorState";
+import { useListQuery } from "@/hooks/useListQuery";
 import { useAuthStore } from "@/stores/authStore";
+import { resolveBizError } from "@/lib/errorMessages";
 import { CategoryTree } from "@/components/catalog/CategoryTree";
 import { SPU_STATUS_META, spuEditable, spuDeletable, spuNextAction } from "@/lib/productStatus";
 
@@ -31,37 +35,26 @@ export default function SpuListPage() {
   const router = useRouter();
   // 无 product:manage → 整列不渲染(权限=用户级,列去留;状态=行级,单元格内差异)。
   const canManage = useAuthStore((s) => s.hasPermission("product:manage"));
-  const [rows, setRows] = useState<SpuListItem[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [keyword, setKeyword] = useState("");
   const [status, setStatus] = useState<string>("ALL");
   const [category, setCategory] = useState<string | undefined>();
   const [categoryLeaf, setCategoryLeaf] = useState(false); // 选中是叶子时,「新建 SPU」预填该分类
-  const [loading, setLoading] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const r = await catalogApi.listSpus({
+  const fetcher = useCallback(
+    ({ page, size }: { page: number; size: number }) =>
+      catalogApi.listSpus({
         keyword,
         status: status === "ALL" ? undefined : status,
         category_code: category,
         page,
-        size: PAGE_SIZE,
-      });
-      setRows(r.items);
-      setTotal(r.total);
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : "加载失败");
-    } finally {
-      setLoading(false);
-    }
-  }, [keyword, status, category, page, message]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+        size,
+      }),
+    [keyword, status, category],
+  );
+  const { rows, setPage, loading, loadError, load, pagination } = useListQuery<SpuListItem>(
+    fetcher,
+    { size: PAGE_SIZE, errorMessage: "加载失败" },
+  );
 
   async function onDelete(id: number) {
     try {
@@ -69,7 +62,7 @@ export default function SpuListPage() {
       message.success("已删除");
       load();
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "删除失败");
+      message.error(resolveBizError(e, "删除失败"));
     }
   }
   async function onToggle(s: SpuListItem) {
@@ -80,7 +73,7 @@ export default function SpuListPage() {
       load();
     } catch (e) {
       // 启用可能因完备性(无带价在售 SKU)被后端拒,原样透出后端提示。
-      message.error(e instanceof Error ? e.message : "操作失败");
+      message.error(resolveBizError(e, "操作失败"));
     }
   }
 
@@ -113,9 +106,7 @@ export default function SpuListPage() {
       title: "状态",
       dataIndex: "status",
       width: 90,
-      render: (v: SpuListItem["status"]) => (
-        <Tag color={SPU_STATUS_META[v].color}>{SPU_STATUS_META[v].label}</Tag>
-      ),
+      render: (v: SpuListItem["status"]) => <StatusTag meta={SPU_STATUS_META} value={v} />,
     },
     ...(canManage
       ? [
@@ -214,25 +205,22 @@ export default function SpuListPage() {
               </Button>
             </Can>
           </Space>
-          <Table
-            rowKey="id"
-            loading={loading}
-            columns={columns}
-            dataSource={rows}
-            onRow={(r) => ({
-              onClick: () => router.push(`/catalog/spus/${r.id}`),
-              style: { cursor: "pointer" },
-            })}
-            pagination={{
-              current: page,
-              total,
-              pageSize: PAGE_SIZE,
-              onChange: setPage,
-              showSizeChanger: false,
-              showTotal: (t) => `共 ${t} 条`,
-            }}
-            locale={{ emptyText: "暂无 SPU" }}
-          />
+          {loadError && !rows.length ? (
+            <ListErrorState onRetry={load} />
+          ) : (
+            <Table
+              rowKey="id"
+              loading={loading}
+              columns={columns}
+              dataSource={rows}
+              onRow={(r) => ({
+                onClick: () => router.push(`/catalog/spus/${r.id}`),
+                style: { cursor: "pointer" },
+              })}
+              pagination={pagination}
+              locale={{ emptyText: "暂无 SPU" }}
+            />
+          )}
         </Card>
       </Col>
     </Row>

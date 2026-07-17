@@ -1,11 +1,15 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { App, Button, Card, Input, Segmented, Select, Space, Table, Tag } from "antd";
+import { Button, Card, Input, Segmented, Select, Space, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Can } from "@/components/common/Can";
+import { StatusTag } from "@/components/common/StatusTag";
+import { ListErrorState } from "@/components/common/ListErrorState";
+import { useListQuery } from "@/hooks/useListQuery";
 import { Permissions } from "@/config/permission-matrix";
 import { supplierApi, type SupplierListItem } from "@/lib/supplier";
+import { formatDateTime } from "@/lib/format";
 import {
   PAYABLE_STATUS_META,
   formatAmount,
@@ -13,7 +17,6 @@ import {
   type PayableListItem,
   type PayableStatus,
 } from "@/lib/payable";
-import { colors } from "@/lib/tokens";
 import { CURRENCIES } from "@/lib/currencies";
 
 // 状态 tabs:全部 + 三派生态(DESIGN §7 工具条统一次序:状态最左)。
@@ -24,44 +27,29 @@ const STATUS_TABS = [
 
 export default function PayableListPage() {
   const router = useRouter();
-  const { message } = App.useApp();
 
-  const [rows, setRows] = useState<PayableListItem[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [status, setStatus] = useState("");
   const [keyword, setKeyword] = useState("");
   const [supplierId, setSupplierId] = useState<number | undefined>(undefined);
   const [currency, setCurrency] = useState<string | undefined>(undefined);
   const [suppliers, setSuppliers] = useState<SupplierListItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setLoadError(false);
-    try {
-      const res = await payableApi.list({
+  const fetcher = useCallback(
+    ({ page, size }: { page: number; size: number }) =>
+      payableApi.list({
         supplier_id: supplierId,
         currency: currency || undefined,
         status: (status || undefined) as PayableStatus | undefined,
         q: keyword.trim() || undefined,
         page,
-        size: 20,
-      });
-      setRows(res.items);
-      setTotal(res.total);
-    } catch (e) {
-      setLoadError(true);
-      message.error(e instanceof Error ? e.message : "加载应付款列表失败");
-    } finally {
-      setLoading(false);
-    }
-  }, [supplierId, currency, status, keyword, page, message]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+        size,
+      }),
+    [supplierId, currency, status, keyword],
+  );
+  const { rows, setPage, loading, loadError, load, pagination } = useListQuery<PayableListItem>(
+    fetcher,
+    { errorMessage: "加载应付款列表失败" },
+  );
 
   // 供应商筛选下拉(需 supplier:read;无权则下拉留空,不阻断币种筛选)。
   useEffect(() => {
@@ -142,10 +130,7 @@ export default function PayableListPage() {
       title: "状态",
       dataIndex: "status",
       width: 100,
-      render: (s: PayableListItem["status"]) => {
-        const m = PAYABLE_STATUS_META[s];
-        return <Tag color={m.color}>{m.label}</Tag>;
-      },
+      render: (s: PayableListItem["status"]) => <StatusTag meta={PAYABLE_STATUS_META} value={s} />,
     },
     {
       title: "到期日",
@@ -157,7 +142,7 @@ export default function PayableListPage() {
       title: "生成时间",
       dataIndex: "created_at",
       width: 170,
-      render: (v: string) => v?.replace("T", " ").slice(0, 16),
+      render: (v: string) => formatDateTime(v),
     },
   ];
 
@@ -199,12 +184,7 @@ export default function PayableListPage() {
       </Space>
 
       {loadError && !rows.length ? (
-        <div style={{ textAlign: "center", padding: "48px 0", color: colors.muted }}>
-          加载失败
-          <div style={{ marginTop: 12 }}>
-            <Button onClick={load}>重试</Button>
-          </div>
-        </div>
+        <ListErrorState onRetry={load} />
       ) : (
         <Table<PayableListItem>
           rowKey="id"
@@ -221,14 +201,7 @@ export default function PayableListPage() {
               setPage(1);
             }
           }}
-          pagination={{
-            current: page,
-            total,
-            pageSize: 20,
-            showSizeChanger: false,
-            showTotal: (t) => `共 ${t} 条`,
-            onChange: setPage,
-          }}
+          pagination={pagination}
         />
       )}
     </Card>

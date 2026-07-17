@@ -8,8 +8,8 @@ from app.core.dependencies import CurrentUser
 from app.core.exceptions import success
 from app.db.session import get_db
 from app.rbac.constants import Permissions
-from app.rbac.guards import require_permission
-from app.schemas.common import StatusPatchIn
+from app.rbac.guards import has_permission, require_permission
+from app.schemas.common import Page, PageParams, StatusPatchIn
 from app.schemas.sku import SkuCreateIn, SkuUpdateIn, sku_out
 from app.services import image_service, sku_service, spu_service
 from app.services import spec_template_service as tmpl
@@ -19,17 +19,17 @@ router = APIRouter(prefix="/skus", tags=["skus"])
 
 @router.get("", summary="搜 SKU(pg_trgm 模糊:名/规格/编码,支持 spu_id/分页/available 过滤)")
 async def search_skus(
+    page_params: PageParams = Depends(),
     q: str = "",
     spu_id: int | None = None,
     available: bool = Query(False, description="True: 仅返回 SKU/SPU 均 ACTIVE 未删的可选货"),
-    page: int = Query(1, ge=1),
-    size: int = Query(20, ge=1, le=100),
     current: CurrentUser = Depends(require_permission(Permissions.PRODUCT_READ)),
     db: AsyncSession = Depends(get_db),
 ):
     rows, total = await sku_service.search_skus(
-        db, q, spu_id=spu_id, page=page, size=size, available=available)
-    include_cost = Permissions.PRODUCT_MANAGE in current.permissions
+        db, q, spu_id=spu_id, page=page_params.page, size=page_params.size,
+        available=available)
+    include_cost = has_permission(current, Permissions.PRODUCT_MANAGE)
     # 搜索行展示规格 = 只 SKU 轴的展示投影(spec_display),替代裸 spec_jsonb:enum 已翻 label、
     # 带 unit/scope,前端不再各拼各的。模板按分类缓存,一分类一查,避免逐行查模板(N+1)。
     by_key_cache: dict[str, dict] = {}
@@ -43,7 +43,8 @@ async def search_skus(
         d.pop("spec_jsonb", None)  # 搜索行不下发落库形状,只给展示投影(唯一消费点=搜索页规格列)
         d["spec_display"] = tmpl.project_spec_display(sku.spec_jsonb, by_key)
         items.append(d)
-    return success({"items": items, "total": total, "page": page, "size": size})
+    return success(Page(items=items, total=total,
+                        page=page_params.page, size=page_params.size).model_dump())
 
 
 async def _sku_spec_display(db: AsyncSession, sku) -> list[dict]:
@@ -104,7 +105,7 @@ async def get_sku(
     db: AsyncSession = Depends(get_db),
 ):
     sku = await sku_service.get_sku(db, sku_id)
-    include_cost = Permissions.PRODUCT_MANAGE in current.permissions
+    include_cost = has_permission(current, Permissions.PRODUCT_MANAGE)
     return success(await _sku_with_images(db, sku, include_cost=include_cost))
 
 

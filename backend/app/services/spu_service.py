@@ -19,6 +19,7 @@ from app.db.models.spu import Spu, SpuStatus
 from app.services import image_service
 from app.services import spec_template_service as tmpl
 from app.services.numbering import allocate
+from app.services.repo import get_or_404, paginate
 
 
 def ensure_spu_editable(spu: Spu) -> None:
@@ -84,11 +85,9 @@ async def _get_leaf_category(db: AsyncSession, code: str) -> Category:
 
 
 async def get_spu(db: AsyncSession, spu_id: int) -> Spu:
-    spu = (await db.execute(
-        select(Spu).where(Spu.id == spu_id, Spu.deleted_at.is_(None)))).scalar_one_or_none()
-    if spu is None:
-        raise NotFoundError(f"SPU 不存在: {spu_id}")
-    return spu
+    return await get_or_404(db, Spu, spu_id, error_cls=NotFoundError,
+                            message=f"SPU 不存在: {spu_id}",
+                            extra_where=(Spu.deleted_at.is_(None),))
 
 
 async def get_spu_for_update(db: AsyncSession, spu_id: int) -> Spu:
@@ -99,12 +98,9 @@ async def get_spu_for_update(db: AsyncSession, spu_id: int) -> Spu:
     两个在售 SKU 会各自看不到对方未提交的停售、都不联动下架,留下"ACTIVE 却 0 在售 SKU"
     的坏商品(独立评审 should-fix)。不同 SPU 之间不互斥,锁粒度=单个聚合根行。
     """
-    spu = (await db.execute(
-        select(Spu).where(Spu.id == spu_id, Spu.deleted_at.is_(None))
-        .with_for_update())).scalar_one_or_none()
-    if spu is None:
-        raise NotFoundError(f"SPU 不存在: {spu_id}")
-    return spu
+    return await get_or_404(db, Spu, spu_id, for_update=True, error_cls=NotFoundError,
+                            message=f"SPU 不存在: {spu_id}",
+                            extra_where=(Spu.deleted_at.is_(None),))
 
 
 async def create_spu(db: AsyncSession, *, category_code, name_i18n, image_refs,
@@ -229,7 +225,7 @@ async def list_spus(db: AsyncSession, *, category_code=None, status=None, keywor
         # SPU 维度搜索走 search_text(名全语言 + 品牌 + 产品级规格,pg_trgm GIN),
         # 让"碳钢/GB-T706/品牌"等产品级词也能搜到商品(方案 A:SPU 找商品、SKU 找变体)。
         conds.append(Spu.search_text.ilike(f"%{keyword}%"))
-    total = (await db.execute(select(func.count()).select_from(Spu).where(*conds))).scalar_one()
-    rows = (await db.execute(select(Spu).where(*conds)
-            .order_by(Spu.created_at.desc()).offset((page - 1) * size).limit(size))).scalars().all()
-    return list(rows), total
+    return await paginate(
+        db, select(Spu).where(*conds).order_by(Spu.created_at.desc()),
+        page=page, size=size,
+        count_stmt=select(func.count()).select_from(Spu).where(*conds))

@@ -18,7 +18,8 @@ from app.db.models.unit import Unit
 from app.services import image_service
 from app.services import spec_template_service as tmpl
 from app.services.numbering import allocate
-from app.services.spu_service import ensure_spu_editable, has_active_sku
+from app.services.repo import get_or_404, paginate
+from app.services.spu_service import ensure_spu_editable, get_spu_for_update, has_active_sku
 
 
 async def _validate_unit(db: AsyncSession, code: str) -> None:
@@ -51,13 +52,10 @@ async def _sku_search_text(db: AsyncSession, spu: Spu, sku: Sku) -> str:
 async def _spu_category(db: AsyncSession, spu_id: int) -> tuple[Spu, str]:
     # 必须滤软删:否则可对已删 SPU 挂新 SKU(孤儿——SKU 可搜可读而父 SPU 404),
     # 与 get_spu 同款不变式(活 SKU 必属活 SPU)。
-    # with_for_update 锁父 SPU 聚合根:SKU 增改删的 editable 判定与并发 set_spu_status
-    # 串行,防 TOCTOU(见 spu_service.get_spu_for_update)。此函数仅写路径调用。
-    spu = (await db.execute(
-        select(Spu).where(Spu.id == spu_id, Spu.deleted_at.is_(None))
-        .with_for_update())).scalar_one_or_none()
-    if spu is None:
-        raise NotFoundError(f"SPU 不存在: {spu_id}")
+    # 锁父 SPU 聚合根(FOR UPDATE):SKU 增改删的 editable 判定与并发 set_spu_status
+    # 串行,防 TOCTOU —— 直接复用 spu_service.get_spu_for_update(同查询同锁同报错)。
+    # 此函数仅写路径调用。
+    spu = await get_spu_for_update(db, spu_id)
     return spu, spu.category_code
 
 
@@ -88,11 +86,9 @@ async def spu_ids_with_active_sku(db: AsyncSession, spu_ids: list[int]) -> set[i
 
 
 async def get_sku(db: AsyncSession, sku_id: int) -> Sku:
-    sku = (await db.execute(select(Sku).where(
-        Sku.id == sku_id, Sku.deleted_at.is_(None)))).scalar_one_or_none()
-    if sku is None:
-        raise NotFoundError(f"SKU 不存在: {sku_id}")
-    return sku
+    return await get_or_404(db, Sku, sku_id, error_cls=NotFoundError,
+                            message=f"SKU 不存在: {sku_id}",
+                            extra_where=(Sku.deleted_at.is_(None),))
 
 
 async def search_skus(db: AsyncSession, q: str = "", limit: int = 50, *,
@@ -120,9 +116,9 @@ async def search_skus(db: AsyncSession, q: str = "", limit: int = 50, *,
     base_from = select(Sku).join(Spu, Spu.id == Sku.spu_id).where(*conds)
     count_from = select(func.count()).select_from(Sku).join(Spu, Spu.id == Sku.spu_id).where(*conds)
 
-    total = (await db.execute(count_from)).scalar_one()
-    rows = (await db.execute(base_from.order_by(Sku.created_at.desc())
-            .offset((page - 1) * size).limit(size))).scalars().all()
+    rows, total = await paginate(
+        db, base_from.order_by(Sku.created_at.desc()),
+        page=page, size=size, count_stmt=count_from)
     covers = await image_service.cover_keys(db, [s.spu_id for s in rows])
     spu_ids = list({s.spu_id for s in rows})
     cat_by_spu = dict((await db.execute(

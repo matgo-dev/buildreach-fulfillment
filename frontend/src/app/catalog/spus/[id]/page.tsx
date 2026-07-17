@@ -1,14 +1,17 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Card, Descriptions, Table, Button, Tag, Space, Popconfirm, Spin, Image, App } from "antd";
+import { Card, Descriptions, Table, Button, Tag, Space, Popconfirm, Image, App } from "antd";
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { catalogApi, SkuDetailItem, SpuDetail, UnitOut, specAxisText, specDisplayText } from "@/lib/catalog";
 import { display } from "@/lib/i18n";
 import { imageUrl } from "@/lib/image";
 import { colors } from "@/lib/tokens";
+import { resolveBizError } from "@/lib/errorMessages";
 import { Can } from "@/components/common/Can";
+import { StatusTag } from "@/components/common/StatusTag";
+import { PageLoading } from "@/components/common/PageLoading";
 import { SpuForm } from "@/components/catalog/SpuForm";
 import { SkuForm } from "@/components/catalog/SkuForm";
 import { useAuthStore } from "@/stores/authStore";
@@ -46,7 +49,7 @@ export default function SpuDetailPage() {
     try {
       setSpu(await catalogApi.getSpu(Number(id)));
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "加载失败");
+      message.error(resolveBizError(e, "加载失败"));
     } finally {
       setLoading(false);
     }
@@ -59,7 +62,7 @@ export default function SpuDetailPage() {
     if (editParam) setEditSpu(true);
   }, [editParam]);
 
-  if (loading || !spu) return <Spin style={{ display: "block", margin: "80px auto" }} />;
+  if (loading || !spu) return <PageLoading />;
 
   async function delSku(skuId: number) {
     try {
@@ -67,7 +70,7 @@ export default function SpuDetailPage() {
       message.success("已删除");
       load();
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "删除失败");
+      message.error(resolveBizError(e, "删除失败"));
     }
   }
   async function toggleSku(s: SkuDetailItem) {
@@ -76,7 +79,7 @@ export default function SpuDetailPage() {
       message.success("状态已更新");
       load();
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "操作失败");
+      message.error(resolveBizError(e, "操作失败"));
     }
   }
   async function toggleSpu() {
@@ -88,7 +91,7 @@ export default function SpuDetailPage() {
       load();
     } catch (e) {
       // 启用可能因完备性(无带价在售 SKU)被后端拒;停用可能联动 —— 原样透出后端提示。
-      message.error(e instanceof Error ? e.message : "操作失败");
+      message.error(resolveBizError(e, "操作失败"));
     }
   }
 
@@ -139,9 +142,7 @@ export default function SpuDetailPage() {
       ],
       filterMultiple: false,
       onFilter: (value, r) => r.status === value,
-      render: (v: string) => (
-        <Tag color={SKU_STATUS_META[v]?.color}>{SKU_STATUS_META[v]?.label ?? v}</Tag>
-      ),
+      render: (v: string) => <StatusTag meta={SKU_STATUS_META} value={v} />,
     },
     ...(canManage
       ? [
@@ -277,11 +278,7 @@ export default function SpuDetailPage() {
               {
                 key: "s",
                 label: "状态",
-                children: (
-                  <Tag color={SPU_STATUS_META[spu.status].color}>
-                    {SPU_STATUS_META[spu.status].label}
-                  </Tag>
-                ),
+                children: <StatusTag meta={SPU_STATUS_META} value={spu.status} />,
               },
               {
                 key: "a",

@@ -13,7 +13,9 @@ from app.core.dependencies import CurrentUser
 from app.core.exceptions import success
 from app.db.session import get_db
 from app.rbac.constants import Permissions
-from app.rbac.guards import require_permission
+from app.rbac.guards import has_permission, require_permission
+from app.rbac.redaction import can_see_cost
+from app.schemas.common import Page, PageParams
 from app.schemas.purchase_order import RelatedPurchaseOrderItem
 from app.schemas.sales_order import (
     SalesOrderCancelIn,
@@ -31,6 +33,7 @@ _MANAGE = Depends(require_permission(Permissions.SALES_MANAGE))
 
 @router.get("", summary="销售单列表(筛选/排序/分页/采购进度)")
 async def list_sales_orders(
+    page_params: PageParams = Depends(),
     status: str | None = None,
     customer_id: int | None = None,
     salesperson_id: int | None = None,
@@ -40,19 +43,16 @@ async def list_sales_orders(
     purchasable_only: bool = False,
     sort: str = Query("created_at", pattern=r"^(created_at|total_amount)$"),
     dir: str = Query("desc", pattern=r"^(asc|desc)$"),
-    page: int = Query(1, ge=1),
-    size: int = Query(20, ge=1, le=100),
     _current: CurrentUser = _GUARD,
     db: AsyncSession = Depends(get_db),
 ):
     items, total = await sales_order_service.list_orders(
         db, status=status, customer_id=customer_id, salesperson_id=salesperson_id,
         no=no, purchase_progress=purchase_progress, purchasable_only=purchasable_only,
-        sort=sort, dir=dir, page=page, size=size)
-    return success({
-        "items": [SalesOrderListItem.model_validate(it).model_dump() for it in items],
-        "total": total, "page": page, "size": size,
-    })
+        sort=sort, dir=dir, page=page_params.page, size=page_params.size)
+    return success(Page(
+        items=[SalesOrderListItem.model_validate(it).model_dump() for it in items],
+        total=total, page=page_params.page, size=page_params.size).model_dump())
 
 
 @router.post("/{order_id}/cancel", summary="整单取消(CONFIRMED→CANCELLED,报价回锁档可重转)")
@@ -93,11 +93,11 @@ async def get_sales_order(
         **parties, "purchase_progress": progress,
     }
     # 关联采购单区:仅 purchase:read 者下发(SALES 拿不到供应商身份/金额)。
-    if Permissions.PURCHASE_READ in current.permissions:
-        can_see_cost = Permissions.PURCHASE_READ_COST in current.permissions
+    if has_permission(current, Permissions.PURCHASE_READ):
         related = await purchase_order_service.list_related_by_sales_order(db, order_id)
         order_out["related_purchase_orders"] = [
-            RelatedPurchaseOrderItem.build(it, can_see_cost=can_see_cost) for it in related]
+            RelatedPurchaseOrderItem.build(it, can_see_cost=can_see_cost(current))
+            for it in related]
 
     line_outs = []
     for ln in lines:

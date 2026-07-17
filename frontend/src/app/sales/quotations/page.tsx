@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   App,
@@ -11,13 +11,17 @@ import {
   Space,
   Switch,
   Table,
-  Tag,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { PlusOutlined } from "@ant-design/icons";
 import { Can } from "@/components/common/Can";
+import { StatusTag } from "@/components/common/StatusTag";
+import { ListErrorState } from "@/components/common/ListErrorState";
+import { useListQuery } from "@/hooks/useListQuery";
 import { useAuthStore } from "@/stores/authStore";
 import { Permissions } from "@/config/permission-matrix";
+import { formatDateTime, formatMoney } from "@/lib/format";
+import { resolveBizError } from "@/lib/errorMessages";
 import { quotationApi, type QuotationListItem } from "@/lib/quotation";
 import {
   QUOTATION_STATUS_META,
@@ -41,39 +45,28 @@ export default function QuotationListPage() {
   // 无 quote:manage → 操作整列不渲染(权限=用户级定列去留;状态=行级定单元格内容)。
   const canManage = useAuthStore((s) => s.hasPermission(Permissions.QUOTE_MANAGE));
 
-  const [rows, setRows] = useState<QuotationListItem[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [status, setStatus] = useState("");
   const [keyword, setKeyword] = useState("");
   const [mineOnly, setMineOnly] = useState(false);
   const [sort, setSort] = useState<"created_at" | "total_amount">("created_at");
-  const [loading, setLoading] = useState(false);
   const [convertingId, setConvertingId] = useState<number | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await quotationApi.list({
+  const fetcher = useCallback(
+    ({ page, size }: { page: number; size: number }) =>
+      quotationApi.list({
         status: status || undefined,
         keyword: keyword || undefined,
         salesperson_id: mineOnly && userId ? userId : undefined,
         sort,
         page,
-        size: 20,
-      });
-      setRows(res.items);
-      setTotal(res.total);
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : "加载报价列表失败");
-    } finally {
-      setLoading(false);
-    }
-  }, [status, keyword, mineOnly, userId, sort, page, message]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+        size,
+      }),
+    [status, keyword, mineOnly, userId, sort],
+  );
+  const { rows, setPage, loading, loadError, load, pagination } = useListQuery<QuotationListItem>(
+    fetcher,
+    { errorMessage: "加载报价列表失败" },
+  );
 
   async function onVoid(id: number) {
     try {
@@ -81,7 +74,7 @@ export default function QuotationListPage() {
       message.success("已作废");
       load();
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "作废失败");
+      message.error(resolveBizError(e, "作废失败"));
     }
   }
 
@@ -91,7 +84,7 @@ export default function QuotationListPage() {
       message.success("已删除");
       load();
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "删除失败");
+      message.error(resolveBizError(e, "删除失败"));
     }
   }
 
@@ -102,7 +95,7 @@ export default function QuotationListPage() {
       message.success(`已转销售单 ${so.no}`);
       router.push(`/sales/orders/${so.id}`);
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "转销售失败");
+      message.error(resolveBizError(e, "转销售失败"));
     } finally {
       setConvertingId(null);
     }
@@ -116,10 +109,7 @@ export default function QuotationListPage() {
       title: "状态",
       dataIndex: "status",
       width: 110,
-      render: (s: QuotationListItem["status"]) => {
-        const m = QUOTATION_STATUS_META[s];
-        return <Tag color={m.color}>{m.label}</Tag>;
-      },
+      render: (s: QuotationListItem["status"]) => <StatusTag meta={QUOTATION_STATUS_META} value={s} />,
     },
     { title: "币种", dataIndex: "currency", width: 70 },
     {
@@ -128,10 +118,10 @@ export default function QuotationListPage() {
       width: 120,
       align: "right",
       sorter: true,
-      render: (v) => Number(v).toLocaleString(undefined, { minimumFractionDigits: 2 }),
+      render: (v) => formatMoney(v),
     },
     { title: "有效期", dataIndex: "valid_until", width: 110, render: (v) => v || "—" },
-    { title: "创建时间", dataIndex: "created_at", width: 170, render: (v: string) => v?.replace("T", " ").slice(0, 16) },
+    { title: "创建时间", dataIndex: "created_at", width: 170, render: (v: string) => formatDateTime(v) },
     ...(canManage
       ? [
           {
@@ -228,30 +218,27 @@ export default function QuotationListPage() {
           </Button>
         </Can>
       </Space>
-      <Table<QuotationListItem>
-        rowKey="id"
-        columns={columns}
-        dataSource={rows}
-        loading={loading}
-        scroll={{ x: 1200 }}
-        locale={{ emptyText: "暂无报价" }}
-        onRow={(r) => ({
-          onClick: () => router.push(`/sales/quotations/${r.id}`),
-          style: { cursor: "pointer" },
-        })}
-        pagination={{
-          current: page,
-          total,
-          pageSize: 20,
-          showSizeChanger: false,
-          showTotal: (t) => `共 ${t} 条`,
-          onChange: setPage,
-        }}
-        onChange={(_p, _f, sorter) => {
-          const s = Array.isArray(sorter) ? sorter[0] : sorter;
-          setSort(s?.field === "total_amount" ? "total_amount" : "created_at");
-        }}
-      />
+      {loadError && !rows.length ? (
+        <ListErrorState onRetry={load} />
+      ) : (
+        <Table<QuotationListItem>
+          rowKey="id"
+          columns={columns}
+          dataSource={rows}
+          loading={loading}
+          scroll={{ x: 1200 }}
+          locale={{ emptyText: "暂无报价" }}
+          onRow={(r) => ({
+            onClick: () => router.push(`/sales/quotations/${r.id}`),
+            style: { cursor: "pointer" },
+          })}
+          pagination={pagination}
+          onChange={(_p, _f, sorter) => {
+            const s = Array.isArray(sorter) ? sorter[0] : sorter;
+            setSort(s?.field === "total_amount" ? "total_amount" : "created_at");
+          }}
+        />
+      )}
     </Card>
   );
 }

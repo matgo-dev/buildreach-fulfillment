@@ -1,7 +1,7 @@
 """供应商路由 /api/v1/suppliers。CRUD + 启停(建 PO 需选 ACTIVE)。守 supplier:manage/read。"""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import CurrentUser
@@ -10,6 +10,7 @@ from app.db.models.supplier import SupplierStatus
 from app.db.session import get_db
 from app.rbac.constants import Permissions
 from app.rbac.guards import require_any_permission, require_permission
+from app.schemas.common import Page, PageParams
 from app.schemas.supplier import (
     SupplierCreateIn,
     SupplierListItem,
@@ -35,16 +36,15 @@ async def create_supplier(body: SupplierCreateIn, request: Request,
 
 
 @router.get("", summary="供应商列表(筛选/分页)")
-async def list_suppliers(status: str | None = None, q: str | None = None,
-                         page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
+async def list_suppliers(page_params: PageParams = Depends(),
+                         status: str | None = None, q: str | None = None,
                          _current: CurrentUser = _READ, db: AsyncSession = Depends(get_db)):
     rows, total = await supplier_service.list_suppliers(
-        db, status=status, keyword=q, page=page, size=size)
-    return success({
-        "items": [SupplierListItem.model_validate(s, from_attributes=True).model_dump()
-                  for s in rows],
-        "total": total, "page": page, "size": size,
-    })
+        db, status=status, keyword=q, page=page_params.page, size=page_params.size)
+    return success(Page(
+        items=[SupplierListItem.model_validate(s, from_attributes=True).model_dump()
+               for s in rows],
+        total=total, page=page_params.page, size=page_params.size).model_dump())
 
 
 @router.get("/{supplier_id}", summary="供应商详情")

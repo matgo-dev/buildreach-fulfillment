@@ -1,7 +1,7 @@
 // 入库单前端类型 + API。对齐后端 schemas/inbound_order.py。
 // 🔴 入库单据/行**无任何成本字段**(契约 D3)—— 读投影天然无红线,前端不渲染任何价格列。
 // 详情内嵌 PO 摘要的成本由后端按 purchase:read_cost 脱敏为 null;payable 块仅在响应含该键时渲染。
-import { ApiError, api } from "./api";
+import { api } from "./api";
 import type { Page } from "./catalog";
 import type { PurchaseOrderOut } from "./purchaseOrder";
 import type { PayableOut } from "./payable";
@@ -103,25 +103,6 @@ export interface InboundOrderUpdateBody {
   lines: InboundOrderLineIn[];
   /** 乐观锁基线 = 打开编辑时的 order.updated_at(对齐 PO)。 */
   expected_updated_at: string;
-}
-
-// 后端错误码 → 中文 toast(镜像 exceptions.py 段 16/17)。未列出的沿用后端 message。
-const INBOUND_ERROR_MESSAGES: Record<number, string> = {
-  41609: "该采购单存在活动入库单,不可取消",
-  41701: "入库单不存在",
-  41702: "来源采购单无效或未确认",
-  41703: "入库数量超过采购单剩余可收额度",
-  41704: "非法的入库单状态流转",
-  41705: "仅在途入库单可编辑",
-  41706: "入库行引用的采购行不属于该采购单",
-  41707: "入库单至少需要一行",
-  41708: "对应应付款已有核销,不可撤销入库",
-  41709: "入库单已被他人修改,请刷新后重试",
-};
-
-export function inboundErrorMessage(e: unknown, fallback: string): string {
-  if (e instanceof ApiError && INBOUND_ERROR_MESSAGES[e.code]) return INBOUND_ERROR_MESSAGES[e.code];
-  return e instanceof Error ? e.message : fallback;
 }
 
 function qs(p: Record<string, unknown>): string {

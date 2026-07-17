@@ -1,10 +1,12 @@
 "use client";
 import { useState } from "react";
-import { Card, Input, Table, Tag, App } from "antd";
+import { Card, Input, Table, App } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useRouter } from "next/navigation";
 import { catalogApi, SkuSearchItem, specAxisText } from "@/lib/catalog";
 import { display } from "@/lib/i18n";
+import { resolveBizError } from "@/lib/errorMessages";
+import { StatusTag } from "@/components/common/StatusTag";
 import { SKU_STATUS_META } from "@/lib/productStatus";
 
 export default function SkuSearchPage() {
@@ -26,7 +28,7 @@ export default function SkuSearchPage() {
       setRows(r.items);
       setSearched(true);
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "搜索失败");
+      message.error(resolveBizError(e, "搜索失败"));
     } finally {
       setLoading(false);
     }
@@ -41,9 +43,7 @@ export default function SkuSearchPage() {
       title: "状态",
       dataIndex: "status",
       width: 90,
-      render: (v: string) => (
-        <Tag color={SKU_STATUS_META[v]?.color}>{SKU_STATUS_META[v]?.label ?? v}</Tag>
-      ),
+      render: (v: string) => <StatusTag meta={SKU_STATUS_META} value={v} />,
     },
   ];
 

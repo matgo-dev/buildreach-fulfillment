@@ -11,6 +11,7 @@ from app.core.codegen import NumberScope, format_code
 from app.core.exceptions import NotFoundError
 from app.db.models.customer import Customer, CustomerStatus
 from app.services.numbering import allocate
+from app.services.repo import get_or_404, paginate
 
 
 async def create_customer(db: AsyncSession, *, name, quote_language=None,
@@ -42,20 +43,14 @@ async def list_customers(db: AsyncSession, *, status=None, keyword=None,
         like = f"%{keyword}%"
         conds.append(or_(Customer.code.ilike(like), Customer.name.ilike(like),
                          Customer.contact_name.ilike(like)))
-    total = (await db.execute(
-        select(func.count(Customer.id)).where(*conds))).scalar_one()
-    rows = list((await db.execute(
-        select(Customer).where(*conds).order_by(Customer.updated_at.desc())
-        .offset((page - 1) * size).limit(size))).scalars().all())
-    return rows, total
+    return await paginate(
+        db, select(Customer).where(*conds).order_by(Customer.updated_at.desc()),
+        page=page, size=size, count_stmt=select(func.count(Customer.id)).where(*conds))
 
 
 async def get_customer(db: AsyncSession, customer_id: int) -> Customer:
-    c = (await db.execute(
-        select(Customer).where(Customer.id == customer_id))).scalar_one_or_none()
-    if c is None:
-        raise NotFoundError("客户不存在")
-    return c
+    return await get_or_404(db, Customer, customer_id,
+                            error_cls=NotFoundError, message="客户不存在")
 
 
 async def update_customer(db: AsyncSession, *, customer_id, name, quote_language=None,

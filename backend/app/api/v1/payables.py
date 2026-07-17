@@ -13,6 +13,7 @@ from app.core.exceptions import success
 from app.db.session import get_db
 from app.rbac.constants import Permissions
 from app.rbac.guards import require_permission
+from app.schemas.common import Page, PageParams
 from app.schemas.payable import PayableListItem
 from app.services import payable_service
 
@@ -22,16 +23,15 @@ _READ = Depends(require_permission(Permissions.PAYABLE_READ))
 
 
 @router.get("", summary="应付款列表(仅活动行;状态/搜索/供应商/币种筛选)")
-async def list_payables(supplier_id: int | None = None, currency: str | None = None,
+async def list_payables(page_params: PageParams = Depends(),
+                        supplier_id: int | None = None, currency: str | None = None,
                         status: str | None = Query(
                             None, pattern=r"^(UNPAID|PARTIALLY_PAID|PAID)$"),
                         q: str | None = None,
-                        page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
                         _current: CurrentUser = _READ, db: AsyncSession = Depends(get_db)):
     items, total = await payable_service.list_payables(
         db, supplier_id=supplier_id, currency=currency, status=status, q=q,
-        page=page, size=size)
-    return success({
-        "items": [PayableListItem.build(it) for it in items],
-        "total": total, "page": page, "size": size,
-    })
+        page=page_params.page, size=page_params.size)
+    return success(Page(
+        items=[PayableListItem.build(it) for it in items],
+        total=total, page=page_params.page, size=page_params.size).model_dump())

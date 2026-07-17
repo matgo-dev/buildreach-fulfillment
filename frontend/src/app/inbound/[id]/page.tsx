@@ -11,18 +11,18 @@ import {
   Modal,
   Popconfirm,
   Space,
-  Spin,
   Table,
-  Tag,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { Can } from "@/components/common/Can";
+import { StatusTag } from "@/components/common/StatusTag";
+import { PageLoading } from "@/components/common/PageLoading";
 import { Permissions } from "@/config/permission-matrix";
-import { formatQty } from "@/lib/salesOrder";
+import { formatDateTime, formatQty } from "@/lib/format";
+import { resolveBizError } from "@/lib/errorMessages";
 import {
-  inboundErrorMessage,
   inboundOrderApi,
   type InboundOrderDetail,
   type InboundOrderLineOut,
@@ -59,7 +59,7 @@ export default function InboundOrderDetailPage() {
     try {
       setDetail(await inboundOrderApi.get(id));
     } catch (e) {
-      message.error(inboundErrorMessage(e, "加载失败"));
+      message.error(resolveBizError(e, "加载失败"));
     } finally {
       setLoading(false);
     }
@@ -76,7 +76,7 @@ export default function InboundOrderDetailPage() {
       message.success(ok);
       load();
     } catch (e) {
-      message.error(inboundErrorMessage(e, "操作失败"));
+      message.error(resolveBizError(e, "操作失败"));
     } finally {
       setBusy(false);
     }
@@ -91,7 +91,7 @@ export default function InboundOrderDetailPage() {
       load();
       return true;
     } catch (e) {
-      message.error(inboundErrorMessage(e, "操作失败"));
+      message.error(resolveBizError(e, "操作失败"));
       return false;
     } finally {
       setBusy(false);
@@ -111,10 +111,9 @@ export default function InboundOrderDetailPage() {
     [],
   );
 
-  if (loading || !detail) return <Spin style={{ display: "block", marginTop: 80 }} />;
+  if (loading || !detail) return <PageLoading />;
 
   const { order, lines, payable } = detail;
-  const meta = INBOUND_ORDER_STATUS_META[order.status];
 
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
@@ -129,7 +128,7 @@ export default function InboundOrderDetailPage() {
               aria-label="返回列表"
             />
             <span>{order.no}</span>
-            <Tag color={meta.color}>{meta.label}</Tag>
+            <StatusTag meta={INBOUND_ORDER_STATUS_META} value={order.status} />
           </Space>
         }
         extra={
@@ -191,7 +190,7 @@ export default function InboundOrderDetailPage() {
           </Descriptions.Item>
           <Descriptions.Item label="供应商">{order.supplier_display}</Descriptions.Item>
           <Descriptions.Item label="状态">
-            <Tag color={meta.color}>{meta.label}</Tag>
+            <StatusTag meta={INBOUND_ORDER_STATUS_META} value={order.status} />
           </Descriptions.Item>
           <Descriptions.Item label="实际到货">{order.arrived_at || "—"}</Descriptions.Item>
           <Descriptions.Item label="备注" span={2}>
@@ -225,7 +224,7 @@ export default function InboundOrderDetailPage() {
         <Card
           title="应付账款"
           size="small"
-          extra={<Tag color={PAYABLE_STATUS_META[payable.status].color}>{PAYABLE_STATUS_META[payable.status].label}</Tag>}
+          extra={<StatusTag meta={PAYABLE_STATUS_META} value={payable.status} />}
         >
           <Descriptions column={2} size="small" bordered>
             <Descriptions.Item label="币种">{payable.currency}</Descriptions.Item>
@@ -240,7 +239,7 @@ export default function InboundOrderDetailPage() {
             </Descriptions.Item>
             <Descriptions.Item label="到期日">{payable.due_at || "—"}</Descriptions.Item>
             <Descriptions.Item label="生成时间">
-              {payable.created_at?.replace("T", " ").slice(0, 16)}
+              {formatDateTime(payable.created_at)}
             </Descriptions.Item>
           </Descriptions>
         </Card>
