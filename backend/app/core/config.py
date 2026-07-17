@@ -27,9 +27,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
-    # 引导管理员(始终种入)
+    # 引导管理员(始终种入)。初始密码必填无默认值 —— 漏配起不来(同 JWT_SECRET_KEY)。
     SUPER_ADMIN_EMAIL: str = "superadmin@fulfillment.local"
-    SUPER_ADMIN_INITIAL_PASSWORD: str = "Aa123456789"
+    SUPER_ADMIN_INITIAL_PASSWORD: str = Field(...)
 
     # bcrypt 工作因子。生产默认 12(安全基线不变);测试环境降到 4 提速(见 conftest.py)。
     BCRYPT_ROUNDS: int = 12
@@ -40,10 +40,14 @@ class Settings(BaseSettings):
     CORS_ORIGINS_RAW: str = Field(default="http://localhost:3000", alias="CORS_ORIGINS")
     CORS_ALLOW_CREDENTIALS: bool = True
 
-    # 登录限流(单机内存)
+    # 登录限流(单机内存,第一道减速带)
     LOGIN_RATE_LIMIT_WINDOW_SECONDS: int = 60
     LOGIN_RATE_LIMIT_MAX_FAILURES: int = 5
     LOGIN_RATE_LIMIT_LOCK_SECONDS: int = 300
+
+    # 账号级登录锁定(落用户行,第二道;换 IP/重启进程不绕过)
+    ACCOUNT_LOCK_THRESHOLD: int = 10
+    ACCOUNT_LOCK_MINUTES: int = 15
 
     # Refresh cookie
     REFRESH_COOKIE_NAME: str = "refresh_token"
@@ -56,9 +60,13 @@ class Settings(BaseSettings):
     TRUST_INBOUND_TRACE_ID: bool = False
     TRUST_PROXY: bool = False
 
-    ENABLE_DEBUG_API: bool = False
+    # API 文档(/docs /redoc /openapi.json)开关。默认关(安全默认值),本地开发在 .env 打开
+    ENABLE_API_DOCS: bool = False
 
-    # 对象存储(附件)—— local | s3。s3 兼容 MinIO(本地) / 阿里云 OSS(生产)
+    # HSTS 响应头开关。HTTP 阶段浏览器忽略 HSTS,接 HTTPS 后打开(与 REFRESH_COOKIE_SECURE 同思路)
+    ENABLE_HSTS: bool = False
+
+    # 对象存储(附件)—— local | s3。s3 兼容 MinIO(本地)/ 生产 S3 兼容云对象存储
     STORAGE_BACKEND: str = "local"
     S3_ENDPOINT_URL: str = ""      # MinIO/OSS endpoint,如 http://localhost:9000
     S3_REGION: str = "cn-hangzhou"

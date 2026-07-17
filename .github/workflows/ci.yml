@@ -34,6 +34,8 @@ jobs:
       TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/fulfillment_test
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/fulfillment_test
       JWT_SECRET_KEY: ci-test-secret-key-do-not-use-in-production-1234567890
+      # Settings 必填项(无默认值):pytest 由 conftest setdefault 兜底,alembic 步直接读这里
+      SUPER_ADMIN_INITIAL_PASSWORD: Aa123456789
 
     steps:
       - uses: actions/checkout@v5

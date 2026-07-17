@@ -62,7 +62,7 @@ services:
 
   # 一次性初始化:等 minio 健康后建好业务用的 bucket(幂等,--ignore-existing)。
   # 没有这个,第一次上传附件会因 bucket 不存在报 NoSuchBucket(500)。
-  # 生产走 aliyun OSS 时 bucket 由运维预先建好,不需要这个服务。
+  # 生产走云对象存储时 bucket 由运维预先建好,不需要这个服务。
   minio-init:
     image: minio/mc:RELEASE.2024-01-13T08-44-48Z
     depends_on:
@@ -122,8 +122,11 @@ services:
       # 日志
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
-      # 调试 API 开关(生产建议 false)
-      ENABLE_DEBUG_API: ${ENABLE_DEBUG_API:-false}
+      # API 文档开关(生产保持 false)/ HSTS(接 HTTPS 后开)/ 账号级登录锁定
+      ENABLE_API_DOCS: ${ENABLE_API_DOCS:-false}
+      ENABLE_HSTS: ${ENABLE_HSTS:-false}
+      ACCOUNT_LOCK_THRESHOLD: ${ACCOUNT_LOCK_THRESHOLD:-10}
+      ACCOUNT_LOCK_MINUTES: ${ACCOUNT_LOCK_MINUTES:-15}
 
       # 对象存储 —— 整机部署演示用 compose 内的 minio(s3 兼容协议)
       STORAGE_BACKEND: s3

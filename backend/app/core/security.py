@@ -71,20 +71,7 @@ def create_refresh_token(user_id: int, email: str, token_version: int = 0) -> st
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
-def create_password_reset_token(user_id: int, email: str) -> str:
-    """生成密码重置 JWT，15 分钟有效。"""
-    exp = _now_utc() + timedelta(minutes=15)
-    payload = {
-        "sub": str(user_id),
-        "email": email,
-        "type": "password_reset",
-        "iat": int(_now_utc().timestamp()),
-        "exp": int(exp.timestamp()),
-    }
-    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
-
-
-def decode_token(token: str, expected_type: Literal["access", "refresh", "password_reset"] = "access") -> dict[str, Any]:
+def decode_token(token: str, expected_type: Literal["access", "refresh"] = "access") -> dict[str, Any]:
     """解码并校验 JWT。失败抛 JWTError(由调用方转 401)。"""
     payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
     if payload.get("type") != expected_type:

@@ -14,8 +14,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     UV_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 
-# Debian 12 (bookworm) 用 DEB822 格式的 sources 文件,sed 替换为阿里云镜像
-# 国内不走阿里云,apt-get install build-essential 可能跑几十分钟
+# Debian 12 (bookworm) 用 DEB822 格式的 sources 文件,sed 替换为国内镜像
+# 国内不走镜像源,apt-get install build-essential 可能跑几十分钟
 RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -24,7 +24,7 @@ RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# 装 uv(从阿里云 PyPI 镜像装,不走 ghcr.io 拉镜像层)
+# 装 uv(从国内 PyPI 镜像装,不走 ghcr.io 拉镜像层)
 RUN pip install --no-cache-dir uv==0.5.11
 
 WORKDIR /app

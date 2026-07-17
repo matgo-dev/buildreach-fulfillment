@@ -41,6 +41,10 @@ app = FastAPI(
     version="0.1.0",
     description="M0 地基:认证、RBAC、审计、存储",
     lifespan=lifespan,
+    # API 文档随 ENABLE_API_DOCS(默认关):公网部署不暴露接口面
+    docs_url="/docs" if settings.ENABLE_API_DOCS else None,
+    redoc_url="/redoc" if settings.ENABLE_API_DOCS else None,
+    openapi_url="/openapi.json" if settings.ENABLE_API_DOCS else None,
 )
 
 if "*" in settings.CORS_ORIGINS:
@@ -55,9 +59,22 @@ app.add_middleware(
 app.add_middleware(RequestIDMiddleware)
 
 
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    """基础安全响应头。HSTS 仅在 HTTPS 接入后开启(HTTP 阶段浏览器忽略该头)。"""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    if settings.ENABLE_HSTS:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
+
 @app.exception_handler(BusinessError)
 async def biz_exc_handler(request: Request, exc: BusinessError) -> JSONResponse:
-    return JSONResponse(status_code=exc.status_code, content={
+    # headers 透传:如 /auth/refresh 失败时随 401 一并下发清 cookie 的 Set-Cookie
+    return JSONResponse(status_code=exc.status_code, headers=exc.headers, content={
         "code": exc.biz_code, "message": exc.biz_message,
         "message_key": exc.message_key,
         "message_params": getattr(exc, "message_params", None),

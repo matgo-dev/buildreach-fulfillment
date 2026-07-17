@@ -439,6 +439,10 @@ async def reset_password(
     target.password_hash = hash_password(new_password)
     target.must_change_password = True
     target.token_version += 1
+    # 管理员代重置 = 账号级登录锁定的人工解锁通道:计数清零 + 解除锁定
+    was_locked = target.locked_until is not None
+    target.failed_login_attempts = 0
+    target.locked_until = None
 
     await write_audit(
         db,
@@ -448,7 +452,9 @@ async def reset_password(
         user_email=actor_user_email,
         resource_id=target.id,
         request=request,
-        extra={"target_user_id": target.id, "target_email": target.email},
+        # was_locked:此次代重置是否顺带解除了账号锁定(审计可区分「纯重置」vs「重置+解锁」)
+        extra={"target_user_id": target.id, "target_email": target.email,
+               "was_locked": was_locked},
         commit=False,
     )
     await db.commit()

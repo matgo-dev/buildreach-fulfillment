@@ -1,6 +1,6 @@
 """统一 Storage 适配层 — 业务只认 file_key,不碰文件在本地还是 OSS。
 
-LocalDiskStorage(本地)/ S3Storage(MinIO 本地 · 阿里云 OSS 生产,S3 兼容端点);
+LocalDiskStorage(本地)/ S3Storage(MinIO 本地 · 生产 S3 兼容云对象存储);
 由 settings.STORAGE_BACKEND 驱动的工厂 get_attachment_storage() 选择实现,业务不动。
 """
 from __future__ import annotations
@@ -109,7 +109,7 @@ class LocalDiskStorage:
 
 
 class S3Storage:
-    """S3 兼容对象存储 —— 本地 MinIO / 生产阿里云 OSS(S3 兼容端点)。"""
+    """S3 兼容对象存储 —— 本地 MinIO / 生产 S3 兼容云对象存储。"""
 
     def __init__(self, *, endpoint_url: str, region: str, access_key: str,
                  secret_key: str, bucket: str, public_base_url: str = "") -> None:

@@ -119,13 +119,13 @@ font-family: ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Microsoft 
 
 ---
 
-## 8. 图片（两级 + 回退 + 阿里云 OSS）
+## 8. 图片（两级 + 回退 + S3 兼容对象存储）
 - **模型**（规范化独立表 `product_images`，存 object key，非 URL）：SPU 图与 SKU 图同表，靠 `sku_id` 区分层级（`sku_id IS NULL` = SPU 级）。每行 `image_type ∈ {MAIN, GALLERY, DETAIL}`（DB CHECK 兜底）。**封面 = 该 SPU 唯一一行 `MAIN`（`sku_id IS NULL`）**，≤1 由部分唯一索引硬保证。**身份键 = `image_key`**，写接口按 key 声明期望图集、后端 reconcile 按 key 对账到期望态。
 - **张数上限**（后端 schema 校验）：SPU 级 主图组（`MAIN`+`GALLERY`）≤6（且恰 1 张 `MAIN`）/ 详情（`DETAIL`）≤12；SKU 级图 ≤6，一律记 `GALLERY`（无 `MAIN`/`DETAIL` 语义）。
 - **回退**：SKU 无自有图时用 **SPU 封面**（封面取 `MAIN`，无则 `GALLERY` 最小 `sort_order`）。
 - **尺寸靠存储层实时处理**（OSS `?x-oss-process=image/resize,w_80`列表 / `w_400`详情），不自生成缩略图、不存多份。
 - **列表缩略图默认关**（密度优先），主图放详情/抽屉。
-- **存储抽象**：统一 `Storage` 协议（`build_url`/`public_url`/`create_upload`/`save`/`open`/`delete`/`exists`），工厂 `get_attachment_storage()` 按 `STORAGE_BACKEND` 选实现——`local`→`LocalDiskStorage`（默认）/ `s3`→`S3Storage`（本地 MinIO・生产阿里云 OSS，S3 兼容端点），业务零改动。**本地预览走 `GET /media/{key}`（仅 `STORAGE_BACKEND=local` 启用；生产 `<img>` 直连公读桶、不经本端点）**。
+- **存储抽象**：统一 `Storage` 协议（`build_url`/`public_url`/`create_upload`/`save`/`open`/`delete`/`exists`），工厂 `get_attachment_storage()` 按 `STORAGE_BACKEND` 选实现——`local`→`LocalDiskStorage`（默认）/ `s3`→`S3Storage`（本地 MinIO・生产 S3 兼容云对象存储），业务零改动。**本地预览走 `GET /media/{key}`（仅 `STORAGE_BACKEND=local` 启用；生产 `<img>` 直连公读桶、不经本端点）**。
 
 ---
 

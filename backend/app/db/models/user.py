@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Index, Integer, String, text
+from datetime import datetime
+
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Index, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampUpdateMixin
@@ -19,6 +21,8 @@ class User(Base, TimestampUpdateMixin):
         Index("uq_users_email", "email", unique=True),
         Index("uq_users_username", "username", unique=True),
         Index("uq_users_phone", "phone", unique=True),
+        CheckConstraint("failed_login_attempts >= 0",
+                        name="ck_users_failed_login_attempts_nn"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -37,3 +41,11 @@ class User(Base, TimestampUpdateMixin):
     token_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     # 用户语言偏好(本轮仅 SUPPLIER 自助注册 Step 2 写入,其他场景为 NULL;TODO(T-LANG-CHANGE) 用户自助切换入口)
     language_preference: Mapped[str | None] = mapped_column(String(35), nullable=True)
+    # 账号级登录锁定(落行 = 最强层,换 IP/重启进程不绕过;进程内限流只是第一道减速带):
+    # 连续失败计数,达 ACCOUNT_LOCK_THRESHOLD 置 locked_until 并清零;登录成功/管理员重置密码清零解锁
+    failed_login_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    locked_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

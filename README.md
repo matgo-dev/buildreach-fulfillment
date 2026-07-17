@@ -209,7 +209,9 @@ uv pip install -e ".[dev]"
 
 # .env(不提交,见根目录 .env.example)
 cp ../.env.example .env
-# 至少改: DATABASE_URL 指向 fulfillment_dev、JWT_SECRET_KEY(任意 >=16 字符)
+# 至少改: DATABASE_URL 指向 fulfillment_dev、JWT_SECRET_KEY(任意 >=16 字符)、
+#         SUPER_ADMIN_INITIAL_PASSWORD(必填,无默认值,漏配起不来)
+# 本地开发建议: ENABLE_API_DOCS=true(打开 /docs;生产保持 false)
 
 alembic upgrade head
 uvicorn app.main:app --reload --port 8000
@@ -221,7 +223,7 @@ uvicorn app.main:app --reload --port 8000
 对象存储默认 `STORAGE_BACKEND=local`(写入 `backend/private_uploads/attachments`),不需要额外起
 MinIO。要在本地验证 S3/MinIO 路径,单独起一个 MinIO 容器并把 `STORAGE_BACKEND` 切成 `s3`
 (见 `.env.example` 里注释的 `S3_*` 项)即可,不需要整套 `docker compose up`。商品图(`main_image`/
-`images`/`sku.image`)与附件共用同一套 `Storage`(`local` 落同一目录,`s3` 即生产 aliyun OSS),没有
+`images`/`sku.image`)与附件共用同一套 `Storage`(`local` 落同一目录,`s3` 即生产 S3 兼容云对象存储),没有
 独立的新环境变量。
 
 ### 3. 前端
@@ -297,6 +299,50 @@ JSON 形状见 `scripts/sample_categories.json`。幂等:`code` 已存在则跳�
   过 `display(field, lang, fallback="zh")`(fallback 链 目标→en→zh);语言集合定死 **zh/en/sw**,内容
   纯中文、按需再补。
 
+## 安全与会话
+
+**会话机制**:登录返回 **15 分钟 access token**(前端 Zustand 纯内存,无 Web Storage 落点)+
+**7 天滑动 refresh token**(httpOnly cookie,`SameSite=Lax`,路径限定 `/api/v1/auth`)。
+access 过期后前端 401 时经 `POST /api/v1/auth/refresh` 单飞续期(并发请求共享一次刷新),
+每次刷新**轮换** refresh cookie(滑动 7 天);`POST /api/v1/auth/logout` 清 cookie(幂等,
+带有效 token 时写 LOGOUT 审计)。**吊销单一源头 = `users.token_version`**:改密/管理员重置
+即 +1,旧 access/refresh 一并失效,不建 jti 黑名单。
+
+**登录防爆破(两道)**:
+
+1. **进程内限流**(第一道减速带):`(identifier, ip)` 维度,窗口 60s 内失败 ≥5 次锁 5 分钟
+   (`LOGIN_RATE_LIMIT_*`)。**内存态**——重启即清、多进程/多实例不共享。
+2. **账号级锁定**(第二道,落 `users` 行,换 IP/重启不绕过):连续失败达
+   `ACCOUNT_LOCK_THRESHOLD`(默认 10)次 → 锁定 `ACCOUNT_LOCK_MINUTES`(默认 15)分钟,
+   期间正确密码也拒(业务码 40010)、尝试不递增计数;到期自动解锁,登录成功或
+   **管理员重置密码**(人工解锁通道)即清零解锁。迁移 `0023_account_lockout`。
+
+**防枚举**:登录失败(用户不存在 / 密码错 / 已注销)统一返回同一个 401,真实原因只进审计;
+账号锁定提示是例外(用户须知道为何登不上、找管理员),属可用性与防枚举的权衡。
+
+**安全响应头**:后端与前端(`next.config.mjs`)统一下发 `X-Content-Type-Options: nosniff` /
+`X-Frame-Options: DENY` / `Referrer-Policy: strict-origin-when-cross-origin`;HSTS 由
+`ENABLE_HSTS` 控制(默认 false,接 HTTPS 后开启),只在后端/网关层下发。
+
+**API 文档开关**:`ENABLE_API_DOCS`(默认 **false**,`/docs` `/redoc` `/openapi.json` 全部 404),
+本地开发在 `backend/.env` 置 true;生产保持 false,不对公网暴露接口面。
+
+**相关环境变量**(详见 `.env.example`):`SUPER_ADMIN_INITIAL_PASSWORD`(**必填,无默认值**)、
+`ENABLE_API_DOCS`、`ENABLE_HSTS`、`ACCOUNT_LOCK_THRESHOLD` / `ACCOUNT_LOCK_MINUTES`、
+`REFRESH_COOKIE_SECURE`。
+
+> 早期 M0 的 `/api/v1/attachments` 最小上传端点(无类型/大小校验、无业务 RBAC、无任何消费方)
+> 已下线;对象存储层与商品图直传(`/api/v1/uploads`,守 `product:manage`)不受影响。
+
+### 公网部署安全约束
+
+- **登录 IP 限流是进程内存态** → `uvicorn` **workers 必须 = 1**(多 worker/多实例各自计数,
+  限流形同虚设;要横向扩展需先把限流迁到共享存储)。账号级锁定落库,不受此限。
+- 公网暴露建议在**网关层**叠加全局限流(带宽/QPS/爆破防护),应用内限流只针对登录端点。
+- **HTTPS 接入后**:`REFRESH_COOKIE_SECURE=true` + `ENABLE_HSTS=true` 一起打开
+  (纯 HTTP 阶段两者都无效/被浏览器忽略,保持 false)。
+- `ENABLE_API_DOCS` 生产保持 false;`SUPER_ADMIN_INITIAL_PASSWORD` 部署前改强口令。
+
 ## 容器部署(整机部署/演示)
 
 ```bash
@@ -307,7 +353,7 @@ docker compose --env-file .env up -d --build db minio backend
 起 `db`(独立于本地开发用的 brew PG)+ `minio`(演示对象存储)+ `backend`(容器内自动等库就绪→
 `alembic upgrade head`→启动,见 `backend/docker-entrypoint.sh`)。`minio` 里业务用的 bucket
 (`fulfillment-attachments`)由 `minio-init` 一次性服务自动建好(幂等,随 `backend` 一起触发,不需要
-单独跑);生产走 aliyun OSS 时 bucket 由运维预先建好,没有对应的一次性服务。
+单独跑);生产走云对象存储时 bucket 由运维预先建好,没有对应的一次性服务。
 
 `frontend` 服务在 `docker-compose.yml` 里已占位,但**还没有 `frontend/Dockerfile`**(T7 只搭了本地
 `pnpm dev` 开发壳,未做生产构建镜像)——补齐 Dockerfile 前,`docker compose up` 不带 service 名的全量

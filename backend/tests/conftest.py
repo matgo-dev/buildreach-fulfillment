@@ -29,6 +29,8 @@ os.environ.setdefault("SUPER_ADMIN_INITIAL_PASSWORD", "Aa123456789")
 # bcrypt 降到 4 rounds:单次 hash 从 ~500ms 降到 ~2ms,auth fixture 密集,整套提速 4-5×。
 # 仅测试环境;生产走 config 默认 12。
 os.environ.setdefault("BCRYPT_ROUNDS", "4")
+# 测试按生产默认值跑(本地 backend/.env 会开 true;环境变量优先级高于 dotenv,固定住)
+os.environ.setdefault("ENABLE_API_DOCS", "false")
 
 from typing import AsyncGenerator  # noqa: E402
 
