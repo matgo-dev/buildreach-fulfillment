@@ -51,7 +51,9 @@ _LINE_TABLES = (
     "quotation_lines", "sales_order_lines", "purchase_order_lines", "inbound_order_lines",
 )
 
-_NUM = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)")
+# '/' 后段必须整体是「数字 + g」才算分度值:kg('k' 挡在 'g' 前失配)、Hz、裸数字等一律
+# 解析失败 → None → 落残留守卫 raise,绝不静默错标度(如 "150kg/0.05kg" 若剥前缀数字会错 1000 倍)。
+_DIV_G = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*g\s*$")
 
 
 def _ancestor_codes(category_code: str) -> list[str]:
@@ -86,10 +88,11 @@ def _suggestions_by_key(conn, category_code: str) -> dict[str, dict]:
 
 
 def _parse_division(value) -> float | int | None:
-    """从 "Xkg/Yg" 解析分度值 Y(取 '/' 后段、剥单位字符);解析不动返回 None(调用方跳过+告警)。"""
+    """从 "Xkg/Yg" 解析分度值 Y:'/' 后段须整体匹配「数字+g」(_DIV_G),单位不是 g 或
+    解析不动返回 None(调用方跳过,交残留守卫 raise)。"""
     if not isinstance(value, str) or "/" not in value:
         return None
-    m = _NUM.match(value.split("/")[-1].strip())
+    m = _DIV_G.match(value.split("/")[-1])
     if not m:
         return None
     s = m.group(1)

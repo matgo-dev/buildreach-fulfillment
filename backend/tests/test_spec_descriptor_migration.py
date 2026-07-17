@@ -151,9 +151,12 @@ def test_migration_0022_data_steps_and_idempotence():
 
 
 def _seed_negative_fixture(s: Session) -> None:
-    """负例:一个非 29 子树品类(08 紧固件)误挂 key='spec' 兜底模板 + 一个值带 '/' 的 SKU
-    (M8/1.25,螺纹规格,非分度值)。该品类祖先链拿不到 division 模板,③ 不会碰它 → remap 后
-    仍残留 key='spec' → 残留守卫必 raise。另建 29 兜底模板一行,用来断言异常回滚后它仍在。"""
+    """负例两路:① 非 29 子树品类(08 紧固件)误挂 key='spec' 兜底模板 + 值带 '/' 的 SKU
+    (M8/1.25,螺纹规格,非分度值)——祖先链拿不到 division 模板,③ 不会碰它;
+    ② 29.001 电子秤 SKU 但分度值单位是 kg("30kg/0.03kg")——有 division 模板但
+    _parse_division 须整体匹配「数字+g」失配(绝不剥前缀数字得 0.03 存进 unit=g 错 1000 倍)。
+    两路都 remap 不动 → 残留 key='spec' → 守卫必 raise。另建 29 兜底模板一行,用来断言异常
+    回滚后它仍在。"""
     s.add(User(id=1, name="op", password_hash="x"))
     # 29 树 + 29 兜底 spec 模板(仅用于断言 raise 回滚后 ② 的删除被撤销、模板仍在)
     s.add(Category(code="29", parent_code=None, name_i18n={"zh": "量刃具"}, level=1,
@@ -174,18 +177,25 @@ def _seed_negative_fixture(s: Session) -> None:
 
     s.add(Spu(id=1, spu_code="SPU8", category_code="08", name_i18n={"zh": "螺栓"},
               spec_jsonb=[], status="ACTIVE", created_by=1))
+    s.add(Spu(id=2, spu_code="SPU29", category_code="29.001", name_i18n={"zh": "电子秤"},
+              spec_jsonb=[], status="ACTIVE", created_by=1))
     s.flush()
     # 值含 '/' 但语义是螺纹规格,非 "Xkg/Yg" 分度值;品类无 division 模板 → 必残留
     s.add(Sku(id=1, spu_id=1, sku_code="SKU8", unit="ea", status="ACTIVE", created_by=1,
               name_i18n={"zh": "螺栓A"},
               spec_jsonb=[{"key": "spec", "value": "M8/1.25"}]))
+    # 29.001 有 division 模板(① 会插),但分度值单位 kg 非 g → 解析必失配 → 必残留
+    s.add(Sku(id=2, spu_id=2, sku_code="SKU29", unit="ea", status="ACTIVE", created_by=1,
+              name_i18n={"zh": "电子秤C"},
+              spec_jsonb=[{"key": "spec", "value": "30kg/0.03kg"}]))
     s.commit()
 
 
 @pytest.mark.filterwarnings("ignore")
 def test_migration_0022_non_scale_category_raises_and_rolls_back():
-    """F1 最危险路径:非电子秤品类的 spec 值(含 '/')绝不被静默错映射成 division,而是残留
-    守卫 raise、alembic 单事务整体回滚——库不脏(SKU 值原样、29 兜底模板仍在)。"""
+    """F1 最危险路径两路:非电子秤品类的 spec 值(含 '/')、电子秤但分度值单位 kg 非 g,
+    都绝不被静默错映射成 division,而是残留守卫 raise、alembic 单事务整体回滚——库不脏
+    (SKU 值原样、29 兜底模板仍在)。"""
     name = f"{_MIG_DB}_neg"
     _create_db(name)
     engine = create_engine(f"{_BASE}/{name}")
@@ -199,16 +209,33 @@ def test_migration_0022_non_scale_category_raises_and_rolls_back():
             with engine.begin() as conn:
                 mig._run(conn)
         msg = str(ei.value)
-        assert "SKU8" in msg or "id=1" in msg  # 消息含该 sku 标识
+        assert "SKU8" in msg   # 消息含无 division 模板路的 sku 标识
+        assert "SKU29" in msg  # 消息含单位 kg 失配路的 sku 标识
         assert "spec" in msg
 
-        # 整体回滚、库不脏:08 SKU 的 spec_jsonb 原样、29 兜底 spec 模板仍在(② 删除被撤销)
+        # 整体回滚、库不脏:两个 SKU 的 spec_jsonb 原样、29 兜底 spec 模板仍在(② 删除被撤销)
         with engine.connect() as conn:
             spec = conn.execute(text("SELECT spec_jsonb FROM skus WHERE id=1")).scalar()
             assert spec == [{"key": "spec", "value": "M8/1.25"}]
+            spec29 = conn.execute(text("SELECT spec_jsonb FROM skus WHERE id=2")).scalar()
+            assert spec29 == [{"key": "spec", "value": "30kg/0.03kg"}]
             keys29 = {r[0] for r in conn.execute(text(
                 "SELECT key FROM category_spec_attributes WHERE category_code='29'"))}
             assert "spec" in keys29
     finally:
         engine.dispose()
         _drop_db(name)
+
+
+@pytest.mark.parametrize("value, expected", [
+    ("15kg/0.5g", 0.5),          # 标准分度值,float
+    ("30kg/1g", 1),              # int 保持 int
+    ("30kg/0.03kg", None),       # 单位 kg 非 g:'k' 挡在 'g' 前失配,绝不剥成 0.03
+    ("220V/50Hz", None),         # 单位 Hz 失配
+    ("M8/1.25", None),           # 裸数字无 g 失配(螺纹规格)
+    ("15kg", None),              # 无 '/'
+    (0.5, None),                 # 非字符串
+])
+def test_parse_division_requires_gram_unit(value, expected):
+    """钉死 _parse_division 正则:'/' 后段须整体为「数字+g」,其余一律 None(交残留守卫)。"""
+    assert _load_migration()._parse_division(value) == expected
