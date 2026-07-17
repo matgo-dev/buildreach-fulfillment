@@ -24,11 +24,7 @@ import {
 } from "@/lib/purchaseOrderStatus";
 import { PurchaseOrderBuilder } from "@/components/purchasing/PurchaseOrderBuilder";
 import type { StockBalanceLine } from "@/lib/inventory";
-
-// 数字单元:tabular-nums 对齐(DESIGN §2 数字列),照库存列表页既有写法。
-function numCell(v: number | string) {
-  return <span style={{ fontVariantNumeric: "tabular-nums" }}>{formatQty(v)}</span>;
-}
+import { NumCell } from "@/components/common/NumCell";
 
 export default function SalesOrderDetailPage() {
   const params = useParams();
@@ -255,20 +251,14 @@ export default function SalesOrderDetailPage() {
               { title: "品名", dataIndex: "name", ellipsis: true },
               { title: "规格", dataIndex: "spec_text", ellipsis: true, render: (v) => v || "—" },
               { title: "单位", dataIndex: "unit", width: 70 },
-              { title: "订购量", dataIndex: "ordered_qty", width: 90, align: "right", render: numCell },
-              { title: "已入库", dataIndex: "inbound_qty", width: 90, align: "right", render: numCell },
-              { title: "已出库", dataIndex: "outbound_qty", width: 90, align: "right", render: numCell },
-              {
-                title: "可发量",
-                dataIndex: "available_qty",
-                width: 90,
-                align: "right",
-                render: (v: number | string) => (
-                  <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
-                    {formatQty(v)}
-                  </span>
-                ),
-              },
+              { title: "订购量", dataIndex: "ordered_qty", width: 90, align: "right",
+                render: (v: number | string) => <NumCell value={v} /> },
+              { title: "已入库", dataIndex: "inbound_qty", width: 90, align: "right",
+                render: (v: number | string) => <NumCell value={v} /> },
+              { title: "已出库", dataIndex: "outbound_qty", width: 90, align: "right",
+                render: (v: number | string) => <NumCell value={v} /> },
+              { title: "可发量", dataIndex: "available_qty", width: 90, align: "right",
+                render: (v: number | string) => <NumCell value={v} strong /> },
             ]}
             dataSource={stockBalances}
             pagination={false}

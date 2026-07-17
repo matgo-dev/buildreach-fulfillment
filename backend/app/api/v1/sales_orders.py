@@ -16,6 +16,7 @@ from app.rbac.constants import Permissions
 from app.rbac.guards import has_permission, require_permission
 from app.rbac.redaction import can_see_cost
 from app.schemas.common import Page, PageParams
+from app.schemas.inventory import StockBalanceRow
 from app.schemas.purchase_order import RelatedPurchaseOrderItem
 from app.schemas.sales_order import (
     SalesOrderCancelIn,
@@ -104,7 +105,9 @@ async def get_sales_order(
     if has_permission(current, Permissions.INVENTORY_READ):
         stock_rows, _ = await stock_balance_service.compute_stock_balance(
             db, sales_order_id=order_id, scope=StockScope.ALL)
-        order_out["stock_balances"] = stock_rows
+        # 与 /inventory 同一 schema 校验(单一契约,防两条序列化路径漂移)。
+        order_out["stock_balances"] = [
+            StockBalanceRow(**r).model_dump() for r in stock_rows]
 
     line_outs = []
     for ln in lines:

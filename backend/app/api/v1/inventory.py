@@ -29,7 +29,9 @@ async def list_inventory(
     sales_order_id: int | None = None,
     sku_id: int | None = None,
     q: str | None = None,
-    scope: str = Query(StockScope.AVAILABLE, pattern=r"^(available|history)$"),
+    # pattern 从 PAGE_SCOPES 派生(单一源头);ALL 仅内部 SO 详情块用,端点不可达。
+    scope: str = Query(StockScope.AVAILABLE,
+                       pattern=f"^({'|'.join(StockScope.PAGE_SCOPES)})$"),
     _current: CurrentUser = _GUARD,
     db: AsyncSession = Depends(get_db),
 ):

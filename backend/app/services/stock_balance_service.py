@@ -65,7 +65,12 @@ def _ordered_cte(sales_order_id, sku_id):
 
 def _inbound_cte(sales_order_id, sku_id):
     """臂2:只从 RECEIVED 入库链按 (so, sku) 预聚合已入库量(归属经 PO行→SO行)。
-    在途/作废入库不计(status=RECEIVED,口径同 D4)。"""
+    在途/作废入库不计(status=RECEIVED,口径同 D4)。
+
+    不滤 SO 状态(与臂1 的 CONFIRMED 过滤不对称):守卫链保证 RECEIVED 入库的 SO 必为
+    CONFIRMED —— 活动入库挡 PO 取消(has_active_inbound)、活动 PO 挡 SO 取消,故本臂
+    看不到非 CONFIRMED 的 SO。若将来松动取消守卫(如允许带货取消),这里会静默出现
+    ordered=0 的幽灵行,须同批补状态过滤。"""
     stmt = (
         select(
             SalesOrderLine.sales_order_id.label("so_id"),

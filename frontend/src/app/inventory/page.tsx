@@ -5,15 +5,10 @@ import { Button, Card, Empty, Input, Space, Switch, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Can } from "@/components/common/Can";
 import { ListErrorState } from "@/components/common/ListErrorState";
+import { NumCell } from "@/components/common/NumCell";
 import { useListQuery } from "@/hooks/useListQuery";
 import { Permissions } from "@/config/permission-matrix";
-import { formatQty } from "@/lib/format";
 import { inventoryApi, type StockBalanceItem } from "@/lib/inventory";
-
-// 数字单元:tabular-nums 对齐(DESIGN §2 数字列),照入库建单器既有写法。
-function numCell(v: number | string) {
-  return <span style={{ fontVariantNumeric: "tabular-nums" }}>{formatQty(v)}</span>;
-}
 
 export default function InventoryListPage() {
   const router = useRouter();
@@ -67,30 +62,28 @@ export default function InventoryListPage() {
       dataIndex: "ordered_qty",
       width: 100,
       align: "right",
-      render: numCell,
+      render: (v: number | string) => <NumCell value={v} />,
     },
     {
       title: "已入库",
       dataIndex: "inbound_qty",
       width: 100,
       align: "right",
-      render: numCell,
+      render: (v: number | string) => <NumCell value={v} />,
     },
     {
       title: "已出库",
       dataIndex: "outbound_qty",
       width: 100,
       align: "right",
-      render: numCell,
+      render: (v: number | string) => <NumCell value={v} />,
     },
     {
       title: "可发量",
       dataIndex: "available_qty",
       width: 100,
       align: "right",
-      render: (v: number | string) => (
-        <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{formatQty(v)}</span>
-      ),
+      render: (v: number | string) => <NumCell value={v} strong />,
     },
   ];
 

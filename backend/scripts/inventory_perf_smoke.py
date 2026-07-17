@@ -15,17 +15,18 @@ import sys
 import time
 
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from app.core.config import settings
 from app.db.base import Base
 from app.db import models as _models  # noqa: F401  注册模型
 
-ADMIN_DSN = "postgresql+asyncpg://liujingjing@localhost:5433/postgres"
+# DSN 从 settings.DATABASE_URL 派生(单一源头,同 .env):只换 database 名,主机/账号复用。
 SMOKE_DB = "fulfillment_perf_smoke"
-SMOKE_DSN = f"postgresql+asyncpg://liujingjing@localhost:5433/{SMOKE_DB}"
-
-# 单 SO 路径的目标 SO(取中段一个 id,避开边界)。
-PROBE_SO = 50_000
+_base_url = make_url(settings.DATABASE_URL)
+ADMIN_DSN = _base_url.set(database="postgres").render_as_string(hide_password=False)
+SMOKE_DSN = _base_url.set(database=SMOKE_DB).render_as_string(hide_password=False)
 
 
 async def _recreate_db() -> None:
@@ -146,9 +147,10 @@ async def main(n: int) -> None:
         await conn.execute(text("ANALYZE"))
     print(f"[perf] 灌数+ANALYZE 用时 {time.perf_counter()-t0:.1f}s")
 
+    probe_so = n // 2  # 单 SO 路径探针:取中段避开边界,随 N 缩放(N 小时也命中真实 SO)
     async with eng.connect() as conn:
         for label, q in (
-            (f"① 单 SO 路径 (so_id={PROBE_SO})", _query(single_so=True, so_id=PROBE_SO)),
+            (f"① 单 SO 路径 (so_id={probe_so})", _query(single_so=True, so_id=probe_so)),
             ("② 全量默认口径 (available>0, LIMIT 20)", _query(single_so=False, so_id=None)),
         ):
             print("\n" + "=" * 72 + f"\n{label}\n" + "=" * 72)

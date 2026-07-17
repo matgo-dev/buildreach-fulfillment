@@ -203,6 +203,13 @@ async def test_row_inclusion_rules(client, db_session, sales_headers, purchaser_
     assert set(rows_by_sku(detail["order"]["stock_balances"])) == {sku_a.id, sku_b.id}
 
 
+async def test_scope_all_rejected_by_endpoint(client, purchaser_headers):
+    """ALL 仅内部(SO 详情块)口径,端点不可达:scope=all → 422(PAGE_SCOPES 派生 pattern 拦截)。"""
+    r = await client.get("/api/v1/inventory", headers=purchaser_headers,
+                         params={"scope": "all"})
+    assert r.status_code == 422
+
+
 # ─────────────────────────── ⑥ RBAC ───────────────────────────
 
 async def test_rbac_inventory_endpoint(client, db_session, sales_headers, purchaser_headers,
