@@ -134,13 +134,7 @@ export default function ShipmentDetailPage() {
         </Can>
       ),
     },
-    {
-      title: "客户",
-      dataIndex: "customer_display",
-      width: 170,
-      ellipsis: true,
-      render: (v: string | undefined) => v || "—",
-    },
+    { title: "客户", dataIndex: "customer_display", width: 170, ellipsis: true },
     {
       title: "行数 / 件数",
       key: "qty",

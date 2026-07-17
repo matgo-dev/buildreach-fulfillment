@@ -35,8 +35,7 @@ export interface ShipmentOutboundSummary {
   no: string;
   sales_order_id: number;
   sales_order_no: string;
-  // 后端当前柜内摘要未回 customer_display(见集成存疑),可选 + 前端「—」兜底。
-  customer_display?: string;
+  customer_display: string;
   line_count: number;
   total_qty: number | string;
   status: OutboundOrderStatus;

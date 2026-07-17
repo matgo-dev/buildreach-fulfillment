@@ -28,6 +28,11 @@ async def test_unreceive_blocked_when_stock_outbound(client, db_session, sales_h
     ur = await client.post(f"/api/v1/inbound-orders/{inb_id}/unreceive",
                            headers=purchaser_headers, json={"void_reason": "误收"})
     assert ur.status_code == 409 and ur.json()["code"] == 41710
+    # biz_data 带逐 (so,sku) 明细(镜像 41902 形状):销售单号/品名/穿仓后可发。
+    items = ur.json()["data"]["items"]
+    assert len(items) == 1
+    assert items[0]["sales_order_id"] == so_id and items[0]["available_qty"] == -8.0
+    assert items[0]["sales_order_no"] and items[0]["name_snapshot"]
     # 入库单仍 RECEIVED(事务回滚,状态翻转撤销)。
     d = await client.get(f"/api/v1/inbound-orders/{inb_id}", headers=purchaser_headers)
     assert d.json()["data"]["order"]["status"] == "RECEIVED"

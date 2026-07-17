@@ -165,10 +165,9 @@ export function OutboundOrderBuilder({
       }
     }
 
-    const lines: OutboundOrderLineIn[] = selectedRows.map((r, i) => ({
+    const lines: OutboundOrderLineIn[] = selectedRows.map((r) => ({
       sales_order_line_id: r.sales_order_line_id,
       qty: r.qty,
-      sort_order: i,
     }));
     const note = header.note?.trim() || null;
 

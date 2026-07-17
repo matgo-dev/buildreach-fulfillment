@@ -421,10 +421,20 @@ class InboundOrderEditConflictError(BusinessError):
 
 class InboundUnreceiveWouldGoNegativeError(BusinessError):
     """撤销入库被拦:货已被出库消费,撤回将使某 (SO, SKU) 可发穿仓(available < 0)。
-    须先撤销相关出库单再撤销入库(库存契约收紧型写入口守卫)。"""
+    须先撤销相关出库单再撤销入库(库存契约收紧型写入口守卫)。
+    biz_data 带逐 (so,sku) 明细(销售单号/品名/穿仓后可发),镜像 41902 的明细形状。"""
 
-    def __init__(self, message: str = "Cannot unreceive: stock has been outbound, revert outbound first"):
-        super().__init__(status.HTTP_409_CONFLICT, 41710, message)
+    def __init__(self, message: str = "Cannot unreceive: stock has been outbound, revert outbound first",
+                 data: Any = None):
+        super().__init__(status.HTTP_409_CONFLICT, 41710, message, data=data)
+
+
+class InboundDuplicateLineError(BusinessError):
+    """入库单 payload 同一 PO 行重复出现(一 PO 行一入库行,DB UNIQUE(inb, po_line) 兜底,
+    service 前置拒绝——否则打穿到约束成 500)。"""
+
+    def __init__(self, message: str = "Duplicate purchase order line in inbound payload"):
+        super().__init__(status.HTTP_400_BAD_REQUEST, 41711, message)
 
 
 # 模块段 18 = 销售单(SO 状态机)。见 db/models/sales_order.py SalesOrderStatus。
@@ -502,6 +512,14 @@ class OutboundOrderEditConflictError(BusinessError):
 
     def __init__(self, message: str = "Outbound order was modified by someone else"):
         super().__init__(status.HTTP_409_CONFLICT, 41908, message)
+
+
+class OutboundDuplicateLineError(BusinessError):
+    """出库单 payload 同一 SO 行重复出现(一 SO 行一出库行,DB UNIQUE(ob, so_line) 兜底,
+    service 前置拒绝——否则打穿到约束成 500。镜像 41711)。"""
+
+    def __init__(self, message: str = "Duplicate sales order line in outbound payload"):
+        super().__init__(status.HTTP_400_BAD_REQUEST, 41909, message)
 
 
 # 模块段 20 = 柜 / 发运(发运单状态机)。见 db/models/shipment_order.py。

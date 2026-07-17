@@ -27,6 +27,7 @@ from app.core.codegen import NumberScope, format_code
 from app.core.exceptions import (
     NotFoundError,
     OutboundActiveOrderExistsError,
+    OutboundDuplicateLineError,
     OutboundInsufficientAvailableError,
     OutboundLineNotInSalesOrderError,
     OutboundOrderInvalidTransitionError,
@@ -130,9 +131,18 @@ async def _lock_confirmed_so(db: AsyncSession, sales_order_id: int) -> SalesOrde
     return so
 
 
-async def _assert_shipment_open(db: AsyncSession, shipment_id: int) -> ShipmentOrder:
-    ship = (await db.execute(
-        select(ShipmentOrder).where(ShipmentOrder.id == shipment_id))).scalar_one_or_none()
+async def _assert_shipment_open(db: AsyncSession, shipment_id: int,
+                                *, for_update: bool = False) -> ShipmentOrder:
+    """柜须 OPEN,否则 41906。
+
+    for_update=True(建单路径):锁柜头再校验,闭环「建单 × 取消柜」竞态——无锁读会让
+    取消柜的活动单 count 与本事务的 INSERT 互不可见,产出「已取消柜下挂活动草稿」。
+    锁序 SO 头 → 柜头(cancel_shipment 只锁柜头,不成环)。
+    确认/编辑路径无需锁:草稿已提交可见,取消柜被 42001 count 守卫挡住,竞态不存在。"""
+    stmt = select(ShipmentOrder).where(ShipmentOrder.id == shipment_id)
+    if for_update:
+        stmt = stmt.with_for_update()
+    ship = (await db.execute(stmt)).scalar_one_or_none()
     if ship is None or ship.status != ShipmentOrderStatus.OPEN:
         raise OutboundShipmentNotOpenError(f"柜非 OPEN: {shipment_id}")
     return ship
@@ -161,10 +171,16 @@ def _add_lines(db: AsyncSession, order: OutboundOrder, lines: list[dict],
 
 
 def _validate_lines_in_so(lines: list[dict], so_lines: dict[int, SalesOrderLine]) -> None:
+    """行归属 + 单内不重复(一 SO 行一出库行)。前置拒绝给友好错,
+    DB UNIQUE(outbound_order_id, sales_order_line_id) 兜底,不让打穿成 500。"""
+    seen: set[int] = set()
     for ln in lines:
-        if ln["sales_order_line_id"] not in so_lines:
-            raise OutboundLineNotInSalesOrderError(
-                f"SO 行 {ln['sales_order_line_id']} 不属于该出库单的 SO")
+        line_id = ln["sales_order_line_id"]
+        if line_id not in so_lines:
+            raise OutboundLineNotInSalesOrderError(f"SO 行 {line_id} 不属于该出库单的 SO")
+        if line_id in seen:
+            raise OutboundDuplicateLineError(f"SO 行 {line_id} 在 payload 中重复")
+        seen.add(line_id)
 
 
 async def create_order(db: AsyncSession, *, sales_order_id, shipment_id, note,
@@ -172,7 +188,7 @@ async def create_order(db: AsyncSession, *, sales_order_id, shipment_id, note,
                        request: Request | None = None) -> OutboundOrder:
     """基于 CONFIRMED SO + OPEN 柜建一张 DRAFT 出库单(行不跨 SO、不跨柜)。"""
     so = await _lock_confirmed_so(db, sales_order_id)
-    await _assert_shipment_open(db, shipment_id)
+    await _assert_shipment_open(db, shipment_id, for_update=True)
     await _assert_no_active_order(db, shipment_id, sales_order_id)
     so_lines = await _load_so_lines(db, so.id)
     _validate_lines_in_so(lines, so_lines)
@@ -232,8 +248,8 @@ async def save_order(db: AsyncSession, *, order_id, note, lines: list[dict],
 # ---------- 确认装柜 / 撤销出库(收紧型写入口,契约 §2 锁序 SO头→出库单头)----------
 
 
-async def _compute_receivable_amount(lines: list[OutboundOrderLine],
-                                     so_lines: dict[int, SalesOrderLine]) -> Decimal:
+def _compute_receivable_amount(lines: list[OutboundOrderLine],
+                               so_lines: dict[int, SalesOrderLine]) -> Decimal:
     """应收原始额 = Σ(行 qty × SO 行 unit_price),逐行 quantize 2dp 再求和。
     舍入模式显式 ROUND_HALF_UP(财务惯例;镜像 payable _compute_payable_amount)。"""
     total = Decimal("0")
@@ -285,7 +301,7 @@ async def confirm_order(db: AsyncSession, *, order_id, actor_user_id, actor_user
     order.issued_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await db.flush()
 
-    amount = await _compute_receivable_amount(lines, so_lines)
+    amount = _compute_receivable_amount(lines, so_lines)
     receivable = Receivable(
         outbound_order_id=order.id, sales_order_id=so.id, customer_id=so.customer_id,
         currency=so.currency, amount_original=amount, amount_allocated=0,

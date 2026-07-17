@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import CheckConstraint, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampUpdateMixin
@@ -30,7 +30,6 @@ class ShipmentOrder(Base, TimestampUpdateMixin):
     __table_args__ = (
         # 状态 DB 兜底,bound 到状态机全集(单一源头 ShipmentOrderStatus.ALL)。
         CheckConstraint("status IN ('OPEN','CANCELLED')", name="ck_shporders_status"),
-        Index("ix_shporders_status", "status"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -41,8 +40,10 @@ class ShipmentOrder(Base, TimestampUpdateMixin):
     container_type: Mapped[str | None] = mapped_column(String(10), nullable=True)
     seal_no: Mapped[str | None] = mapped_column(String(30), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 列表状态过滤路径。index=True 走默认命名(ix_shipment_orders_status),与迁移 0025 同名
+    # (显式短名会与迁移漂移成同索引两名,测试库/真实库各一套)。
     status: Mapped[str] = mapped_column(
-        String(20), nullable=False, default=ShipmentOrderStatus.OPEN)
+        String(20), nullable=False, default=ShipmentOrderStatus.OPEN, index=True)
     # 建单人(审计归属);取消动作走 audit_logs,不加 cancelled_by(遵审计归属判据 / 业务单据不放 updated_by)。
     created_by: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)

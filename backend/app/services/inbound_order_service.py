@@ -17,7 +17,7 @@ from collections import defaultdict
 from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
@@ -27,6 +27,7 @@ from app.audit.logger import write_audit
 from app.core.codegen import NumberScope, format_code
 from app.core.statemachine import assert_transition
 from app.core.exceptions import (
+    InboundDuplicateLineError,
     InboundLineNotInPurchaseOrderError,
     InboundOrderEditConflictError,
     InboundOrderEmptyError,
@@ -242,6 +243,21 @@ async def _load_po_lines(db: AsyncSession, purchase_order_id: int) -> dict[int, 
             PurchaseOrderLine.purchase_order_id == purchase_order_id))).scalars().all()}
 
 
+def _validate_lines_in_po(lines: list[dict], po_lines: dict[int, PurchaseOrderLine],
+                          purchase_order_id: int) -> None:
+    """行归属 + 单内不重复(一 PO 行一入库行)。前置拒绝给友好错,
+    DB UNIQUE(inbound_order_id, purchase_order_line_id) 兜底,不让打穿成 500(镜像出库侧)。"""
+    seen: set[int] = set()
+    for ln in lines:
+        line_id = ln["purchase_order_line_id"]
+        if line_id not in po_lines:
+            raise InboundLineNotInPurchaseOrderError(
+                f"PO 行 {line_id} 不属于 PO {purchase_order_id}")
+        if line_id in seen:
+            raise InboundDuplicateLineError(f"PO 行 {line_id} 在 payload 中重复")
+        seen.add(line_id)
+
+
 def _add_lines(db: AsyncSession, order: InboundOrder, lines: list[dict],
                po_lines: dict[int, PurchaseOrderLine]) -> None:
     """新增入库行:平移 PO 行快照(收的就是订的),qty 本次录入。无金额列。"""
@@ -262,10 +278,7 @@ async def create_order(db: AsyncSession, *, purchase_order_id, carrier_name, tra
         raise InboundOrderEmptyError()
     await _lock_confirmed_po(db, purchase_order_id)
     po_lines = await _load_po_lines(db, purchase_order_id)
-    for ln in lines:
-        if ln["purchase_order_line_id"] not in po_lines:
-            raise InboundLineNotInPurchaseOrderError(
-                f"PO 行 {ln['purchase_order_line_id']} 不属于 PO {purchase_order_id}")
+    _validate_lines_in_po(lines, po_lines, purchase_order_id)
     # 超收守卫:按 po_line 聚合本 payload 量,逐 po_line 校验(FOR UPDATE 锁额度基准)
     for po_line_id, add_qty in _payload_qty_by_poline(lines).items():
         await assert_within_po_line_quota(db, po_line_id, add_qty)
@@ -302,10 +315,7 @@ async def save_order(db: AsyncSession, *, order_id, carrier_name, tracking_no, s
     if not lines:
         raise InboundOrderEmptyError()
     po_lines = await _load_po_lines(db, order.purchase_order_id)
-    for ln in lines:
-        if ln["purchase_order_line_id"] not in po_lines:
-            raise InboundLineNotInPurchaseOrderError(
-                f"PO 行 {ln['purchase_order_line_id']} 不属于 PO {order.purchase_order_id}")
+    _validate_lines_in_po(lines, po_lines, order.purchase_order_id)
     for po_line_id, add_qty in _payload_qty_by_poline(lines).items():
         await assert_within_po_line_quota(db, po_line_id, add_qty, exclude_inbound_id=order.id)
 
@@ -437,7 +447,21 @@ async def unreceive_order(db: AsyncSession, *, order_id, void_reason: str | None
                 negatives.append({"sales_order_id": so_id, "sku_id": sku_id,
                                   "available_qty": float(avail.get(sku_id, Decimal("0")))})
     if negatives:
-        raise InboundUnreceiveWouldGoNegativeError()  # 41710(整事务回滚,状态翻转撤销)
+        # 明细补展示身份(销售单号/品名),镜像 41902 的 items 形状,运营才知道去撤哪张出库单;
+        # (SO,SKU) UNIQUE(§0-11)⇒ 每对至多一 SO 行,tuple IN 定位无歧义。
+        pairs = [(n["sales_order_id"], n["sku_id"]) for n in negatives]
+        display = {(so_id, sku_id): (so_no, name) for so_id, sku_id, so_no, name in (
+            await db.execute(
+                select(SalesOrderLine.sales_order_id, SalesOrderLine.sku_id,
+                       SalesOrder.no, SalesOrderLine.name_snapshot)
+                .join(SalesOrder, SalesOrder.id == SalesOrderLine.sales_order_id)
+                .where(tuple_(SalesOrderLine.sales_order_id,
+                              SalesOrderLine.sku_id).in_(pairs)))).all()}
+        for n in negatives:
+            so_no, name = display.get((n["sales_order_id"], n["sku_id"]), ("", ""))
+            n["sales_order_no"], n["name_snapshot"] = so_no, name
+        # 41710(整事务回滚,状态翻转撤销)
+        raise InboundUnreceiveWouldGoNegativeError(data={"items": negatives})
 
     await write_audit(db, resource_type=AuditResourceType.INBOUND_ORDER,
                       action=AuditAction.UNRECEIVE, user_id=actor_user_id,

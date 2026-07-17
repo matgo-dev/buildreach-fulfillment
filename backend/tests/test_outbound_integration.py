@@ -58,6 +58,29 @@ async def test_create_line_not_in_so(client, db_session, sales_headers, purchase
     assert r.status_code == 400 and r.json()["code"] == 41903
 
 
+async def test_create_duplicate_line_rejected(client, db_session, sales_headers,
+                                              purchaser_headers, logistics_headers):
+    """payload 同一 SO 行重复 → 41909(前置友好错,不打穿 DB UNIQUE 成 500);编辑同拒。"""
+    ctx = await setup_available_stock(client, db_session, sales_headers, purchaser_headers)
+    so_id, so_lines = ctx["sales_order_id"], ctx["so_lines"]
+    ship = await create_shipment(client, logistics_headers)
+    r = await create_outbound(client, logistics_headers, sales_order_id=so_id,
+                              shipment_id=ship["id"],
+                              lines=[{"sales_order_line_id": so_lines[0]["id"], "qty": 2},
+                                     {"sales_order_line_id": so_lines[0]["id"], "qty": 3}])
+    assert r.status_code == 400 and r.json()["code"] == 41909
+    # 编辑路径同守卫。
+    cr = await create_outbound(client, logistics_headers, sales_order_id=so_id,
+                               shipment_id=ship["id"],
+                               lines=[{"sales_order_line_id": so_lines[0]["id"], "qty": 2}])
+    order = cr.json()["data"]["order"]
+    r2 = await client.put(f"/api/v1/outbound-orders/{order['id']}", headers=logistics_headers,
+                          json={"lines": [{"sales_order_line_id": so_lines[0]["id"], "qty": 1},
+                                          {"sales_order_line_id": so_lines[0]["id"], "qty": 2}],
+                                "expected_updated_at": order["updated_at"]})
+    assert r2.status_code == 400 and r2.json()["code"] == 41909
+
+
 async def test_create_active_order_exists(client, db_session, sales_headers, purchaser_headers,
                                           logistics_headers):
     """同柜同 SO 已有活动出库单 → 41904;取消后可重开。"""

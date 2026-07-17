@@ -15,6 +15,7 @@ export interface OutboundOrderLineOut {
   name_snapshot: string;
   spec_text_snapshot: string;
   unit_snapshot: string;
+  language: string;
   qty: number | string;
 }
 
@@ -78,11 +79,10 @@ export interface RelatedOutboundOrder {
   issued_at: string | null;
 }
 
-/** 写入行(引用 SO 行 + 本次出库数量)。 */
+/** 写入行(引用 SO 行 + 本次出库数量;对齐后端 OutboundOrderLineIn,无 sort_order——行序由 SO 行序决定)。 */
 export interface OutboundOrderLineIn {
   sales_order_line_id: number;
   qty: number;
-  sort_order?: number;
 }
 
 /** 建单(柜详情内发起):锚定单一柜 + 单一 SO,一柜内每来源 SO 各一张(后端偏唯一)。 */
