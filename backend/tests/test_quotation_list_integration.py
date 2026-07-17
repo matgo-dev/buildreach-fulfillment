@@ -1,5 +1,5 @@
 """T7 列表查询:筛选/排序/分页 + display 投影(service 层)。"""
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pytest
 
@@ -82,11 +82,13 @@ async def test_created_to_includes_same_day(db_session):
     # 应含 created_to 当天;前一天则不含。
     cust, sku = await _seed(db_session)
     o = await _mk(db_session, cust, sku, 100)
-    today = date.today()
-    rows, total = await svc.list_orders(db_session, created_to=today, page=1, size=20)
+    # 边界日从行自身 created_at 派生(UTC,与存储同时钟源)。曾用本地 date.today(),
+    # 本地/UTC 跨日时段(如 EDT 晚 8 点后)边界差一天必挂 —— 时钟源要跟数据一致。
+    created_day = o.created_at.date()
+    rows, total = await svc.list_orders(db_session, created_to=created_day, page=1, size=20)
     assert total == 1 and rows[0]["id"] == o.id
     _, total_yesterday = await svc.list_orders(
-        db_session, created_to=today - timedelta(days=1), page=1, size=20)
+        db_session, created_to=created_day - timedelta(days=1), page=1, size=20)
     assert total_yesterday == 0
 
 
