@@ -11,6 +11,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -97,6 +98,9 @@ class SalesOrderLine(Base, TimestampMixin):
         # 新 SO 复用同批报价行(原单列 UNIQUE 会挡重转,故降为复合)。
         Index("uq_slines_order_source_line", "sales_order_id", "source_quotation_line_id",
               unique=True),
+        # 一 SKU 一价公理(无阶梯价):同销售单同 SKU 至多一行(报价转单继承)。
+        # 单一源头落 DB,与 migration 0024 同名。
+        UniqueConstraint("sales_order_id", "sku_id", name="uq_slines_order_sku"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

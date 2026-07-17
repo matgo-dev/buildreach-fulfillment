@@ -213,6 +213,39 @@
     SO 详情块的性能基线);② 全量默认口径(整表聚合 + top-N)**≈277ms**(远超可见的千级规模;可见规模为亚毫秒)。
     衰老方式=变慢(可见、有界),非变错——契约 §6.2 物化期权随时可行使,触发前不建。
 
+- **出库 + 发运骨架 + 应收款(主流程第六步,分支 `feat/outbound-increment`)**:出库单 = **销售单 N:1 × 发运单(柜)N:1**
+  的桥;行不跨 SO、不跨柜,一柜内每来源 SO 各一张。参照 SAP/NetSuite:两段式 `草稿 → 已出库`(无 WMS 拣货/复核中间态),
+  **确认装柜 = 唯一扣库存事件**(草稿不扣),可撤销恢复(装船前);**应收随发货成立**(与应付=收货完全对称)。
+  - **状态机(model 层单一源头)**:出库单 `DRAFT→{ISSUED,CANCELLED}` / `ISSUED→{DRAFT}`(撤销出库);
+    柜 `OPEN→{CANCELLED}`(订舱/装船态归发运步扩展)。偏唯一 `UNIQUE(shipment_id, sales_order_id) WHERE status<>'CANCELLED'`
+    =「一柜内每来源 SO 各一张」落 DB;取消退出偏唯一可重开。
+  - **库存 outbound 臂接入**:`compute_stock_balance` 第三臂 = `Σ(qty) FROM outbound_order_lines JOIN outbound_orders
+    WHERE status='ISSUED' GROUP BY (sales_order_id, sku_id)`,`available = 入库 − 出库`(草稿不计,撤销回 DRAFT 自然恢复)。
+    锁内校验/穿仓守卫经 `available_by_sku()` **复用同一 `_balance_subquery`**(单一口径,不另写聚合)。
+  - **并发 = 悲观锁(收紧型写入口仅两处,同锁序 `SO 头 → 出库单头`)**:① 确认装柜:无锁预读身份链 → 锁 SO 头
+    `FOR UPDATE` → 锁出库单头 → 转移守卫 → **锁内单一库存闸**(Σ本单该 sku qty ≤ available,不足 `41902` 带逐 sku 明细)
+    → 同事务建 receivable(偏唯一保幂等)。② **unreceive 穿仓守卫补全(还库存契约的债)**:撤销入库先锁受影响 SO 头
+    (按 id 排序)→ 锁入库头 → 翻转后锁内派生校验受影响每 `(so,sku)` available ≥ 0,违反 `41710`(货已被出库,先撤销出库)。
+  - **零金额出库单据(红线天然隔离)**:出库单/行/柜**无任何价格/成本/售价列**(纯仓单),读投影天然无红线;
+    行不复制快照(经 join SO 行展示,SO 行冻结单一源头)。**应收 = 客户售价** → 整表 `receivable:read` 端点级门控
+    (镜像 `payable:read`),不经出库 API 回显。应收金额确认事务内逐行 `quantize` 2dp(`ROUND_HALF_UP`)再求和。
+  - **应收款账层(财务域全局表,独立迁移 `0026_receivable`)**:粒度 = 每张出库单一张;幂等键 = 活动行偏唯一;
+    `balance` 生成列;`status`(未收/部分收/已收清)派生不落列(0 金额单余额 0 = 已收清);撤销出库同事务 void receivable。
+    收款/核销 = 财务步(T15),本步只读列表。
+  - **SKU 唯一 retrofit(上游,契约 §0-11)**:一 SKU 一价业务公理落 DB `UNIQUE(quotation_order_id, sku_id)` /
+    `UNIQUE(sales_order_id, sku_id)`(迁移 `0024`)+ 报价 create/save service 前置守卫(重复 SKU `41412`);SO 行来自
+    报价转单,继承唯一性。
+  - **RBAC**:新增角色 **`LOGISTICS`(物流仓运)** = `outbound:*` + `shipment:*` + `sales:read`/`inventory:read`/`product:read`
+    (组柜/装柜是仓运动作,不并入采购/销售;出库/发运/物流/报关四步同一操作者)。`SALES` 增只读 `outbound:read`/`shipment:read`/
+    `receivable:read`(跟踪自家 SO 发货 + 应收=客户售价本就可见)。审计加 `ISSUE`/`UNISSUE` 动作 + `outbound_order`/`shipment_order` 资源类型。
+  - **端点**:出库单 `POST /outbound-orders`、列表/详情、`PUT`(仅草稿整单重写+乐观锁)、`confirm`/`revert`/`cancel`;
+    柜 `POST /shipments`、列表/详情(组柜工作台)、`PATCH`/`cancel`;`GET /sales-orders/{id}/outboundable-lines`(建单器
+    数据源,守 `outbound:manage`);`GET /receivables`(🔴 `receivable:read`);SO 详情增 `related_outbound_orders` 块(条件下发)。
+    单号 `NumberScope.OUTBOUND`(`OB{YYYYMM}####`)/ `SHIPMENT`(`SH{YYYYMM}####`);错误码段 19(出库 `419xx`)/ 20(柜 `420xx`)
+    + `41710`(撤销入库穿仓)。迁移 `0024_quotation_so_sku_unique` + `0025_outbound` + `0026_receivable`。
+  - **性能**:确认出库锁内派生(`available_by_sku` → `_balance_subquery`)`EXPLAIN ANALYZE` 全走 FK 索引(bitmap/index scan,
+    无 seq scan),小规模 **≈0.5ms**;衰老方式同库存步 = 变慢有界,物化期权触发前不建。
+
 ## 本地开发
 
 本地开发**复用现有 brew PostgreSQL**(`@ :5433`),不用下面 `docker-compose.yml` 里的 `db` 服务

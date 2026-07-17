@@ -23,18 +23,22 @@ async def _seed_active(db):
     sku = Sku(spu_id=spu.id, sku_code="SKUA001", unit="ton", name_i18n={"zh": "工字钢200"},
               created_by=1, status="ACTIVE")
     db.add(sku)
+    # 一 SKU 一价公理(§0-11):同单两行须不同 SKU,补建 sku2。
+    sku2 = Sku(spu_id=spu.id, sku_code="SKUA002", unit="ton", name_i18n={"zh": "工字钢201"},
+               created_by=1, status="ACTIVE")
+    db.add(sku2)
     cust = Customer(code="CA00001", name="客户A")
     db.add(cust)
     await db.commit()
-    return cust, sku
+    return cust, sku, sku2
 
 
-async def _create_locked_quotation(client, headers, cust, sku):
-    """建报价(2 行)并锁档,返回锁档态报价 id。"""
+async def _create_locked_quotation(client, headers, cust, sku, sku2):
+    """建报价(2 行,不同 SKU)并锁档,返回锁档态报价 id。"""
     r = await client.post("/api/v1/quotations", headers=headers, json={
         "customer_id": cust.id, "currency": "USD", "summary": "Q3 钢材",
         "lines": [{"sku_id": sku.id, "unit_price": 100, "qty": 2},
-                  {"sku_id": sku.id, "unit_price": 50, "qty": 1}]})
+                  {"sku_id": sku2.id, "unit_price": 50, "qty": 1}]})
     assert r.status_code == 200, r.text
     oid = r.json()["data"]["id"]
     lk = await client.post(f"/api/v1/quotations/{oid}/lock", headers=headers)
@@ -45,9 +49,9 @@ async def _create_locked_quotation(client, headers, cust, sku):
 @pytest.mark.asyncio
 async def test_convert_locked_quotation_creates_sales_order(client, sales_headers, db_session):
     """核心:LOCKED 报价 → 转销售单原子创建 + 报价置 CONVERTED。"""
-    cust, sku = await _seed_active(db_session)
+    cust, sku, sku2 = await _seed_active(db_session)
     H = sales_headers
-    oid = await _create_locked_quotation(client, H, cust, sku)
+    oid = await _create_locked_quotation(client, H, cust, sku, sku2)
 
     r = await client.post(f"/api/v1/quotations/{oid}/convert", headers=H)
     assert r.status_code == 200, r.text
@@ -67,9 +71,9 @@ async def test_convert_locked_quotation_creates_sales_order(client, sales_header
 @pytest.mark.asyncio
 async def test_convert_copies_line_snapshots(client, sales_headers, db_session):
     """行快照平移:销售单行忠实复制报价行(名/规格/单位/价/量/小计)+ 记来源报价行 id。"""
-    cust, sku = await _seed_active(db_session)
+    cust, sku, sku2 = await _seed_active(db_session)
     H = sales_headers
-    oid = await _create_locked_quotation(client, H, cust, sku)
+    oid = await _create_locked_quotation(client, H, cust, sku, sku2)
     ql = (await client.get(f"/api/v1/quotations/{oid}", headers=H)).json()["data"]["lines"]
 
     converted = (await client.post(f"/api/v1/quotations/{oid}/convert", headers=H)).json()["data"]
@@ -92,9 +96,9 @@ async def test_convert_copies_line_snapshots(client, sales_headers, db_session):
 @pytest.mark.asyncio
 async def test_sales_order_list_read(client, sales_headers, db_session):
     """销售单列表:转换后可在 /sales-orders 列表查到,带 display 名 + 行数。"""
-    cust, sku = await _seed_active(db_session)
+    cust, sku, sku2 = await _seed_active(db_session)
     H = sales_headers
-    oid = await _create_locked_quotation(client, H, cust, sku)
+    oid = await _create_locked_quotation(client, H, cust, sku, sku2)
     so = (await client.post(f"/api/v1/quotations/{oid}/convert", headers=H)).json()["data"]["order"]
 
     lst = (await client.get("/api/v1/sales-orders?status=CONFIRMED", headers=H)).json()["data"]
@@ -106,11 +110,11 @@ async def test_sales_order_list_read(client, sales_headers, db_session):
 @pytest.mark.asyncio
 async def test_sales_order_list_filter_by_no(client, sales_headers, db_session):
     """列表按销售单号模糊搜:no= 参数只返回单号命中该片段的销售单。"""
-    cust, sku = await _seed_active(db_session)
+    cust, sku, sku2 = await _seed_active(db_session)
     H = sales_headers
-    oid1 = await _create_locked_quotation(client, H, cust, sku)
+    oid1 = await _create_locked_quotation(client, H, cust, sku, sku2)
     so1 = (await client.post(f"/api/v1/quotations/{oid1}/convert", headers=H)).json()["data"]["order"]
-    oid2 = await _create_locked_quotation(client, H, cust, sku)
+    oid2 = await _create_locked_quotation(client, H, cust, sku, sku2)
     so2 = (await client.post(f"/api/v1/quotations/{oid2}/convert", headers=H)).json()["data"]["order"]
     assert so1["no"] != so2["no"]
 
@@ -123,7 +127,7 @@ async def test_sales_order_list_filter_by_no(client, sales_headers, db_session):
 @pytest.mark.asyncio
 async def test_convert_rejected_when_not_locked(client, sales_headers, db_session):
     """草稿(未锁档)报价不可转销售 → 41409。"""
-    cust, sku = await _seed_active(db_session)
+    cust, sku, sku2 = await _seed_active(db_session)
     H = sales_headers
     r = await client.post("/api/v1/quotations", headers=H, json={
         "customer_id": cust.id, "currency": "USD",
@@ -137,9 +141,9 @@ async def test_convert_rejected_when_not_locked(client, sales_headers, db_sessio
 @pytest.mark.asyncio
 async def test_reconvert_converted_quotation_rejected(client, sales_headers, db_session):
     """已转销售的报价(CONVERTED 终态)不可重复转 → 41409。"""
-    cust, sku = await _seed_active(db_session)
+    cust, sku, sku2 = await _seed_active(db_session)
     H = sales_headers
-    oid = await _create_locked_quotation(client, H, cust, sku)
+    oid = await _create_locked_quotation(client, H, cust, sku, sku2)
     assert (await client.post(f"/api/v1/quotations/{oid}/convert", headers=H)).status_code == 200
     again = await client.post(f"/api/v1/quotations/{oid}/convert", headers=H)
     assert again.status_code == 409 and again.json()["code"] == 41409
@@ -148,9 +152,9 @@ async def test_reconvert_converted_quotation_rejected(client, sales_headers, db_
 @pytest.mark.asyncio
 async def test_quotation_detail_links_converted_sales_order(client, sales_headers, db_session):
     """报价详情反查出口:CONVERTED 报价的响应带 order.sales_order={id,no};未转时为 None。"""
-    cust, sku = await _seed_active(db_session)
+    cust, sku, sku2 = await _seed_active(db_session)
     H = sales_headers
-    oid = await _create_locked_quotation(client, H, cust, sku)
+    oid = await _create_locked_quotation(client, H, cust, sku, sku2)
     # 转换前:sales_order 为空
     q0 = (await client.get(f"/api/v1/quotations/{oid}", headers=H)).json()["data"]
     assert q0["order"].get("sales_order") is None
@@ -165,8 +169,8 @@ async def test_quotation_detail_links_converted_sales_order(client, sales_header
 async def test_convert_requires_quote_manage(client, product_operator_headers, sales_headers,
                                              db_session):
     """convert 守 quote:manage:无此权限的角色(商品运营)禁止转销售 → 403。"""
-    cust, sku = await _seed_active(db_session)
-    oid = await _create_locked_quotation(client, sales_headers, cust, sku)
+    cust, sku, sku2 = await _seed_active(db_session)
+    oid = await _create_locked_quotation(client, sales_headers, cust, sku, sku2)
     r = await client.post(f"/api/v1/quotations/{oid}/convert", headers=product_operator_headers)
     assert r.status_code == 403
 
@@ -181,9 +185,9 @@ async def test_sales_orders_read_requires_sales_read(client, product_operator_he
 @pytest.mark.asyncio
 async def test_unique_source_quotation_blocks_second_sales_order(client, sales_headers, db_session):
     """DB 硬约束:UNIQUE(source_quotation_id) 挡「同一报价生成第二张销售单」(并发双转兜底)。"""
-    cust, sku = await _seed_active(db_session)
+    cust, sku, sku2 = await _seed_active(db_session)
     H = sales_headers
-    oid = await _create_locked_quotation(client, H, cust, sku)
+    oid = await _create_locked_quotation(client, H, cust, sku, sku2)
     await client.post(f"/api/v1/quotations/{oid}/convert", headers=H)
 
     dup = SalesOrder(
@@ -197,9 +201,9 @@ async def test_unique_source_quotation_blocks_second_sales_order(client, sales_h
 @pytest.mark.asyncio
 async def test_unique_source_quotation_line_blocks_duplicate(client, sales_headers, db_session):
     """DB 硬约束:UNIQUE(source_quotation_line_id) 挡复制 bug 把同一报价行重复写入销售单。"""
-    cust, sku = await _seed_active(db_session)
+    cust, sku, sku2 = await _seed_active(db_session)
     H = sales_headers
-    oid = await _create_locked_quotation(client, H, cust, sku)
+    oid = await _create_locked_quotation(client, H, cust, sku, sku2)
     so = (await client.post(f"/api/v1/quotations/{oid}/convert", headers=H)).json()["data"]["order"]
     a_line = (await db_session.execute(
         select(SalesOrderLine).where(SalesOrderLine.sales_order_id == so["id"]))).scalars().first()

@@ -27,7 +27,7 @@ async def test_sync_seeds_admin_and_catalog_operator_roles_and_base_perms():
             await sync_rbac(db)
             roles = {r.code for r in (await db.execute(select(Role))).scalars()}
             perms = {p.code for p in (await db.execute(select(Permission))).scalars()}
-        assert roles == {"ADMIN", "PRODUCT_OPERATOR", "SALES", "PURCHASER"}
+        assert roles == {"ADMIN", "PRODUCT_OPERATOR", "SALES", "PURCHASER", "LOGISTICS"}
         assert "auth:login" in perms
         assert "user:manage" in perms
         # 未实现域不应有权限泄漏(rfq 询价尚未做);product:* 已是商品域实权限,不在此列。
@@ -38,6 +38,9 @@ async def test_sync_seeds_admin_and_catalog_operator_roles_and_base_perms():
         # 采购增量(主流程第3步)权限点已同步。
         assert {"supplier:manage", "supplier:read", "purchase:manage", "purchase:read",
                 "purchase:read_cost"} <= perms
+        # 出库增量(主流程第6步)权限点已同步。
+        assert {"outbound:read", "outbound:manage", "shipment:read", "shipment:manage",
+                "receivable:read"} <= perms
     finally:
         # 本测试对共享 fulfillment_test 做了 drop_all/create_all,会冲掉 session 级 fixture
         # 种下的引导管理员(sync_rbac 只建角色/权限,不建 admin 用户)。恢复基线:重跑
@@ -90,6 +93,23 @@ def test_purchaser_role_permissions():
     assert Permissions.SALES_READ in perms
     assert Permissions.PRODUCT_READ in perms
     # 采购员不碰报价/客户写、不碰系统域
+    assert Permissions.QUOTE_MANAGE not in perms
+    assert Permissions.CUSTOMER_MANAGE not in perms
+    assert Permissions.USER_MANAGE not in perms
+
+
+def test_logistics_role_permissions():
+    perms = ROLE_PERMISSIONS["LOGISTICS"]
+    # 出库/发运全管 + 读 SO/库存/商品(建/派单)。
+    assert {Permissions.OUTBOUND_READ, Permissions.OUTBOUND_MANAGE, Permissions.SHIPMENT_READ,
+            Permissions.SHIPMENT_MANAGE, Permissions.SALES_READ, Permissions.INVENTORY_READ,
+            Permissions.PRODUCT_READ} <= set(perms)
+    # 应收=客户售价整表门控,物流不持;出库/柜零成本/售价,无红线开关。
+    assert Permissions.RECEIVABLE_READ not in perms
+    assert Permissions.PURCHASE_READ_COST not in perms
+    assert Permissions.PURCHASE_READ not in perms
+    # 不碰采购写/报价/客户写/系统域。
+    assert Permissions.PURCHASE_MANAGE not in perms
     assert Permissions.QUOTE_MANAGE not in perms
     assert Permissions.CUSTOMER_MANAGE not in perms
     assert Permissions.USER_MANAGE not in perms

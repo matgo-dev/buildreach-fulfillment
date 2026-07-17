@@ -11,18 +11,25 @@
 `so_lines→po_lines→inbound_lines` 连表后 `SUM(so_lines.qty)` 会按分支数翻倍订购量。
 必须三臂各自预聚合、再按 (sales_order_id, sku_id) FULL JOIN 合并。
 
-**本步边界**:outbound 臂为空集(出库步接入),`outbound_qty` 恒 0、`available = inbound`。
-函数签名已为 outbound 预留;出库步只需补一条聚合臂与锁,读口径不动。
+**outbound 臂(出库步接入)**:`outbound_qty = SUM(qty) FROM outbound_order_lines JOIN
+outbound_orders WHERE status='ISSUED' GROUP BY (sales_order_id, sku_id)`,`available =
+inbound − outbound`。草稿出库不扣(仅 ISSUED 计),撤销出库回 DRAFT 自然恢复可发。
+出库确认锁内校验与 unreceive 穿仓守卫经 `available_by_sku()` 复用同一 `_balance_subquery`。
 """
 from __future__ import annotations
 
 from decimal import Decimal
 
-from sqlalchemy import and_, func, literal, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.i18n import compose_spec_text, display
 from app.db.models.inbound_order import InboundOrder, InboundOrderLine, InboundOrderStatus
+from app.db.models.outbound_order import (
+    OutboundOrder,
+    OutboundOrderLine,
+    OutboundOrderStatus,
+)
 from app.db.models.purchase_order import PurchaseOrderLine
 from app.db.models.sales_order import SalesOrder, SalesOrderLine, SalesOrderStatus
 from app.db.models.sku import Sku
@@ -93,24 +100,69 @@ def _inbound_cte(sales_order_id, sku_id):
     return stmt.subquery("inbound")
 
 
+def _outbound_cte(sales_order_id, sku_id):
+    """臂3:只从 ISSUED 出库单按 (so, sku) 预聚合已出库量(so_id 取自出库单头)。
+    草稿/取消出库不计(status=ISSUED,契约 §1.5)—— 确认装柜是唯一扣库存事件,
+    撤销出库回 DRAFT 后本臂自然剔除,可发恢复。"""
+    stmt = (
+        select(
+            OutboundOrder.sales_order_id.label("so_id"),
+            OutboundOrderLine.sku_id.label("sku_id"),
+            func.sum(OutboundOrderLine.qty).label("outbound_qty"),
+        )
+        .join(OutboundOrder, and_(
+            OutboundOrder.id == OutboundOrderLine.outbound_order_id,
+            OutboundOrder.status == OutboundOrderStatus.ISSUED))
+        .group_by(OutboundOrder.sales_order_id, OutboundOrderLine.sku_id)
+    )
+    if sales_order_id is not None:
+        stmt = stmt.where(OutboundOrder.sales_order_id == sales_order_id)
+    if sku_id is not None:
+        stmt = stmt.where(OutboundOrderLine.sku_id == sku_id)
+    return stmt.subquery("outbound")
+
+
 def _balance_subquery(sales_order_id, sku_id):
-    """臂1 FULL JOIN 臂2(键 (so_id, sku_id) 合并)→ 每 (so,sku) 一行四量。
-    outbound 臂本步空集:outbound_qty 恒 0、available = inbound。"""
+    """三臂各自预聚合,按键 (so_id, sku_id) FULL JOIN 合并 → 每 (so,sku) 一行四量
+    (防 join 放大:直连会按下游分支数翻倍订购量,故必须先各臂聚合再合并)。
+    available = inbound − outbound(全仓唯一可发口径)。"""
     o = _ordered_cte(sales_order_id, sku_id)
     i = _inbound_cte(sales_order_id, sku_id)
-    joined = o.join(
+    b = _outbound_cte(sales_order_id, sku_id)
+    oi = o.join(
         i, and_(o.c.so_id == i.c.so_id, o.c.sku_id == i.c.sku_id), full=True)
-    so_id = func.coalesce(o.c.so_id, i.c.so_id).label("so_id")
-    sku_id_col = func.coalesce(o.c.sku_id, i.c.sku_id).label("sku_id")
+    # 第三臂 FULL JOIN:键取臂1/臂2 的 coalesce(某 (so,sku) 可能只在 inbound 出现)。
+    joined = oi.join(
+        b, and_(func.coalesce(o.c.so_id, i.c.so_id) == b.c.so_id,
+                func.coalesce(o.c.sku_id, i.c.sku_id) == b.c.sku_id), full=True)
+    so_id = func.coalesce(o.c.so_id, i.c.so_id, b.c.so_id).label("so_id")
+    sku_id_col = func.coalesce(o.c.sku_id, i.c.sku_id, b.c.sku_id).label("sku_id")
     ordered_q = func.coalesce(o.c.ordered_qty, 0).label("ordered_qty")
     inbound_q = func.coalesce(i.c.inbound_qty, 0).label("inbound_qty")
-    outbound_q = literal(Decimal("0")).label("outbound_qty")
+    outbound_q = func.coalesce(b.c.outbound_qty, 0).label("outbound_qty")
     return (
         select(so_id, sku_id_col, ordered_q, inbound_q, outbound_q,
                (inbound_q - outbound_q).label("available_qty"))
         .select_from(joined)
         .subquery("balance")
     )
+
+
+async def available_by_sku(db: AsyncSession, sales_order_id: int,
+                           sku_ids: list[int] | None = None) -> dict[int, Decimal]:
+    """锁内可发校验专用:复用 `_balance_subquery`(同一聚合口径,单一源头),
+    只取 {sku_id → available},不做展示合成(compose_spec_text / SKU-SPU-Unit join)——
+    出库确认锁内、unreceive 穿仓守卫在悲观锁下调用,轻量优先。
+
+    调用方须先 `SELECT sales_orders FOR UPDATE` 锁 SO 头(串行化),再调本函数派生校验:
+    锁保证读到的 available 不被并发出库/撤销抢改。缺席 sku → 该 (so,sku) 无任何单据流,
+    available=0(dict.get 兜底)。"""
+    bal = _balance_subquery(sales_order_id, None)
+    stmt = select(bal.c.sku_id, bal.c.available_qty)
+    if sku_ids:
+        stmt = stmt.where(bal.c.sku_id.in_(sku_ids))
+    rows = (await db.execute(stmt)).all()
+    return {sku_id: Decimal(str(av)) for sku_id, av in rows}
 
 
 def _scope_filter(bal, scope: str):

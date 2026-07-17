@@ -35,6 +35,7 @@ from app.core.exceptions import (
     InboundOrderNotInTransitError,
     InboundOverReceiptError,
     InboundSourcePurchaseOrderInvalidError,
+    InboundUnreceiveWouldGoNegativeError,
     PayableAllocatedCannotUnreceiveError,
 )
 from app.db.models.inbound_order import (
@@ -385,8 +386,34 @@ async def receive_order(db: AsyncSession, *, order_id, arrived_at: date | None, 
 async def unreceive_order(db: AsyncSession, *, order_id, void_reason: str | None, actor_user_id,
                           actor_user_email, request: Request | None = None) -> InboundOrder:
     """撤销入库(RECEIVED→IN_TRANSIT)。守卫:payable 未核销(allocated=0)。
+
+    **收紧型写入口(库存契约 §2,还债)**:货可能已被出库消费,撤回将使某 (SO, SKU) 可发
+    穿仓(available < 0)。故按契约锁序补校验:
+      1. 无锁预读入库行→PO 行→SO 行链,取受影响 (so_id → {sku_id}) 与 distinct so_ids(按 id 排序);
+      2. 依序锁各 SO 头 FOR UPDATE(统一锁序消死锁环)→ 再锁入库单头(锁序合规);
+      3. 转移守卫 + payable 守卫(原逻辑不变),状态翻转 IN_TRANSIT 并 flush;
+      4. **锁内派生校验**:翻转后受影响每 (so,sku) 的 available ≥ 0,违反 → 41710(须先撤销出库)。
     同事务作废(void)payable —— 置 voided_at/by/reason,行留痕不硬删。撤销后重收 = 新建活动 payable。"""
+    from app.db.models.sales_order import SalesOrder, SalesOrderLine
+    from app.services import stock_balance_service
+
+    # 1. 无锁预读身份链:入库行 sku → PO 行 → SO 行 → so_id。
+    chain = (await db.execute(
+        select(SalesOrderLine.sales_order_id, InboundOrderLine.sku_id)
+        .join(PurchaseOrderLine, PurchaseOrderLine.id == InboundOrderLine.purchase_order_line_id)
+        .join(SalesOrderLine, SalesOrderLine.id == PurchaseOrderLine.source_sales_order_line_id)
+        .where(InboundOrderLine.inbound_order_id == order_id))).all()
+    affected: dict[int, set[int]] = defaultdict(set)
+    for so_id, sku_id in chain:
+        affected[so_id].add(sku_id)
+    so_ids = sorted(affected.keys())
+
+    # 2. 依序锁 SO 头(按 id 升序,统一锁序)→ 再锁入库单头。
+    for so_id in so_ids:
+        await db.execute(select(SalesOrder).where(SalesOrder.id == so_id).with_for_update())
     order = await get_order_for_update(db, order_id)
+
+    # 3. 转移 + payable 守卫,翻转状态(RECEIVED 退出库存 inbound 臂)。
     assert_transition(INBOUND_ORDER_TRANSITIONS, order.status, InboundOrderStatus.IN_TRANSIT,
                       InboundOrderInvalidTransitionError)
     payable = await get_active_payable(db, order.id)
@@ -399,11 +426,24 @@ async def unreceive_order(db: AsyncSession, *, order_id, void_reason: str | None
     order.status = InboundOrderStatus.IN_TRANSIT
     order.arrived_at = None  # 回在途即未到货:清到货日,与状态语义一致(重收时重新填)
     await db.flush()
+
+    # 4. 锁内派生校验:翻转后受影响每 (so,sku) 可发 ≥ 0(货已被出库则穿仓,拒)。
+    negatives = []
+    for so_id in so_ids:
+        avail = await stock_balance_service.available_by_sku(
+            db, so_id, sku_ids=list(affected[so_id]))
+        for sku_id in affected[so_id]:
+            if avail.get(sku_id, Decimal("0")) < 0:
+                negatives.append({"sales_order_id": so_id, "sku_id": sku_id,
+                                  "available_qty": float(avail.get(sku_id, Decimal("0")))})
+    if negatives:
+        raise InboundUnreceiveWouldGoNegativeError()  # 41710(整事务回滚,状态翻转撤销)
+
     await write_audit(db, resource_type=AuditResourceType.INBOUND_ORDER,
                       action=AuditAction.UNRECEIVE, user_id=actor_user_id,
                       user_email=actor_user_email, resource_id=order.id, request=request,
-                      extra={"payable_id": payable.id} if payable is not None else None,
-                      commit=False)
+                      extra={"payable_id": payable.id if payable is not None else None,
+                             "unreceive_check_ok": True}, commit=False)
     await db.commit()
     await db.refresh(order)
     return order
