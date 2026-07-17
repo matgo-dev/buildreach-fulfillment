@@ -51,12 +51,12 @@ def _compose_snapshot(sku: Sku, spu: Spu, by_key: dict, unit_row: Unit | None,
     """纯内存组装行快照三件套(name, spec_text, unit)——所需 DB 取数由调用方预取传入。
     单行 compose_line_snapshot 与批量 _reconcile_lines 共用此组装逻辑(单一源头,防两处漂移)。
 
-    spec_text 组自 **SPU.spec_jsonb ∪ SKU.spec_jsonb**(产品级 + 变体轴);unit 解析
-    units.label_i18n 冻结成展示文字。
+    spec_text **只组自 SKU.spec_jsonb(变体轴)**——产品级属性对整个 SPU 一致,进单据行规格
+    串只会重复噪音;单据要区分的是"哪个变体",故只冻结轴属性(compose_spec_text 规则)。
+    unit 解析 units.label_i18n 冻结成展示文字。
     """
     name = display(sku.name_i18n, order_lang)
-    merged = list(spu.spec_jsonb or []) + list(sku.spec_jsonb or [])
-    spec_text = compose_spec_text(merged, by_key, order_lang)
+    spec_text = compose_spec_text(list(sku.spec_jsonb or []), by_key, order_lang)
     unit = display(unit_row.label_i18n, order_lang) if unit_row is not None else sku.unit
     return name, spec_text, unit
 

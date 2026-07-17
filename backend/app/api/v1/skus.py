@@ -30,8 +30,19 @@ async def search_skus(
         db, q, spu_id=spu_id, page=page_params.page, size=page_params.size,
         available=available)
     include_cost = has_permission(current, Permissions.PRODUCT_MANAGE)
-    items = [sku_out(sku, include_cost=include_cost, spu_main_image=spu_main_image)
-             for sku, spu_main_image in rows]
+    # 搜索行展示规格 = 只 SKU 轴的展示投影(spec_display),替代裸 spec_jsonb:enum 已翻 label、
+    # 带 unit/scope,前端不再各拼各的。模板按分类缓存,一分类一查,避免逐行查模板(N+1)。
+    by_key_cache: dict[str, dict] = {}
+    items = []
+    for sku, spu_main_image, category_code in rows:
+        by_key = by_key_cache.get(category_code)
+        if by_key is None:
+            by_key = await tmpl.suggestions_by_key(db, category_code)
+            by_key_cache[category_code] = by_key
+        d = sku_out(sku, include_cost=include_cost, spu_main_image=spu_main_image)
+        d.pop("spec_jsonb", None)  # 搜索行不下发落库形状,只给展示投影(唯一消费点=搜索页规格列)
+        d["spec_display"] = tmpl.project_spec_display(sku.spec_jsonb, by_key)
+        items.append(d)
     return success(Page(items=items, total=total,
                         page=page_params.page, size=page_params.size).model_dump())
 

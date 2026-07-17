@@ -352,8 +352,16 @@ async def resolve_spec_display(
       string/number 原样(标量)。
     - 排序:产品级(spu)在前、轴(sku)在后,再按模板 sort_order。
     - 传入 = SPU 产品级 ∪ SKU 轴的并集(调用方合并两 spec_jsonb),故读时并集在这里成形。
+
+    批量场景(SKU 搜索按分类缓存 by_key)复用纯投影 project_spec_display,避免每行一查模板。
     """
     by_key = await suggestions_by_key(db, category_code)
+    return project_spec_display(spec_items, by_key)
+
+
+def project_spec_display(spec_items: list[dict], by_key: dict[str, dict]) -> list[dict]:
+    """resolve_spec_display 的纯投影部分(不查库):给定 by_key 把 spec_jsonb 投影成展示项。
+    单一源头,resolve_spec_display 与 SKU 搜索批量投影共用,避免两处拼法漂移。"""
     out = []
     for item in spec_items or []:
         t = by_key.get(item.get("key"), {})

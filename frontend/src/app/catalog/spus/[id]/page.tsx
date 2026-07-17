@@ -4,7 +4,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Card, Descriptions, Table, Button, Tag, Space, Popconfirm, Image, App } from "antd";
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
-import { catalogApi, SkuDetailItem, SpuDetail, UnitOut, specDisplayText } from "@/lib/catalog";
+import { catalogApi, SkuDetailItem, SpuDetail, UnitOut, specAxisText, specDisplayText } from "@/lib/catalog";
 import { display } from "@/lib/i18n";
 import { imageUrl } from "@/lib/image";
 import { colors } from "@/lib/tokens";
@@ -115,8 +115,9 @@ export default function SpuDetailPage() {
     {
       title: "规格",
       key: "spec",
-      // spec_display = SPU 产品级 ∪ SKU 轴(后端读时并集、单一解析),非仅 SKU 自身 spec_jsonb。
-      render: (_, r) => specDisplayText(r.spec_display) || "—",
+      // SKU 表只展示变体轴(区分变体的维度),用 specAxisText(去标签紧凑串,镜像单据行快照);
+      // 产品级参数在下方"产品参数"里用 specDisplayText 全量展示。运营界面默认 zh。
+      render: (_, r) => specAxisText(r.spec_display) || "—",
     },
     {
       title: "重量/尺寸",

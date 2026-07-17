@@ -93,7 +93,7 @@ async def get_sku(db: AsyncSession, sku_id: int) -> Sku:
 
 async def search_skus(db: AsyncSession, q: str = "", limit: int = 50, *,
                       spu_id: int | None = None, page: int = 1, size: int | None = None,
-                      available: bool = False) -> tuple[list[tuple[Sku, str]], int]:
+                      available: bool = False) -> tuple[list[tuple[Sku, str, str]], int]:
     """pg_trgm 模糊匹配 search_text(gin_trgm_ops 加速 ILIKE)。
 
     分页:size 未传时退回 limit(向后兼容旧调用形态)。
@@ -101,7 +101,8 @@ async def search_skus(db: AsyncSession, q: str = "", limit: int = 50, *,
     Sku.status=ACTIVE ∧ Sku.deleted_at IS NULL ∧ Spu.status=ACTIVE ∧ Spu.deleted_at IS NULL。
     带出所属 SPU 封面(product_images 的 SPU 级 MAIN,批量 cover_keys 避免 N+1),供前端跨 SPU
     场景 `SKU 首图 ?? spu_main_image` 回退(搜索结果行不像 SPU 详情那样天然带父 SPU 上下文)。
-    返回:list[(Sku, spu_main_image)] + total。
+    同时带出每行所属 SPU 的 category_code(批量,避免 N+1),供路由按分类缓存模板批量投影
+    spec_display。返回:list[(Sku, spu_main_image, category_code)] + total。
     """
     size = size if size is not None else limit
     conds = [Sku.deleted_at.is_(None)]
@@ -119,7 +120,10 @@ async def search_skus(db: AsyncSession, q: str = "", limit: int = 50, *,
         db, base_from.order_by(Sku.created_at.desc()),
         page=page, size=size, count_stmt=count_from)
     covers = await image_service.cover_keys(db, [s.spu_id for s in rows])
-    return [(s, covers.get(s.spu_id)) for s in rows], total
+    spu_ids = list({s.spu_id for s in rows})
+    cat_by_spu = dict((await db.execute(
+        select(Spu.id, Spu.category_code).where(Spu.id.in_(spu_ids)))).all()) if spu_ids else {}
+    return [(s, covers.get(s.spu_id), cat_by_spu.get(s.spu_id)) for s in rows], total
 
 
 async def set_sku_status(db: AsyncSession, *, sku_id, status, actor_user_id,

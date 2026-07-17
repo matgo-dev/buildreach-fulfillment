@@ -912,14 +912,6 @@
         ]
       },
       {
-        "key": "spec",
-        "label_i18n": {
-          "zh": "规格"
-        },
-        "value_type": "string",
-        "scope": "sku"
-      },
-      {
         "key": "standard",
         "label_i18n": {
           "zh": "执行标准"
@@ -2082,14 +2074,6 @@
         ]
       },
       {
-        "key": "spec",
-        "label_i18n": {
-          "zh": "规格"
-        },
-        "value_type": "string",
-        "scope": "sku"
-      },
-      {
         "key": "surface",
         "label_i18n": {
           "zh": "表面处理"
@@ -2244,14 +2228,6 @@
         "key": "grit",
         "label_i18n": {
           "zh": "粒度"
-        },
-        "value_type": "string",
-        "scope": "sku"
-      },
-      {
-        "key": "spec",
-        "label_i18n": {
-          "zh": "规格尺寸"
         },
         "value_type": "string",
         "scope": "sku"
@@ -2602,14 +2578,6 @@
             }
           }
         ]
-      },
-      {
-        "key": "spec",
-        "label_i18n": {
-          "zh": "规格"
-        },
-        "value_type": "string",
-        "scope": "sku"
       },
       {
         "key": "thickness",
@@ -3162,14 +3130,6 @@
         ]
       },
       {
-        "key": "spec",
-        "label_i18n": {
-          "zh": "规格"
-        },
-        "value_type": "string",
-        "scope": "sku"
-      },
-      {
         "key": "thickness",
         "label_i18n": {
           "zh": "厚度"
@@ -3349,14 +3309,6 @@
         "scope": "spu"
       },
       {
-        "key": "spec",
-        "label_i18n": {
-          "zh": "规格"
-        },
-        "value_type": "string",
-        "scope": "sku"
-      },
-      {
         "key": "standard",
         "label_i18n": {
           "zh": "执行标准"
@@ -3376,14 +3328,6 @@
         },
         "value_type": "string",
         "scope": "spu"
-      },
-      {
-        "key": "spec",
-        "label_i18n": {
-          "zh": "规格"
-        },
-        "value_type": "string",
-        "scope": "sku"
       },
       {
         "key": "standard",
@@ -3407,14 +3351,6 @@
         "scope": "spu"
       },
       {
-        "key": "spec",
-        "label_i18n": {
-          "zh": "规格"
-        },
-        "value_type": "string",
-        "scope": "sku"
-      },
-      {
         "key": "standard",
         "label_i18n": {
           "zh": "执行标准"
@@ -3434,14 +3370,6 @@
         },
         "value_type": "string",
         "scope": "spu"
-      },
-      {
-        "key": "spec",
-        "label_i18n": {
-          "zh": "规格"
-        },
-        "value_type": "string",
-        "scope": "sku"
       },
       {
         "key": "standard",
@@ -3610,14 +3538,6 @@
     "note": "消防(L1 通用:多为强标产品,型号+标准为主轴)",
     "attributes": [
       {
-        "key": "spec",
-        "label_i18n": {
-          "zh": "规格型号"
-        },
-        "value_type": "string",
-        "scope": "sku"
-      },
-      {
         "key": "standard",
         "label_i18n": {
           "zh": "执行标准"
@@ -3774,14 +3694,6 @@
         ]
       },
       {
-        "key": "spec",
-        "label_i18n": {
-          "zh": "规格"
-        },
-        "value_type": "string",
-        "scope": "sku"
-      },
-      {
         "key": "range",
         "label_i18n": {
           "zh": "测量范围/加工范围"
@@ -3796,6 +3708,21 @@
         },
         "value_type": "string",
         "scope": "spu"
+      }
+    ]
+  },
+  "29.001": {
+    "note": "量刃具子类(如电子秤/衡器):分度值 division 为变体轴;原挂 29 的兜底 spec 串已拆成此结构化轴",
+    "attributes": [
+      {
+        "key": "division",
+        "label_i18n": {
+          "zh": "分度值",
+          "en": "Division"
+        },
+        "value_type": "number",
+        "unit": "g",
+        "scope": "sku"
       }
     ]
   },
@@ -3858,14 +3785,6 @@
   "32": {
     "note": "办公用品(L1 通用极弱:家具/设备/其他混合,属性主要挂子类)",
     "attributes": [
-      {
-        "key": "spec",
-        "label_i18n": {
-          "zh": "规格"
-        },
-        "value_type": "string",
-        "scope": "sku"
-      },
       {
         "key": "color",
         "label_i18n": {
