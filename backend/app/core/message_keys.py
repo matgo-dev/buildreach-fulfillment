@@ -43,6 +43,7 @@ class MessageKey:
     QUOTATION_CANNOT_VOID = "error.quotation.cannot_void"
     QUOTATION_INVALID_SALESPERSON = "error.quotation.invalid_salesperson"
     QUOTATION_CANNOT_CONVERT = "error.quotation.cannot_convert"
+    QUOTATION_LINE_REFERENCED = "error.quotation.line_referenced_by_sales_order"
 
     # supplier 供应商(模块段 15)
     SUPPLIER_NOT_FOUND = "error.supplier.not_found"
@@ -70,3 +71,7 @@ class MessageKey:
     INBOUND_ORDER_EMPTY = "error.inbound_order.empty"
     INBOUND_ORDER_EDIT_CONFLICT = "error.inbound_order.edit_conflict"
     PAYABLE_ALLOCATED_CANNOT_UNRECEIVE = "error.payable.allocated_cannot_unreceive"
+
+    # sales_order 销售单(模块段 18)
+    SALES_ORDER_INVALID_TRANSITION = "error.sales_order.invalid_transition"
+    SALES_ORDER_HAS_ACTIVE_PURCHASE = "error.sales_order.has_active_purchase"

@@ -12,6 +12,7 @@ from app.audit.constants import AuditAction, AuditResourceType
 from app.audit.logger import write_audit
 from app.core.codegen import NumberScope, format_code
 from app.core.exceptions import (
+    QuotationLineReferencedBySalesOrderError,
     NotFoundError,
     QuotationCannotUnlockConvertedError,
     QuotationCannotVoidError,
@@ -130,6 +131,20 @@ async def resolve_order_parties(db: AsyncSession, order: QuotationOrder) -> dict
     }
 
 
+async def _assert_lines_deletable(db: AsyncSession, line_ids: list[int]) -> None:
+    """删行引用保护(评审 S1):被(任意状态,含 CANCELLED)SO 行引用的报价行不可删——
+    单据流 FK RESTRICT 的干净前置,防裸 IntegrityError 500。改 qty/价是 UPDATE 不触 FK,不经此。"""
+    if not line_ids:
+        return
+    from app.db.models.sales_order import SalesOrderLine
+    hit = (await db.execute(
+        select(SalesOrderLine.source_quotation_line_id)
+        .where(SalesOrderLine.source_quotation_line_id.in_(line_ids)).limit(1))).first()
+    if hit:
+        raise QuotationLineReferencedBySalesOrderError(
+            f"报价行 {hit[0]} 已被销售单引用,不可删除")
+
+
 async def _reconcile_lines(db: AsyncSession, order: QuotationOrder, lines: list[dict]) -> Decimal:
     """按行 id 对账到期望态:有 id→UPDATE、库中缺席→DELETE、无 id→INSERT。返回总额。"""
     existing = {ln.id: ln for ln in await list_lines(db, order.id)}
@@ -138,9 +153,10 @@ async def _reconcile_lines(db: AsyncSession, order: QuotationOrder, lines: list[
     for lid in payload_ids:
         if lid not in existing:
             raise QuotationEditConflictError(f"报价行不存在: {lid}")
-    for lid, row in existing.items():
-        if lid not in payload_ids:
-            await db.delete(row)
+    to_delete = [lid for lid in existing if lid not in payload_ids]
+    await _assert_lines_deletable(db, to_delete)
+    for lid in to_delete:
+        await db.delete(existing[lid])
 
     # 批量预取(替代逐行 N+1:原每行 sku+spu+模板+单位 ~5 查):sku→spu→按品类去重的模板
     # by_key→单位,循环内纯内存组装。总查询数 ≈ 3 + 去重品类数,与行数无关。
@@ -266,8 +282,13 @@ async def _transition(db: AsyncSession, order_id: int, target: str, audit_action
 
 async def lock_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_email,
                      request: Request | None = None) -> QuotationOrder:
-    """锁档 DRAFT→LOCKED(冻结基准),前置至少一行。"""
+    """锁档 DRAFT→LOCKED(冻结基准),前置至少一行。
+
+    显式仅 DRAFT:矩阵含 CONVERTED→LOCKED(SO 取消回退专用),不能只靠矩阵放行——
+    否则公开端点可把已转报价拉回锁档,绕过 SO 取消守卫/留痕/双审计(评审 B1)。"""
     order = await get_order_for_update(db, order_id)
+    if order.status != QuotationStatus.DRAFT:
+        raise QuotationNotDraftError("Only a draft quotation can be locked via this endpoint")
     _assert_transition(order.status, QuotationStatus.LOCKED)
     if not await list_lines(db, order_id):
         raise QuotationEmptyLinesError()
@@ -354,10 +375,12 @@ async def list_orders(db: AsyncSession, *, status=None, customer_id=None, salesp
 
 async def delete_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_email,
                        request: Request | None = None) -> None:
-    """硬删报价单(仅草稿;行 CASCADE)。草稿=从没弄好可删,非草稿走作废。"""
+    """硬删报价单(仅草稿;行 CASCADE)。草稿=从没弄好可删,非草稿走作废。
+    引用保护:曾转过销售单(含已取消)的报价行仍被 SO 行 FK 引用,不可硬删 → 41411。"""
     order = await get_order_for_update(db, order_id)
     if order.status not in QUOTATION_DELETABLE:
         raise QuotationNotDraftError()
+    await _assert_lines_deletable(db, [ln.id for ln in await list_lines(db, order_id)])
     await write_audit(db, resource_type=AuditResourceType.QUOTATION, action=AuditAction.DELETE,
                       user_id=actor_user_id, user_email=actor_user_email,
                       resource_id=order.id, request=request, commit=False)

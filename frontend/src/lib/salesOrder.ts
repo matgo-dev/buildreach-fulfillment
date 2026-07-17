@@ -1,10 +1,10 @@
-// 销售单前端类型 + API。对齐后端 schemas/sales_order.py。本增量只读(创建走报价 convert)。
+// 销售单前端类型 + API。对齐后端 schemas/sales_order.py。创建走报价 convert;写面 = 整单取消。
 import { api } from "./api";
 import type { Page } from "./catalog";
 import type { PurchaseProgress, RelatedPurchaseOrder } from "./purchaseOrder";
 
-// 本增量仅初始态;完整 SO 状态机(→采购中…)留给转采购增量。
-export type SalesOrderStatus = "CONFIRMED";
+// 镜像后端 SalesOrderStatus:CANCELLED 终态(报价回锁档可重转);更多态留给后续增量。
+export type SalesOrderStatus = "CONFIRMED" | "CANCELLED";
 
 /** 销售单行(读)。快照平移自报价行,冻结不变;source_quotation_line_id 记来源报价行。 */
 export interface SalesOrderLineOut {
@@ -37,6 +37,8 @@ export interface SalesOrderOut {
   total_amount: number | string;
   summary: string | null;
   remark: string | null;
+  cancelled_at: string | null;
+  cancel_reason: string | null;
   updated_at: string;
   // 详情响应附带(GET /{id} 服务端直出),create 响应不含,故可选。
   customer_display?: string;
@@ -101,4 +103,8 @@ export const salesOrderApi = {
     api.get<Page<SalesOrderListItem>>(`/api/v1/sales-orders${qs(p as Record<string, unknown>)}`),
   get: (id: number) =>
     api.get<{ order: SalesOrderOut; lines: SalesOrderLineOut[] }>(`/api/v1/sales-orders/${id}`),
+  // 整单取消(sales:manage):41802=存在活动采购单(后端中文 message 直显)。
+  cancel: (id: number, reason?: string | null) =>
+    api.post<{ order: SalesOrderOut; lines: SalesOrderLineOut[] }>(
+      `/api/v1/sales-orders/${id}/cancel`, { reason: reason ?? null }),
 };

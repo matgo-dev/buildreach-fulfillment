@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { App, Button, Card, Descriptions, Space, Spin, Table, Tag } from "antd";
+import { App, Button, Card, Descriptions, Input, Modal, Space, Spin, Table, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ArrowLeftOutlined, ShoppingCartOutlined } from "@ant-design/icons";
 import { Can } from "@/components/common/Can";
@@ -13,7 +13,8 @@ import {
   type SalesOrderLineOut,
   type SalesOrderOut,
 } from "@/lib/salesOrder";
-import { SALES_ORDER_STATUS_META } from "@/lib/salesOrderStatus";
+import { SALES_ORDER_STATUS_META, salesOrderCancellable } from "@/lib/salesOrderStatus";
+import { colors } from "@/lib/tokens";
 import { formatCost, type RelatedPurchaseOrder } from "@/lib/purchaseOrder";
 import {
   PURCHASE_ORDER_STATUS_META,
@@ -31,6 +32,10 @@ export default function SalesOrderDetailPage() {
   const [lines, setLines] = useState<SalesOrderLineOut[]>([]);
   const [loading, setLoading] = useState(true);
   const [purchasing, setPurchasing] = useState(false);
+  // 取消对话框:留痕原因(可空)。危险操作只放详情页(同入库先例)。
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelling, setCancelling] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -98,18 +103,30 @@ export default function SalesOrderDetailPage() {
             />
             <span>{order.no}</span>
             <Tag color={meta.color}>{meta.label}</Tag>
-            {progressMeta && <Tag color={progressMeta.color}>{progressMeta.label}</Tag>}
+            {/* CANCELLED 隐藏进度徽标:全 PO 已取消会回「未采购」,挂着误导(评审 S4)。 */}
+            {order.status === "CONFIRMED" && progressMeta && (
+              <Tag color={progressMeta.color}>{progressMeta.label}</Tag>
+            )}
           </Space>
         }
         extra={
-          // 发起采购:有 purchase:manage 且未全部下单时可见。
-          order.purchase_progress !== "FULLY_ORDERED" && (
-            <Can perm={Permissions.PURCHASE_MANAGE}>
-              <Button type="primary" icon={<ShoppingCartOutlined />} onClick={() => setPurchasing(true)}>
-                发起采购
-              </Button>
-            </Can>
-          )
+          <Space>
+            {/* 发起采购:有 purchase:manage 且单据 CONFIRMED 且未全部下单(评审 S4 补状态门禁)。 */}
+            {order.status === "CONFIRMED" && order.purchase_progress !== "FULLY_ORDERED" && (
+              <Can perm={Permissions.PURCHASE_MANAGE}>
+                <Button type="primary" icon={<ShoppingCartOutlined />} onClick={() => setPurchasing(true)}>
+                  发起采购
+                </Button>
+              </Can>
+            )}
+            {salesOrderCancellable(order.status) && (
+              <Can perm={Permissions.SALES_MANAGE}>
+                <Button danger onClick={() => setCancelOpen(true)}>
+                  取消销售单
+                </Button>
+              </Can>
+            )}
+          </Space>
         }
       >
         <Descriptions column={2} size="small" bordered>
@@ -142,6 +159,16 @@ export default function SalesOrderDetailPage() {
           </Descriptions.Item>
           <Descriptions.Item label="摘要" span={2}>{order.summary || "—"}</Descriptions.Item>
           <Descriptions.Item label="备注" span={2}>{order.remark || "—"}</Descriptions.Item>
+          {order.status === "CANCELLED" && (
+            <Descriptions.Item label="取消原因" span={2}>
+              {order.cancel_reason || "—"}
+              {order.cancelled_at && (
+                <span style={{ marginLeft: 12, color: colors.muted }}>
+                  {order.cancelled_at.replace("T", " ").slice(0, 16)}
+                </span>
+              )}
+            </Descriptions.Item>
+          )}
           <Descriptions.Item label="总额" span={2}>
             <span style={{ fontWeight: 600 }}>
               {order.currency} {formatMoney(order.total_amount)}
@@ -220,6 +247,45 @@ export default function SalesOrderDetailPage() {
           load();
         }}
       />
+
+      {/* 取消销售单:二次确认讲业务后果 + 留痕原因(DESIGN §7 危险操作)。 */}
+      <Modal
+        title="取消销售单"
+        open={cancelOpen}
+        okText="确认取消"
+        okButtonProps={{ danger: true }}
+        confirmLoading={cancelling}
+        onCancel={() => setCancelOpen(false)}
+        onOk={async () => {
+          setCancelling(true);
+          try {
+            await salesOrderApi.cancel(id, cancelReason.trim() || null);
+            message.success("已取消,来源报价已回到锁档");
+            setCancelOpen(false);
+            setCancelReason("");
+            load();
+          } catch (e) {
+            // 41802(存在活动采购单)等后端 message 为中文,直显。
+            message.error(e instanceof Error ? e.message : "取消失败");
+          } finally {
+            setCancelling(false);
+          }
+        }}
+      >
+        <Space direction="vertical" style={{ width: "100%" }}>
+          <span>
+            取消后本单进入终态,来源报价回到锁档、可修改后重新转出;
+            存在未取消的采购单时本操作会被拒绝。
+          </span>
+          <Input.TextArea
+            rows={2}
+            maxLength={500}
+            placeholder="取消原因(选填,留痕)"
+            value={cancelReason}
+            onChange={(e) => setCancelReason(e.target.value)}
+          />
+        </Space>
+      </Modal>
     </Space>
   );
 }

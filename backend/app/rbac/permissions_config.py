@@ -45,6 +45,7 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         *_AUTH_BASE,
         Permissions.QUOTE_MANAGE,
         Permissions.SALES_READ,
+        Permissions.SALES_MANAGE,
         Permissions.CUSTOMER_READ,
         Permissions.PRODUCT_READ,
     ],

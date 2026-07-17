@@ -8,6 +8,7 @@ from app.core.exceptions import (
     QuotationCannotVoidError,
     QuotationEmptyLinesError,
     QuotationInvalidTransitionError,
+    QuotationNotDraftError,
 )
 from app.db.models.audit_log import AuditLog
 from app.db.models.category import Category
@@ -73,10 +74,11 @@ async def test_void_from_draft_and_locked(db_session):
 
 @pytest.mark.asyncio
 async def test_lock_voided_is_invalid_transition(db_session):
+    # lock 端点显式仅 DRAFT(SO 取消增量 B1 收紧):非草稿一律 41401,先于矩阵判定。
     cust, sku = await _seed(db_session)
     order = await _draft(db_session, cust, sku)
     await svc.void_order(db_session, order_id=order.id, **_ACTOR)
-    with pytest.raises(QuotationInvalidTransitionError):
+    with pytest.raises(QuotationNotDraftError):
         await svc.lock_order(db_session, order_id=order.id, **_ACTOR)
 
 

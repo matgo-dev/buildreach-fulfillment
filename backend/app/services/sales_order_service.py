@@ -14,10 +14,20 @@ from starlette.requests import Request
 from app.audit.constants import AuditAction, AuditResourceType
 from app.audit.logger import write_audit
 from app.core.codegen import NumberScope, format_code
-from app.core.exceptions import NotFoundError, QuotationCannotConvertError
+from app.core.exceptions import (
+    NotFoundError,
+    QuotationCannotConvertError,
+    SalesOrderHasActivePurchaseError,
+    SalesOrderInvalidTransitionError,
+)
 from app.db.models.customer import Customer
 from app.db.models.quotation import QuotationStatus
-from app.db.models.sales_order import SalesOrder, SalesOrderLine, SalesOrderStatus
+from app.db.models.sales_order import (
+    SALES_ORDER_TRANSITIONS,
+    SalesOrder,
+    SalesOrderLine,
+    SalesOrderStatus,
+)
 from app.db.models.user import User
 from app.services import quotation_service
 from app.services.numbering import allocate
@@ -38,7 +48,8 @@ async def convert_quotation(db: AsyncSession, *, quotation_id: int, actor_user_i
     - 精确前置守卫:非 LOCKED → QuotationCannotConvertError(不降级通用非法转移);
     - 平移报价行已冻结快照(不重算,零重组);
     - 审计两行:CREATE/SALES_ORDER(销售单诞生)+ CONVERT/QUOTATION(报价转移);
-    - UNIQUE(source_quotation_id) / UNIQUE(source_quotation_line_id) DB 层兜底并发漏网。
+    - 活动行偏唯一(source_quotation_id)/ 复合 UNIQUE(so_id, source_quotation_line_id)
+      DB 层兜底并发漏网;取消后重转 = 新活动行与 CANCELLED 留痕行共存。
     """
     order = await quotation_service.get_order_for_update(db, quotation_id)
     if order.status != QuotationStatus.LOCKED:
@@ -76,11 +87,12 @@ async def convert_quotation(db: AsyncSession, *, quotation_id: int, actor_user_i
 
 
 async def find_by_source_quotation(db: AsyncSession, quotation_id: int) -> dict | None:
-    """反查报价 → 销售单(报价不加前向列,靠此反查)。返回 {id, no} 或 None。
-    路径由 UNIQUE(source_quotation_id) 索引支撑;至多一行(整单 1:1)。"""
+    """反查报价 → **活动**销售单(排除 CANCELLED:取消+重转后同报价多行,只有活动行是现行单据)。
+    返回 {id, no} 或 None。至多一行由活动行偏唯一硬保证。"""
     row = (await db.execute(
         select(SalesOrder.id, SalesOrder.no)
-        .where(SalesOrder.source_quotation_id == quotation_id))).first()
+        .where(SalesOrder.source_quotation_id == quotation_id,
+               SalesOrder.status != SalesOrderStatus.CANCELLED))).first()
     return {"id": row.id, "no": row.no} if row else None
 
 
@@ -89,6 +101,64 @@ async def get_order(db: AsyncSession, order_id: int) -> SalesOrder:
         select(SalesOrder).where(SalesOrder.id == order_id))).scalar_one_or_none()
     if so is None:
         raise NotFoundError(f"销售单不存在: {order_id}")
+    return so
+
+
+async def get_order_for_update(db: AsyncSession, order_id: int) -> SalesOrder:
+    """悲观锁读 SO 头行(状态跃迁竞态守卫;镜像报价/PO/入库同名口径)。"""
+    so = (await db.execute(
+        select(SalesOrder).where(SalesOrder.id == order_id)
+        .with_for_update())).scalar_one_or_none()
+    if so is None:
+        raise NotFoundError(f"销售单不存在: {order_id}")
+    return so
+
+
+async def cancel_order(db: AsyncSession, *, order_id: int, reason: str | None, actor_user_id: int,
+                       actor_user_email: str, request: Request | None = None) -> SalesOrder:
+    """整单取消(CONFIRMED→CANCELLED,终态)+ 报价 CONVERTED→LOCKED 回退可重转。单事务原子。
+
+    - 锁序 SO 头 → 报价头(建 PO = SO头→SO行;convert = 仅报价头;无环无死锁,评审 B2 核定);
+    - 下游守卫:存在非 CANCELLED 的 PO → 41802(不级联砍下游,解链人工自下而上);
+    - 报价断言 CONVERTED 后回退 LOCKED(断言失败 = 不变式破坏,如实 RuntimeError 500);
+    - 审计两行 extra 互指:CANCEL/SO(quotation_id)+ UNCONVERT/报价(sales_order_id)。
+    """
+    from app.db.models.purchase_order import PurchaseOrder, PurchaseOrderStatus
+
+    so = await get_order_for_update(db, order_id)
+    if SalesOrderStatus.CANCELLED not in SALES_ORDER_TRANSITIONS[so.status]:
+        raise SalesOrderInvalidTransitionError(f"非法转移: {so.status} → CANCELLED")
+    active_po = (await db.execute(
+        select(PurchaseOrder.id).where(
+            PurchaseOrder.source_sales_order_id == so.id,
+            PurchaseOrder.status != PurchaseOrderStatus.CANCELLED).limit(1))).first()
+    if active_po:
+        raise SalesOrderHasActivePurchaseError(
+            f"存在活动采购单(如 #{active_po[0]}),请先取消全部采购单")
+
+    so.status = SalesOrderStatus.CANCELLED
+    so.cancelled_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    so.cancelled_by = actor_user_id
+    so.cancel_reason = reason
+    await db.flush()
+
+    quotation = await quotation_service.get_order_for_update(db, so.source_quotation_id)
+    if quotation.status != QuotationStatus.CONVERTED:
+        raise RuntimeError(  # 不变式破坏:活动 SO 的来源报价必为 CONVERTED(评审 N4:如实 500)
+            f"invariant broken: quotation {quotation.id} status={quotation.status}, "
+            f"expected CONVERTED while cancelling SO {so.id}")
+    quotation.status = QuotationStatus.LOCKED
+    await db.flush()
+
+    await write_audit(db, resource_type=AuditResourceType.SALES_ORDER, action=AuditAction.CANCEL,
+                      user_id=actor_user_id, user_email=actor_user_email, resource_id=so.id,
+                      request=request, extra={"quotation_id": quotation.id}, commit=False)
+    await write_audit(db, resource_type=AuditResourceType.QUOTATION, action=AuditAction.UNCONVERT,
+                      user_id=actor_user_id, user_email=actor_user_email,
+                      resource_id=quotation.id, request=request,
+                      extra={"sales_order_id": so.id}, commit=False)
+    await db.commit()
+    await db.refresh(so)
     return so
 
 
@@ -143,6 +213,10 @@ async def list_orders(db: AsyncSession, *, status=None, customer_id=None, salesp
     if no:
         # 销售单号模糊搜(采购台选单入口按 SO 号找),镜像采购单列表 source_sales_order_no。
         conds.append(SalesOrder.no.ilike(f"%{no}%"))
+    if purchasable_only:
+        # 「可发起采购」语义自含「须 CONFIRMED」(评审 S3):CANCELLED 单全 PO 已取消,
+        # 进度会回 NOT_ORDERED,不加此条会被当成候选——服务端收紧,不靠调用方传 status。
+        conds.append(SalesOrder.status == SalesOrderStatus.CONFIRMED)
 
     line_count = (select(func.count(SalesOrderLine.id))
                   .where(SalesOrderLine.sales_order_id == SalesOrder.id)

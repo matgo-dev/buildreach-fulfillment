@@ -30,6 +30,7 @@ export const Permissions = {
   PRODUCT_MANAGE: "product:manage",
   QUOTE_MANAGE: "quote:manage",
   SALES_READ: "sales:read",
+  SALES_MANAGE: "sales:manage",
 
   // ----- 采购:供应商 / 采购单 -----
   SUPPLIER_READ: "supplier:read",

@@ -20,10 +20,10 @@ const PROGRESS_FILTERS = [
   { value: "FULLY_ORDERED", text: "已全部下单" },
 ];
 
-// 本增量销售单只建初始态,故状态筛选暂只「全部/已确认」;转采购增量扩态后再补。
 const STATUS_TABS = [
   { label: "全部", value: "" },
   { label: "已确认", value: "CONFIRMED" },
+  { label: "已取消", value: "CANCELLED" },
 ];
 
 export default function SalesOrderListPage() {

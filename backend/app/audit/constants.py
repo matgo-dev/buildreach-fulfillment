@@ -35,6 +35,7 @@ class AuditAction(str, Enum):
     UNLOCK = "UNLOCK"
     VOID = "VOID"
     CONVERT = "CONVERT"       # 报价 LOCKED→CONVERTED(转销售单)
+    UNCONVERT = "UNCONVERT"   # 报价 CONVERTED→LOCKED(SO 取消回退;镜像 UNRECEIVE 命名)
     # 采购单状态跃迁:DRAFT→CONFIRMED(下单)/ →CANCELLED
     CONFIRM = "CONFIRM"
     CANCEL = "CANCEL"

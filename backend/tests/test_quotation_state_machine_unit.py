@@ -20,7 +20,8 @@ def test_transitions_matrix():
     # 草稿可锁档或作废;锁档可解锁/转销售/作废;转销售、作废是终态。
     assert QUOTATION_TRANSITIONS[QuotationStatus.DRAFT] == {"LOCKED", "VOID"}
     assert QUOTATION_TRANSITIONS[QuotationStatus.LOCKED] == {"DRAFT", "CONVERTED", "VOID"}
-    assert QUOTATION_TRANSITIONS[QuotationStatus.CONVERTED] == set()
+    # CONVERTED→LOCKED = SO 取消回退(仅取消服务内部走;公开 lock 端点已收紧仅 DRAFT)
+    assert QUOTATION_TRANSITIONS[QuotationStatus.CONVERTED] == {QuotationStatus.LOCKED}
     assert QUOTATION_TRANSITIONS[QuotationStatus.VOID] == set()
 
 

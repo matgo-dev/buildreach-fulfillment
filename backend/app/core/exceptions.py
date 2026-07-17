@@ -7,9 +7,16 @@
 - MM: 模块段
 - SS: 模块内顺序号(01–99)
 
-模块段位(M0 基座只落地通用与鉴权):
+模块段位(M0 基座只落地通用与鉴权;后续段随增量落):
   MM | 模块       | 现有码
   00 | 通用与鉴权 | 40001–40009
+  12 | 商品生命周期 | 412xx
+  13 | SKU 规格   | 413xx
+  14 | 报价       | 414xx
+  15 | 供应商     | 415xx
+  16 | 采购单     | 416xx
+  17 | 入库/应付  | 417xx
+  18 | 销售单     | 418xx
 
 兜底码:
   40000 = 通用客户端兜底(裸 HTTPException 降级)
@@ -199,6 +206,15 @@ class QuotationInvalidSalespersonError(BusinessError):
                          message_key=MessageKey.QUOTATION_INVALID_SALESPERSON)
 
 
+class QuotationLineReferencedBySalesOrderError(BusinessError):
+    """报价行被(任意状态)销售单行引用,不可删行/删单——单据流溯源(FK RESTRICT)的干净前置,
+    防裸 IntegrityError 500。改数量/价格不触 FK,不走此错。"""
+
+    def __init__(self, message: str = "Quotation line is referenced by a sales order"):
+        super().__init__(status.HTTP_409_CONFLICT, 41411, message,
+                         message_key=MessageKey.QUOTATION_LINE_REFERENCED)
+
+
 class QuotationCannotConvertError(BusinessError):
     """只有锁档态(LOCKED)报价可转销售单;其它态(草稿/已转/已作废)一律拒。"""
 
@@ -371,6 +387,24 @@ class InboundOrderEditConflictError(BusinessError):
     def __init__(self, message: str = "Inbound order was modified by someone else"):
         super().__init__(status.HTTP_409_CONFLICT, 41709, message,
                          message_key=MessageKey.INBOUND_ORDER_EDIT_CONFLICT)
+
+
+# 模块段 18 = 销售单(SO 状态机)。见 db/models/sales_order.py SalesOrderStatus。
+class SalesOrderInvalidTransitionError(BusinessError):
+    """状态转移不在 SALES_ORDER_TRANSITIONS 矩阵(重复取消等)。"""
+
+    def __init__(self, message: str = "Illegal sales order status transition"):
+        super().__init__(status.HTTP_409_CONFLICT, 41801, message,
+                         message_key=MessageKey.SALES_ORDER_INVALID_TRANSITION)
+
+
+class SalesOrderHasActivePurchaseError(BusinessError):
+    """取消被拦:存在非 CANCELLED 的采购单(镜像 41609,方向相反)。
+    不级联砍下游——解链人工自下而上:先取消全部 PO 再取消 SO。"""
+
+    def __init__(self, message: str = "Cannot cancel a sales order with active purchase orders"):
+        super().__init__(status.HTTP_409_CONFLICT, 41802, message,
+                         message_key=MessageKey.SALES_ORDER_HAS_ACTIVE_PURCHASE)
 
 
 def success(data: Any = None, message: str = "ok") -> dict:
