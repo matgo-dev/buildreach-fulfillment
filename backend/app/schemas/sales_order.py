@@ -3,12 +3,12 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SalesOrderCancelIn(BaseModel):
-    """整单取消:原因留痕(可空)。"""
-    reason: str | None = None
+    """整单取消:原因留痕(可空,上限挡误粘贴)。"""
+    reason: str | None = Field(default=None, max_length=500)
 
 
 class SalesOrderOut(BaseModel):

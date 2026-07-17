@@ -14,6 +14,7 @@ import {
   type SalesOrderOut,
 } from "@/lib/salesOrder";
 import { SALES_ORDER_STATUS_META, salesOrderCancellable } from "@/lib/salesOrderStatus";
+import { colors } from "@/lib/tokens";
 import { formatCost, type RelatedPurchaseOrder } from "@/lib/purchaseOrder";
 import {
   PURCHASE_ORDER_STATUS_META,
@@ -162,7 +163,7 @@ export default function SalesOrderDetailPage() {
             <Descriptions.Item label="取消原因" span={2}>
               {order.cancel_reason || "—"}
               {order.cancelled_at && (
-                <span style={{ marginLeft: 12, color: "rgba(0,0,0,0.45)" }}>
+                <span style={{ marginLeft: 12, color: colors.muted }}>
                   {order.cancelled_at.replace("T", " ").slice(0, 16)}
                 </span>
               )}
@@ -278,6 +279,7 @@ export default function SalesOrderDetailPage() {
           </span>
           <Input.TextArea
             rows={2}
+            maxLength={500}
             placeholder="取消原因(选填,留痕)"
             value={cancelReason}
             onChange={(e) => setCancelReason(e.target.value)}

@@ -1,10 +1,10 @@
-"""SO 整单取消(契约 2026-07-16-0707 v2):13 测试锚点。
+"""SO 整单取消(契约 2026-07-16-0707 v2):契约 13 锚点,本文件落 12 测试(锚点 10 除外)。
 
 骨架:CONFIRMED→CANCELLED + 报价 CONVERTED→LOCKED 回退可重转;下游活动 PO 硬拦(41802);
 不级联;偏唯一(仅活动 SO 占报价);报价删行/删单引用保护(41411);lock 端点仅 DRAFT(B1)。
-B2(取消 vs 建 PO TOCTOU)由 _load_source_so_lines 锁 SO 头闭环——同型先例入库↔PO 取消,
-锁序无环(建单 SO头→SO行;取消 SO头→报价头;convert 仅报价头),不做进程内并发编排测试,
-以锚点 8(取消后建 PO 被拒)+ 代码内 with_for_update 保障。
+锚点 10 = B2(取消 vs 建 PO TOCTOU 并发交错),由 _load_source_so_lines 锁 SO 头闭环——
+同型先例入库↔PO 取消,锁序无环(建单 SO头→SO行;取消 SO头→报价头;convert 仅报价头),
+不做进程内并发编排测试,以锚点 8(取消后建 PO 被拒)+ 代码内 with_for_update 保障。
 """
 import pytest
 from sqlalchemy import select, text
@@ -168,6 +168,8 @@ async def test_lock_converted_quotation_rejected(client, db_session, sales_heade
                           headers=sales_headers)
     assert r.status_code == 409 and r.json()["code"] == 41401
 
+
+# ---------- 锚点 10:B2 并发交错 —— 不落进程内编排测试,见模块 docstring ----------
 
 # ---------- 锚点 11:S1 —— 报价回 LOCKED 后删行/删单引用保护;改量放行可重转 ----------
 

@@ -70,8 +70,8 @@ class MessageKey:
     INBOUND_ORDER_LINE_NOT_IN_PO = "error.inbound_order.line_not_in_po"
     INBOUND_ORDER_EMPTY = "error.inbound_order.empty"
     INBOUND_ORDER_EDIT_CONFLICT = "error.inbound_order.edit_conflict"
+    PAYABLE_ALLOCATED_CANNOT_UNRECEIVE = "error.payable.allocated_cannot_unreceive"
 
     # sales_order 销售单(模块段 18)
     SALES_ORDER_INVALID_TRANSITION = "error.sales_order.invalid_transition"
     SALES_ORDER_HAS_ACTIVE_PURCHASE = "error.sales_order.has_active_purchase"
-    PAYABLE_ALLOCATED_CANNOT_UNRECEIVE = "error.payable.allocated_cannot_unreceive"
