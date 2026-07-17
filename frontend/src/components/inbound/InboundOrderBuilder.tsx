@@ -20,6 +20,7 @@ import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
 import { colors } from "@/lib/tokens";
 import { formatQty } from "@/lib/format";
+import { NumCell } from "@/components/common/NumCell";
 import { resolveBizError } from "@/lib/errorMessages";
 import {
   inboundOrderApi,
@@ -220,21 +221,13 @@ export function InboundOrderBuilder({
     }
   }
 
-  // 数字单元:tabular-nums 对齐(DESIGN §数字列)。muted=收货参考的次要数字弱化,
+  // 数字列走共享 NumCell(DESIGN §数字列)。muted=收货参考的次要数字弱化,
   // strong=「剩余」是本次录入的约束基准,保持强调不弱化。
-  const numCell = (v?: number, o?: { muted?: boolean; strong?: boolean }) => {
-    if (v === undefined) return <span style={{ color: colors.muted }}>—</span>;
-    return (
-      <span style={{
-        fontVariantNumeric: "tabular-nums",
-        color: o?.muted ? colors.muted : undefined,
-        fontWeight: o?.strong ? 600 : undefined,
-      }}>{formatQty(v)}</span>
-    );
-  };
   const refCol = (title: string, get: (r: BuilderRow) => number | undefined, strong = false) => ({
     title, key: title, width: 76, align: "right" as const,
-    render: (_: unknown, r: BuilderRow) => numCell(get(r), strong ? { strong: true } : { muted: true }),
+    render: (_: unknown, r: BuilderRow) => (
+      <NumCell value={get(r)} muted={!strong} strong={strong} />
+    ),
   });
 
   const columns: ColumnsType<BuilderRow> = [

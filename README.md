@@ -188,6 +188,31 @@
     (选 CONFIRMED PO→可收行录量→在途/已入/剩余镜像 quota);PO 详情/列表收货进度扩展;应付款极简列表(🔴 `payable:read`)。
     入库单据前端零成本列。迁移 `0019_inbound_order` + `0020_payable`。
 
+- **库存(主流程第五步,分支 `feat/inventory-increment`)**:订单履约跟踪 = 回答「每个销售单每个 SKU
+  到货多少、已出多少、可发多少」。**B 方案:纯派生,零新表、零迁移**——货从采购起即唯一归属某销售单
+  (`purchase_order_lines.source_sales_order_line_id` 是 Ownership 非 Reference,守卫链保证系统无自由库存),
+  故四量由既有 FK 单据链 `inbound_order_lines → purchase_order_lines → sales_order_lines` 纯聚合派生,
+  不记第二份「库存账」。对标管家婆/金蝶/好生意「订单执行跟踪」(全部单据链派生、无一记账)。
+  - **单一口径 `compute_stock_balance`**(`services/stock_balance_service.py`,地位同 `compute_covered_qty`):
+    全仓「在库/可发」唯一算法源头,库存页 / SO 详情库存块 / (出库步)锁内校验 / (将来物化)回填全部消费它。
+    **防 join 放大**:同一 SO 行可拆多 PO、同一 PO 行可拆多入库单,三臂(订购/已入库/出库)各自预聚合再按
+    `(sales_order_id, sku_id)` FULL JOIN 合并,`SUM` 不按分支翻倍。四量:`ordered_qty` / `inbound_qty`(仅
+    `RECEIVED` 计入,在途不算)/ `outbound_qty`(本步恒 0,签名为出库步预留)/ `available_qty = inbound − outbound`。
+    合并行展示字段(品名/规格串/单位)取 **SKU 当前档**(非行快照),按所属 SO 语言渲染。
+  - **行包含 `scope`(一函数一参数,不许两套 SQL)**:`available`(默认,在库视角 `available>0`,已履约行退出,
+    内容被货代仓容量钉死、不随经营年限增长)/ `history`(履约史 `inbound>0 OR outbound>0`)/ 内部 `all`
+    (SO 详情块:该 SO 全部行含已入 0,对照订购)。
+  - **RBAC**:新权限点 `inventory:read`(唯一,无 manage——库存无写入口)。授 **`PURCHASER` + `SALES`**;
+    **`ADMIN` 不授**(Q25 职责分离,与 `sales:read`/`purchase:read` 一致)。无成本/供应商/金额字段 → **零红线、零脱敏分支**。
+  - **端点**:`GET /api/v1/inventory`(守 `inventory:read`;分页 `Page[T]`,筛选 `sales_order_id`/`sku_id`/`q`
+    (SO单号/SKU编码/品名)+ `scope`);**SO 详情响应加 `stock_balances` 块**——按调用者持 `inventory:read`
+    **条件下发**(照 `related_purchase_orders` 按 `purchase:read` 下发的既有模式,响应键存在与否驱动前端,
+    后端脱敏非前端隐藏)。无写端点(无手工调整/盘点)。
+  - **性能冒烟**(`scripts/inventory_perf_smoke.py`,一次性库,手动跑 `python -m scripts.inventory_perf_smoke [N]`):
+    10 万级 RECEIVED 入库行下,① 单 SO 派生路径全走 FK 索引 `EXPLAIN` 恒定 **0.6ms**(不随总量增长,出库锁内校验/
+    SO 详情块的性能基线);② 全量默认口径(整表聚合 + top-N)**≈277ms**(远超可见的千级规模;可见规模为亚毫秒)。
+    衰老方式=变慢(可见、有界),非变错——契约 §6.2 物化期权随时可行使,触发前不建。
+
 ## 本地开发
 
 本地开发**复用现有 brew PostgreSQL**(`@ :5433`),不用下面 `docker-compose.yml` 里的 `db` 服务

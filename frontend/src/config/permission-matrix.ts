@@ -46,6 +46,9 @@ export const Permissions = {
   INBOUND_MANAGE: "inbound:manage",
   // 红线域:应付款整域只对持 payable:read 者下发(后端整块门控,非字段级)。
   PAYABLE_READ: "payable:read",
+
+  // ----- 履约:库存(订单履约跟踪,纯派生,无 manage 轴)-----
+  INVENTORY_READ: "inventory:read",
 } as const;
 
 export type PermissionCode = (typeof Permissions)[keyof typeof Permissions];

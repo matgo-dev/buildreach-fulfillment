@@ -50,6 +50,10 @@ class Permissions:
     # 🔴红线开关:应付款整域(供应商 + 成本)可见;端点级门控,无此权限则整块不下发。
     PAYABLE_READ = "payable:read"
 
+    # ----- 履约:inventory(库存/订单履约跟踪,纯派生只读)-----
+    # 无 manage 轴:库存无写入口(无手工调整/盘点),数字全由单据链派生。零成本/供应商字段 → 非红线。
+    INVENTORY_READ = "inventory:read"
+
 
 # auth:* 是系统底层会话权限,不归任何资源域(供启动同步识别,不进矩阵)
 SYSTEM_RESERVED_CODES = frozenset({
@@ -95,6 +99,7 @@ PERMISSION_META: dict[str, dict[str, str]] = {
     Permissions.INBOUND_MANAGE: {"name": "入库管理", "module": ModuleLabel.FULFILLMENT},
     Permissions.INBOUND_READ: {"name": "入库查看", "module": ModuleLabel.FULFILLMENT},
     Permissions.PAYABLE_READ: {"name": "应付款查看", "module": ModuleLabel.FULFILLMENT},
+    Permissions.INVENTORY_READ: {"name": "库存查看", "module": ModuleLabel.FULFILLMENT},
 }
 
 
