@@ -1,15 +1,15 @@
-"""T9 RBAC 边界:SALES 读客户不写;ADMIN 已无 quote:manage(Q25 归位)。"""
+"""T9 RBAC 边界:SALES 读写客户(customer:manage 本增量放给 SALES);ADMIN 已无 quote:manage(Q25 归位)。"""
 import pytest
 
 
 @pytest.mark.asyncio
-async def test_sales_can_read_customers_but_not_write(client, sales_headers):
+async def test_sales_can_read_and_write_customers(client, sales_headers):
     # 读客户列表:customer:read → 200
     assert (await client.get("/api/v1/customers", headers=sales_headers)).status_code == 200
-    # 写客户:无 customer:manage → 403(脱敏边界:销售不碰客户主数据写)
+    # 写客户:持 customer:manage → 200(建客户→报价选客户同人同流)
     r = await client.post("/api/v1/customers", headers=sales_headers,
-                          json={"name": "非法写"})
-    assert r.status_code == 403
+                          json={"name": "合法写"})
+    assert r.status_code == 200
 
 
 @pytest.mark.asyncio

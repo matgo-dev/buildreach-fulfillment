@@ -16,6 +16,7 @@ from app.core.exceptions import (
     NotFoundError,
     QuotationCannotUnlockConvertedError,
     QuotationCannotVoidError,
+    QuotationCustomerInactiveError,
     QuotationEditConflictError,
     QuotationEmptyLinesError,
     QuotationInvalidLineError,
@@ -34,7 +35,7 @@ from app.db.models.quotation import (
     QuotationOrder,
     QuotationStatus,
 )
-from app.db.models.customer import Customer
+from app.db.models.customer import Customer, CustomerStatus
 from app.db.models.sku import Sku
 from app.db.models.spu import Spu
 from app.db.models.unit import Unit
@@ -225,6 +226,9 @@ async def save_order(db: AsyncSession, *, order_id: int | None, customer_id, cur
 
     if order_id is None:
         customer = await customer_service.get_customer(db, customer_id)
+        # 停用客户写入守卫:前端下拉只给 ACTIVE,挡不住直连 API,服务端硬挡。
+        if customer.status != CustomerStatus.ACTIVE:
+            raise QuotationCustomerInactiveError()
         order = QuotationOrder(
             no=await _next_quote_no(db), customer_id=customer_id,
             salesperson_id=salesperson_id or actor_user_id,
@@ -240,6 +244,11 @@ async def save_order(db: AsyncSession, *, order_id: int | None, customer_id, cur
             raise QuotationNotDraftError()
         if expected_updated_at is not None and order.updated_at != expected_updated_at:
             raise QuotationEditConflictError()
+        # 只拦"换客户"到停用户;不换客户的常规保存放行(客户后停用不锁旧单据收尾)。
+        if customer_id != order.customer_id:
+            switched = await customer_service.get_customer(db, customer_id)
+            if switched.status != CustomerStatus.ACTIVE:
+                raise QuotationCustomerInactiveError()
         order.customer_id = customer_id
         order.currency = currency
         if salesperson_id is not None:

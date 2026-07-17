@@ -9,6 +9,7 @@ import {
   ShopOutlined,
   ShoppingCartOutlined,
   AccountBookOutlined,
+  TeamOutlined,
   UserOutlined,
   LogoutOutlined,
   SafetyCertificateOutlined,
@@ -27,6 +28,7 @@ const SIDER_BG = colors.sidebar;
 // 菜单项按权限显隐(perm=可见所需权限点),避免死链;后端 RouteGuard 仍是访问底线。
 const MENU_ITEMS = [
   { key: "/catalog/spus", icon: <AppstoreOutlined />, label: "商品目录", perm: Permissions.PRODUCT_READ },
+  { key: "/sales/customers", icon: <TeamOutlined />, label: "客户", perm: Permissions.CUSTOMER_READ },
   { key: "/sales/quotations", icon: <FileTextOutlined />, label: "报价管理", perm: Permissions.QUOTE_MANAGE },
   { key: "/sales/orders", icon: <ProfileOutlined />, label: "销售单", perm: Permissions.SALES_READ },
   { key: "/purchasing/suppliers", icon: <ShopOutlined />, label: "供应商", perm: Permissions.SUPPLIER_READ },

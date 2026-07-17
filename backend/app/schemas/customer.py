@@ -1,6 +1,8 @@
 """客户 schemas。"""
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.languages import is_supported_quote_language
@@ -35,3 +37,18 @@ class CustomerOut(BaseModel):
     contact_email: str | None
     address: str | None
     status: str
+
+
+class CustomerUpdateIn(CustomerCreateIn):
+    """编辑:同建单字段(不含 code/status;code=身份键不可改,status 走 activate/deactivate)。"""
+
+
+class CustomerListItem(BaseModel):
+    id: int
+    code: str
+    name: str
+    quote_language: str | None
+    contact_name: str | None
+    contact_phone: str | None
+    status: str
+    updated_at: datetime

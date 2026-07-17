@@ -223,6 +223,13 @@ class QuotationCannotConvertError(BusinessError):
                          message_key=MessageKey.QUOTATION_CANNOT_CONVERT)
 
 
+class QuotationCustomerInactiveError(BusinessError):
+    """报价指派停用客户(新建或换客户)。存量单据的客户后停用不受此拦(只拦新指派)。"""
+
+    def __init__(self, message: str = "客户已停用,不可用于新报价"):
+        super().__init__(status.HTTP_409_CONFLICT, 41410, message)
+
+
 # 模块段 15 = 供应商(供应商主数据)。见 db/models/supplier.py SupplierStatus。
 class SupplierNotFoundError(BusinessError):
     def __init__(self, message: str = "Supplier not found"):
