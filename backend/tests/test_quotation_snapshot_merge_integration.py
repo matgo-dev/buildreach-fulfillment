@@ -1,4 +1,4 @@
-"""T4 两必修:行快照合并 SPU∪SKU 规格 + 写时挡非可选货。"""
+"""T4:行快照只冻结 SKU 变体轴规格(产品级退出规格串) + 写时挡非可选货。"""
 import pytest
 
 from app.core.exceptions import QuotationInvalidLineError
@@ -27,12 +27,12 @@ async def _seed(db, *, spu_status="ACTIVE", sku_status="ACTIVE"):
 
 
 @pytest.mark.asyncio
-async def test_snapshot_merges_spu_and_sku_spec(db_session):
+async def test_snapshot_freezes_sku_axis_only(db_session):
     _, sku = await _seed(db_session)
     name, spec_text, unit = await quotation_service.compose_line_snapshot(db_session, sku, "zh")
     assert name == "工字钢 200"
-    assert "Q235" in spec_text    # 产品级(SPU.spec_jsonb)必须并进来 —— 现状 bug 会缺
-    assert "DN200" in spec_text   # 变体轴(SKU.spec_jsonb)
+    assert "DN200" in spec_text    # 变体轴(SKU.spec_jsonb)进规格串
+    assert "Q235" not in spec_text  # 产品级(SPU.spec_jsonb)退出规格串,不再并进来
     assert unit == "吨" and unit != sku.unit   # 冻结 units.label_i18n 展示文字,非 code "ton"
 
 

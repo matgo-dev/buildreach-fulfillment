@@ -18,28 +18,44 @@ def test_display_missing_treats_empty_and_null_and_absent_alike():
     assert display({}, "zh") == ""
 
 
-def test_compose_spec_text_orders_by_template_and_formats():
+def test_compose_spec_text_orders_by_template_compact_no_label():
+    # 去标签、值+单位紧凑无空格、按 sort_order 排、` / ` 连接
     suggestions = {
-        "material": {"label_i18n": {"zh": "材质"}, "unit": "", "sort_order": 10},
-        "pressure": {"label_i18n": {"zh": "压力等级"}, "unit": "MPa", "sort_order": 30},
-        "dn": {"label_i18n": {"zh": "公称通径"}, "unit": "", "sort_order": 20},
+        "range": {"unit": "", "sort_order": 10, "value_type": "string"},
+        "division": {"unit": "g", "sort_order": 20, "value_type": "number"},
     }
     spec = [
-        {"key": "pressure", "value": "1.6"},
-        {"key": "material", "value": {"zh": "不锈钢 304"}},
-        {"key": "dn", "value": "DN50"},
+        {"key": "division", "value": 0.5},
+        {"key": "range", "value": "0.02–15kg"},
     ]
-    got = compose_spec_text(spec, suggestions, "zh")
-    assert got == "材质: 不锈钢 304, 公称通径: DN50, 压力等级: 1.6 MPa"
+    # range(浅层)在前、division(深层)在后;division 数值 0.5 紧跟单位 g → 0.5g
+    assert compose_spec_text(spec, suggestions, "zh") == "0.02–15kg / 0.5g"
 
 
-def test_compose_spec_text_uses_template_unit_and_value_fallback():
-    suggestions = {"dn": {"label_i18n": {"zh": "通径", "en": "DN"}, "unit": "mm", "sort_order": 10}}
-    spec = [{"key": "dn", "value": {"zh": "五十"}}]  # Part B:SKU 值不带 unit
-    # en 报价:label 取 en;value 缺 en → 回落 zh;unit 取模板 mm(计量单位只住模板)
-    assert compose_spec_text(spec, suggestions, "en") == "DN: 五十 mm"
+def test_compose_spec_text_translates_enum_code_by_lang():
+    # enum 存 code,须查 options 翻 label_i18n 再按语言取(修裸 code bug)
+    suggestions = {
+        "material": {
+            "value_type": "enum", "unit": "", "sort_order": 10,
+            "options": [{"code": "ss304", "label_i18n": {"zh": "304不锈钢", "en": "SS304"}}],
+        }
+    }
+    spec = [{"key": "material", "value": "ss304"}]
+    assert compose_spec_text(spec, suggestions, "zh") == "304不锈钢"
+    assert compose_spec_text(spec, suggestions, "en") == "SS304"
 
 
-def test_compose_spec_text_unknown_key_uses_key_as_label():
-    # key 不在模板(理论上被 service 拦截,组合器需鲁棒)
-    assert compose_spec_text([{"key": "x", "value": "1"}], {}, "zh") == "x: 1"
+def test_compose_spec_text_int_value_stays_compact():
+    # number 标量原样 str,int 保持 15 不变 15.0;单位紧跟无空格
+    suggestions = {"length": {"unit": "mm", "sort_order": 10, "value_type": "number"}}
+    assert compose_spec_text([{"key": "length", "value": 15}], suggestions, "zh") == "15mm"
+
+
+def test_compose_spec_text_empty_axis_is_empty():
+    assert compose_spec_text([], {}, "zh") == ""
+
+
+def test_compose_spec_text_unknown_enum_code_falls_back_to_code():
+    # code 不在 options(理论上写路径已校验)→ 原样输出 code,不静默丢
+    suggestions = {"material": {"value_type": "enum", "unit": "", "sort_order": 10, "options": []}}
+    assert compose_spec_text([{"key": "material", "value": "unknown_x"}], suggestions, "zh") == "unknown_x"

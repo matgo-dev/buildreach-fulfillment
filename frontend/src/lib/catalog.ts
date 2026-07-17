@@ -86,13 +86,6 @@ export interface SpecItem {
   value: string | number | Record<string, string>;
 }
 
-/** 规格串:`key:value`(值为 i18n 对象时取展示语言),空则空串。列表/详情共用。 */
-export function specText(items: SpecItem[] | undefined | null): string {
-  return (items ?? [])
-    .map((i) => `${i.key}:${typeof i.value === "object" ? display(i.value) : i.value}`)
-    .join(" / ");
-}
-
 /** 展示投影(后端 resolve_spec_display 单一解析):enum 值=选项 label_i18n,标量原样;带归属层 scope。 */
 export interface SpecDisplayItem {
   key: string;
@@ -110,6 +103,20 @@ export function specDisplayText(items: SpecDisplayItem[] | undefined | null): st
       const val = typeof i.value === "object" && i.value !== null ? display(i.value) : i.value;
       return `${label}:${val ?? ""}${i.unit ? ` ${i.unit}` : ""}`;
     })
+    .join(" / ");
+}
+
+/** 变体轴规格短串:只取 scope=sku 的轴属性,去标签、值+单位紧凑无空格、` / ` 连接。
+ *  后端 compose_spec_text(单据行快照)的前端镜像 —— 规则须与其一致(值紧跟单位、` / ` 连接),
+ *  唯一权威在后端,这里只做同款展示。enum 值在 spec_display 里已翻成 label_i18n(对象)→ display。 */
+export function specAxisText(items: SpecDisplayItem[] | undefined | null, lang = "zh"): string {
+  return (items ?? [])
+    .filter((i) => i.scope === "sku")
+    .map((i) => {
+      const val = typeof i.value === "object" && i.value !== null ? display(i.value, lang) : i.value;
+      return val === null || val === undefined || val === "" ? "" : `${val}${i.unit ?? ""}`;
+    })
+    .filter((s) => s !== "")
     .join(" / ");
 }
 
@@ -137,8 +144,12 @@ export interface SkuOut {
 export type SkuWithImages = SkuOut & { images: ProductImage[]; spec_display: SpecDisplayItem[] };
 /** 详情内的 SKU:附图集 + 派生 available(SPU 停用则即便 SKU ACTIVE 也不可售)。 */
 export type SkuDetailItem = SkuWithImages & { available: boolean };
-/** 搜索行:附 spu_main_image(SPU 封面)供跨 SPU 图片回退。 */
-export type SkuSearchItem = SkuOut & { spu_main_image?: string | null };
+/** 搜索行:后端不下发落库形状 spec_jsonb,改下发只 SKU 轴的展示投影 spec_display;
+ *  附 spu_main_image(SPU 封面)供跨 SPU 图片回退。 */
+export type SkuSearchItem = Omit<SkuOut, "spec_jsonb"> & {
+  spu_main_image?: string | null;
+  spec_display: SpecDisplayItem[];
+};
 
 export interface Page<T> {
   items: T[];
