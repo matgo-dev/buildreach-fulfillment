@@ -5,6 +5,19 @@ const nextConfig = {
   env: {
     API_BASE_URL: process.env.API_BASE_URL,
   },
+  // 基础安全响应头(与后端同一组;HSTS 留给后端/网关层按 HTTPS 接入情况下发,不在此配)。
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

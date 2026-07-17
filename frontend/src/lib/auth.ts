@@ -14,11 +14,11 @@ export interface MeData {
 }
 
 export interface LoginResult {
-  /** access token,前端存 Zustand(内存 + sessionStorage 兜底) */
+  /** access token,前端存 Zustand 纯内存(无 Web Storage 落点) */
   access_token: string;
   token_type: string;
   expires_in: number;
-  /** refresh token 由后端通过 httpOnly cookie 下发,前端 JS 读不到 */
+  /** refresh token 由后端通过 httpOnly cookie 下发,前端 JS 读不到;续期走 /auth/refresh */
 }
 
 export const authApi = {

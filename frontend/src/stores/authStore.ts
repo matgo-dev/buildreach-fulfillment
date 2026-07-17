@@ -1,32 +1,8 @@
 import { create } from "zustand";
 import type { MeData, RoleCode } from "@/lib/auth";
 
-const ACCESS_TOKEN_SESSION_KEY = "fulfillment_access_token";
-
-function readSessionAccessToken(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return sessionStorage.getItem(ACCESS_TOKEN_SESSION_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function writeSessionAccessToken(token: string | null) {
-  if (typeof window === "undefined") return;
-  try {
-    if (token) {
-      sessionStorage.setItem(ACCESS_TOKEN_SESSION_KEY, token);
-    } else {
-      sessionStorage.removeItem(ACCESS_TOKEN_SESSION_KEY);
-    }
-  } catch {
-    /* ignore storage failures */
-  }
-}
-
 interface AuthState {
-  /** access token 优先存内存,并在当前标签页 sessionStorage 中兜底恢复刷新 */
+  /** access token 纯内存(无任何 Web Storage 落点,XSS 可读面最小化);刷新页面靠 httpOnly refresh cookie 恢复 */
   accessToken: string | null;
   user: MeData | null;
   loaded: boolean;
@@ -42,19 +18,13 @@ interface AuthState {
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
-  accessToken: readSessionAccessToken(),
+  accessToken: null,
   user: null,
   loaded: false,
-  setAccessToken: (t) => {
-    writeSessionAccessToken(t);
-    set({ accessToken: t });
-  },
+  setAccessToken: (t) => set({ accessToken: t }),
   setUser: (u) => set({ user: u }),
   setLoaded: (b) => set({ loaded: b }),
-  clear: () => {
-    writeSessionAccessToken(null);
-    set({ accessToken: null, user: null });
-  },
+  clear: () => set({ accessToken: null, user: null }),
   hasPermission: (code) => {
     const u = get().user;
     return !!u && u.permissions.includes(code);

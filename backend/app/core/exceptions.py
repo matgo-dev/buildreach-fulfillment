@@ -9,7 +9,7 @@
 
 模块段位(M0 基座只落地通用与鉴权;后续段随增量落):
   MM | 模块       | 现有码
-  00 | 通用与鉴权 | 40001–40009
+  00 | 通用与鉴权 | 40001–40010
   12 | 商品生命周期 | 412xx
   13 | SKU 规格   | 413xx
   14 | 报价       | 414xx
@@ -101,6 +101,19 @@ class PasswordChangeRequiredError(BusinessError):
 class ConflictError(BusinessError):
     def __init__(self, message: str = "Resource conflict"):
         super().__init__(status.HTTP_409_CONFLICT, 40009, message, message_key=MessageKey.CONFLICT)
+
+
+class AccountLockedError(BusinessError):
+    """账号级登录锁定(users.locked_until 未过期)。
+
+    与 40002(进程内限流,identifier+ip 维度)不同,本错误来自落库的账号锁,换 IP/重启不绕过。
+    提示会暴露「账号存在」—— 公网下锁定可用性(用户须知道为何登不上、找管理员解锁)
+    与防枚举的权衡,取前者。
+    """
+
+    def __init__(self, message: str = "账号已锁定,请稍后重试或联系管理员"):
+        super().__init__(status.HTTP_429_TOO_MANY_REQUESTS, 40010, message,
+                         message_key=MessageKey.ACCOUNT_LOCKED)
 
 
 class NotFoundError(BusinessError):
