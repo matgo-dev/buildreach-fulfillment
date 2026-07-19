@@ -129,11 +129,14 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
-      {/* 侧栏钉住视口:内容区再长也不带着导航滚;菜单超高时只在菜单区内部滚(留出底部折叠条高度)。 */}
+      {/* 侧栏钉住视口:内容区再长也不带着导航滚;菜单超高时只在菜单区内部滚。 */}
       <Sider
         collapsible
         collapsed={collapsed}
         onCollapse={setCollapsed}
+        // 168 而非 AntD 默认 200:菜单标签最长 4 个汉字(商品目录/报价管理/用户管理),
+        // 200 会在右侧留下一条明显的空白带;168 = 图标+4字+两侧留白后仍有余量,不会挤或换行。
+        width={168}
         // trigger={null}:AntD 自带的底部折叠条会在侧栏底部压出一条与背景同色的死区,
         // 既浪费高度又不像可点控件;折叠按钮改放顶栏左侧(现代 admin 通行做法)。
         trigger={null}
