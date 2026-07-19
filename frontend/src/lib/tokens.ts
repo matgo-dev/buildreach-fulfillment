@@ -10,10 +10,10 @@ export const colors = {
   brandDark: "#116631", //  hover / active
   brandLight: "#16A34A", //  导航激活高亮块 / 链接 hover(emerald-600)
   brandAccent: "#FF6B35", //  强调点缀(封面星标等)
-  sidebar: "#0B1E1A", //  侧边栏背景(深墨绿)
-  sidebarDeep: "#0E241F", //  侧边栏渐深(自上而下渐变落点)
-  sidebarText: "#9fb3ac", //  侧边栏未激活菜单文字
-  sidebarGroup: "#5c726c", //  侧边栏分组标题
+  sidebar: "#12302A", //  侧边栏背景(深墨绿,纯色不渐变 —— 渐变让底部像脏了一块)
+  sidebarText: "#d6e4df", //  侧边栏未激活菜单文字(高对比,深底上细字才不糊)
+  sidebarGroup: "#8aa39b", //  侧边栏分组标题(弱于菜单项但仍可读)
+  sidebarLine: "rgba(255,255,255,0.10)", //  侧边栏内分隔发丝线
   // §1.2 中性 / 语义文字
   navy: "#102441", //  标题
   ink: "#1c314f", //  正文

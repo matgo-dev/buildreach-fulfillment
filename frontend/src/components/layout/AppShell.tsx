@@ -1,6 +1,6 @@
 "use client";
 import { ReactNode, useEffect, useState } from "react";
-import { Layout, Menu, Breadcrumb, Dropdown, Avatar } from "antd";
+import { Layout, Menu, Breadcrumb, Dropdown, Avatar, Button } from "antd";
 import {
   AppstoreOutlined,
   FileTextOutlined,
@@ -16,6 +16,8 @@ import {
   DatabaseOutlined,
   ExportOutlined,
   ContainerOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
 } from "@ant-design/icons";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuthStore } from "@/stores/authStore";
@@ -25,10 +27,7 @@ import { colors } from "@/lib/tokens";
 
 const { Header, Sider, Content } = Layout;
 
-// 侧栏暗色底 = DESIGN §1.1 sidebar(深墨绿,自上而下渐深;与 AntD 默认 #001529 的有意偏离)。
-const SIDER_BG = `linear-gradient(180deg, ${colors.sidebar}, ${colors.sidebarDeep})`;
-// AntD Sider 折叠条是绝对定位在底部的,菜单区须让出这段高度才不被压住。
-const TRIGGER_H = 48;
+// 侧栏暗色底 = DESIGN §1.1 sidebar(深墨绿;与 AntD 默认 #001529 的有意偏离)。
 
 // 菜单按 ERP 职能域分 6 组(DESIGN §6):仅呈现层分组,路由与 perm 门控逻辑不变。
 // 菜单项按权限显隐(perm=可见所需权限点),避免死链;后端 RouteGuard 仍是访问底线。
@@ -135,32 +134,23 @@ export function AppShell({ children }: { children: ReactNode }) {
         collapsible
         collapsed={collapsed}
         onCollapse={setCollapsed}
-        style={{
-          background: SIDER_BG,
-          position: "sticky",
-          top: 0,
-          height: "100vh",
-        }}
+        // trigger={null}:AntD 自带的底部折叠条会在侧栏底部压出一条与背景同色的死区,
+        // 既浪费高度又不像可点控件;折叠按钮改放顶栏左侧(现代 admin 通行做法)。
+        trigger={null}
+        style={{ background: colors.sidebar, position: "sticky", top: 0, height: "100vh" }}
       >
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            height: "100%",
-            paddingBottom: TRIGGER_H,
-          }}
-        >
+        <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
           {/* 品牌区:与菜单项 icon 起点(24px)对齐的紧凑行 + 底部发丝线与菜单分隔 */}
           <div
             style={{
-              height: 56,
+              height: 48,
               flex: "0 0 auto",
               display: "flex",
               alignItems: "center",
               justifyContent: collapsed ? "center" : "flex-start",
               paddingLeft: collapsed ? 0 : 24,
               marginBottom: 4,
-              borderBottom: "1px solid rgba(255,255,255,0.08)",
+              borderBottom: `1px solid ${colors.sidebarLine}`,
               color: colors.white,
               fontSize: 15,
               fontWeight: 600,
@@ -209,11 +199,17 @@ export function AppShell({ children }: { children: ReactNode }) {
             background: colors.white,
             borderBottom: `1px solid ${colors.line}`,
             display: "flex",
-            justifyContent: "flex-end",
+            justifyContent: "space-between",
             alignItems: "center",
             paddingInline: 16,
           }}
         >
+          <Button
+            type="text"
+            aria-label={collapsed ? "展开导航" : "收起导航"}
+            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            onClick={() => setCollapsed((v) => !v)}
+          />
           <Dropdown
             menu={{
               items: [

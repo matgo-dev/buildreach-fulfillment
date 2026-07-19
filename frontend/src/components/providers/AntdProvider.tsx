@@ -24,19 +24,21 @@ const themeConfig = {
     colorTextHeading: colors.navy, // navy
     colorBorder: colors.line, // line
   },
-  // 暗色 Menu(全站唯一消费者=AppShell 侧栏):激活块走更亮的 brand-light,底色透明吃 Sider 渐变。
+  // 暗色 Menu(全站唯一消费者=AppShell 侧栏):激活块走更亮的 brand-light,底色透明吃 Sider 底。
+  // 密度收紧一档(项高 40→34、间距 4→2、分组标题 40→26):13 项 + 6 组标题要在一屏内看完,
+  // 否则侧栏出滚动条,每次导航都得滑,密集 ERP 里这是硬伤。
   components: {
-    // Sider 底部折叠条不吃 Sider 的自定义背景,自带 AntD 暗蓝默认值,须显式对齐侧栏色。
-    Layout: {
-      triggerBg: colors.sidebarDeep,
-      triggerColor: colors.sidebarText,
-    },
     Menu: {
       darkItemBg: "transparent",
       darkSubMenuItemBg: "transparent",
       darkItemSelectedBg: colors.brandLight,
       darkItemColor: colors.sidebarText,
       darkGroupTitleColor: colors.sidebarGroup,
+      itemHeight: 34,
+      itemMarginBlock: 2,
+      itemMarginInline: 8,
+      groupTitleLineHeight: "26px",
+      groupTitleFontSize: 12,
     },
   },
   algorithm: theme.defaultAlgorithm,
