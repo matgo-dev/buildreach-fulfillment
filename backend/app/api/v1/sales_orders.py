@@ -30,6 +30,7 @@ from app.services import (
     purchase_order_service,
     sales_order_service,
     stock_balance_service,
+    unit_service,
 )
 from app.services.stock_balance_service import StockScope
 
@@ -80,8 +81,9 @@ async def cancel_sales_order(
     return success({
         "order": {**SalesOrderOut.model_validate(so, from_attributes=True).model_dump(),
                   **parties},
-        "lines": [SalesOrderLineOut.model_validate(ln, from_attributes=True).model_dump()
-                  for ln in lines],
+        "lines": await unit_service.translate_unit_snapshots(
+            db, [SalesOrderLineOut.model_validate(ln, from_attributes=True).model_dump()
+                 for ln in lines]),
     })
 
 
@@ -89,7 +91,8 @@ async def cancel_sales_order(
 async def outboundable_lines(order_id: int, _current: CurrentUser = _OUTBOUND_MANAGE,
                              db: AsyncSession = Depends(get_db)):
     rows = await outbound_service.outboundable_lines(db, order_id)
-    return success({"items": [OutboundableLineOut.model_validate(r).model_dump() for r in rows]})
+    return success({"items": await unit_service.translate_unit_snapshots(
+        db, [OutboundableLineOut.model_validate(r).model_dump() for r in rows])})
 
 
 @router.get("/{order_id}", summary="取销售单(含行 + 来源报价 + 采购进度/关联PO)")
@@ -133,4 +136,5 @@ async def get_sales_order(
         d = SalesOrderLineOut.model_validate(ln, from_attributes=True).model_dump()
         d["covered_qty"] = float(covered.get(ln.id, 0))
         line_outs.append(d)
+    await unit_service.translate_unit_snapshots(db, line_outs)
     return success({"order": order_out, "lines": line_outs})

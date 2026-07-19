@@ -40,6 +40,7 @@ async def test_end_to_end_build_search_quote(
     assert Decimal(str(order["total_amount"])) == Decimal("300.00")   # 150*2
     line = (await client.get(f"/api/v1/quotations/{order['id']}",
             headers=sales_headers)).json()["data"]["lines"][0]
-    # unit_snapshot 冻结展示 label:order.language=en → units.label_i18n.en("pc"),非 code("piece")
-    assert line["unit_snapshot"] == "pc"
+    # unit_snapshot 冻结 units.code("piece"),展示层按**内部界面语言**(zh)翻译成"件";
+    # 不随单据语言走(order.language=en 也显示中文),否则中文运营界面单位列会中英混排。
+    assert line["unit_snapshot"] == "件"
     assert line["name_snapshot"]  # 非空快照

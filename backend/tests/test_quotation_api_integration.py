@@ -110,7 +110,7 @@ async def test_snapshot_is_server_authoritative(client, sales_headers, db_sessio
     line = (await client.get(f"/api/v1/quotations/{oid}", headers=sales_headers)
             ).json()["data"]["lines"][0]
     assert line["name_snapshot"] == "工字钢200"    # 服务端 SKU 名,非客户端伪造
-    assert line["unit_snapshot"] == "吨"           # units.label_i18n 展示值,非伪造
+    assert line["unit_snapshot"] == "吨"           # 服务端冻 SKU 的 units.code(ton),展示层翻译
     assert "伪造" not in line["spec_text_snapshot"]  # 规格服务端组合,不含客户端注入
 
 

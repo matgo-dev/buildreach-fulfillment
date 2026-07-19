@@ -29,7 +29,7 @@ from app.schemas.inbound_order import (
 )
 from app.schemas.payable import PayableOut
 from app.schemas.purchase_order import PurchaseOrderOut
-from app.services import inbound_order_service, purchase_order_service
+from app.services import inbound_order_service, purchase_order_service, unit_service
 
 router = APIRouter(prefix="/inbound-orders", tags=["inbound-orders"])
 
@@ -47,7 +47,8 @@ async def _detail_payload(db, order, current) -> dict:
             "purchase_order_no": po.no,
             "supplier_display": parties["supplier_display"],
         }),
-        "lines": [InboundOrderLineOut.build(ln) for ln in lines],
+        "lines": await unit_service.translate_unit_snapshots(
+            db, [InboundOrderLineOut.build(ln) for ln in lines]),
         "purchase_order": PurchaseOrderOut.build(po, parties, can_see_cost=can_see_cost(current)),
     }
     # payable 块:仅持 payable:read 且已入库(有活动 payable)时下发。
@@ -87,7 +88,8 @@ async def list_inbound_orders(page_params: PageParams = Depends(),
 async def receivable_lines(purchase_order_id: int = Query(...),
                            _current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
     rows = await inbound_order_service.receivable_lines(db, purchase_order_id)
-    return success({"items": [ReceivableLineOut.model_validate(r).model_dump() for r in rows]})
+    return success({"items": await unit_service.translate_unit_snapshots(
+        db, [ReceivableLineOut.model_validate(r).model_dump() for r in rows])})
 
 
 @router.get("/{order_id}", summary="取入库单(含行 + PO 摘要 + payable 块)")

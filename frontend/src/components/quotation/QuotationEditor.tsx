@@ -73,7 +73,8 @@ export function QuotationEditor({ mode, orderId }: { mode: "create" | "edit"; or
       ]);
       setCustomers(custs.items.map((c: CustomerListItem) => ({ id: c.id, name: c.name })));
       setSalespeople(sps);
-      // 售卖单位 code→展示 label(与后端 unit_snapshot 口径一致:units.label_i18n)。
+      // 售卖单位 code→展示 label:挑货抽屉返回的是 sku.unit(code),编辑器要显示中文。
+      // (存量行回显直接用后端 unit_snapshot —— 后端存 code、出口已翻成界面语言,无需再映射。)
       setUnitLabels(new Map(units.items.map((u) => [u.code, display(u.label_i18n)])));
       if (mode === "edit" && orderId) {
         const { order, lines: ls } = await quotationApi.get(orderId);
