@@ -27,6 +27,8 @@ const { Header, Sider, Content } = Layout;
 
 // 侧栏暗色底 = DESIGN §1.1 sidebar(深墨绿,自上而下渐深;与 AntD 默认 #001529 的有意偏离)。
 const SIDER_BG = `linear-gradient(180deg, ${colors.sidebar}, ${colors.sidebarDeep})`;
+// AntD Sider 折叠条是绝对定位在底部的,菜单区须让出这段高度才不被压住。
+const TRIGGER_H = 48;
 
 // 菜单按 ERP 职能域分 6 组(DESIGN §6):仅呈现层分组,路由与 perm 门控逻辑不变。
 // 菜单项按权限显隐(perm=可见所需权限点),避免死链;后端 RouteGuard 仍是访问底线。
@@ -76,7 +78,11 @@ const MENU_GROUPS = [
   },
 ];
 
-export function AppShell({ children, breadcrumb = [] }: { children: ReactNode; breadcrumb?: string[] }) {
+/**
+ * 全站唯一外壳实例(挂在根 layout 的 ShellGate 上,业务段 layout 只留 RouteGuard)。
+ * 单实例是硬要求:外壳若按业务域各挂一个,跨域导航会整体重挂,侧栏滚动位置与折叠态每次归零。
+ */
+export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
@@ -98,10 +104,16 @@ export function AppShell({ children, breadcrumb = [] }: { children: ReactNode; b
       .filter((k) => pathname === k || pathname.startsWith(k + "/"))
       .sort((a, b) => b.length - a.length)[0] ?? pathname;
 
-  // 26 个页面全是客户端组件(Next `metadata` 不生效),故页签标题集中设在此:
-  // 详情页取面包屑末段(即单号),列表页取当前菜单标签 —— 保证并行开多页签各不同名。
-  // 依赖收敛成字符串:breadcrumb/visibleItems 每次渲染都是新数组,直接进 deps 会每帧重跑。
-  const titleLabel = breadcrumb[breadcrumb.length - 1] ?? visibleItems.find((m) => m.key === selectedKey)?.label;
+  // 面包屑从菜单结构派生(组名 + 菜单标签),不再由各业务段 layout 各写一份手抄值 —— 单一源头。
+  const currentGroup = visibleGroups.find((g) => g.items.some((m) => m.key === selectedKey));
+  const currentItem = visibleItems.find((m) => m.key === selectedKey);
+  const breadcrumb = currentItem
+    ? [currentGroup?.group, currentItem.label].filter((s): s is string => Boolean(s))
+    : [];
+
+  // 全站页面均为客户端组件(Next `metadata` 不生效),故页签标题集中设在此,
+  // 保证并行开多页签各不同名。依赖收敛成字符串:visibleItems 每渲染都是新数组,直接进 deps 会每帧重跑。
+  const titleLabel = currentItem?.label;
   useEffect(() => {
     document.title = titleLabel ? `${titleLabel} · 履约系统` : "履约系统";
   }, [titleLabel]);
@@ -118,44 +130,78 @@ export function AppShell({ children, breadcrumb = [] }: { children: ReactNode; b
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
-      <Sider collapsible collapsed={collapsed} onCollapse={setCollapsed} style={{ background: SIDER_BG }}>
-        {/* 品牌区:与菜单项 icon 起点(24px)对齐的紧凑行 + 底部发丝线与菜单分隔 */}
+      {/* 侧栏钉住视口:内容区再长也不带着导航滚;菜单超高时只在菜单区内部滚(留出底部折叠条高度)。 */}
+      <Sider
+        collapsible
+        collapsed={collapsed}
+        onCollapse={setCollapsed}
+        style={{
+          background: SIDER_BG,
+          position: "sticky",
+          top: 0,
+          height: "100vh",
+        }}
+      >
         <div
           style={{
-            height: 56,
             display: "flex",
-            alignItems: "center",
-            justifyContent: collapsed ? "center" : "flex-start",
-            paddingLeft: collapsed ? 0 : 24,
-            marginBottom: 4,
-            borderBottom: "1px solid rgba(255,255,255,0.08)",
-            color: colors.white,
-            fontSize: 15,
-            fontWeight: 600,
-            letterSpacing: 1,
-            whiteSpace: "nowrap",
+            flexDirection: "column",
+            height: "100%",
+            paddingBottom: TRIGGER_H,
           }}
         >
-          {collapsed ? "履约" : "履约系统"}
+          {/* 品牌区:与菜单项 icon 起点(24px)对齐的紧凑行 + 底部发丝线与菜单分隔 */}
+          <div
+            style={{
+              height: 56,
+              flex: "0 0 auto",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: collapsed ? "center" : "flex-start",
+              paddingLeft: collapsed ? 0 : 24,
+              marginBottom: 4,
+              borderBottom: "1px solid rgba(255,255,255,0.08)",
+              color: colors.white,
+              fontSize: 15,
+              fontWeight: 600,
+              letterSpacing: 1,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {collapsed ? "履约" : "履约系统"}
+          </div>
+          <Menu
+            theme="dark"
+            mode="inline"
+            style={{
+              background: "transparent",
+              flex: "1 1 auto",
+              overflowY: "auto",
+              overflowX: "hidden",
+            }}
+            selectedKeys={[selectedKey]}
+            // 折叠态下分组标题只剩噪声(仅余图标),此时铺平只留菜单项。
+            items={
+              collapsed
+                ? visibleItems.map((m) => ({
+                    key: m.key,
+                    icon: m.icon,
+                    label: m.label,
+                  }))
+                : visibleGroups.map((g) => ({
+                    key: `group:${g.group}`,
+                    type: "group" as const,
+                    label: g.group,
+                    children: g.items.map((m) => ({
+                      key: m.key,
+                      icon: m.icon,
+                      label: m.label,
+                    })),
+                  }))
+            }
+            onClick={({ key }) => router.push(key)}
+          />
         </div>
-        <Menu
-          theme="dark"
-          mode="inline"
-          style={{ background: "transparent" }}
-          selectedKeys={[selectedKey]}
-          // 折叠态下分组标题只剩噪声(仅余图标),此时铺平只留菜单项。
-          items={
-            collapsed
-              ? visibleItems.map((m) => ({ key: m.key, icon: m.icon, label: m.label }))
-              : visibleGroups.map((g) => ({
-                  key: `group:${g.group}`,
-                  type: "group" as const,
-                  label: g.group,
-                  children: g.items.map((m) => ({ key: m.key, icon: m.icon, label: m.label })),
-                }))
-          }
-          onClick={({ key }) => router.push(key)}
-        />
       </Sider>
       <Layout>
         <Header
@@ -170,7 +216,14 @@ export function AppShell({ children, breadcrumb = [] }: { children: ReactNode; b
         >
           <Dropdown
             menu={{
-              items: [{ key: "logout", icon: <LogoutOutlined />, label: "登出", onClick: onLogout }],
+              items: [
+                {
+                  key: "logout",
+                  icon: <LogoutOutlined />,
+                  label: "登出",
+                  onClick: onLogout,
+                },
+              ],
             }}
           >
             <span style={{ cursor: "pointer", color: colors.ink }}>

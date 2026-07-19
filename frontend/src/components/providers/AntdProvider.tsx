@@ -26,6 +26,11 @@ const themeConfig = {
   },
   // 暗色 Menu(全站唯一消费者=AppShell 侧栏):激活块走更亮的 brand-light,底色透明吃 Sider 渐变。
   components: {
+    // Sider 底部折叠条不吃 Sider 的自定义背景,自带 AntD 暗蓝默认值,须显式对齐侧栏色。
+    Layout: {
+      triggerBg: colors.sidebarDeep,
+      triggerColor: colors.sidebarText,
+    },
     Menu: {
       darkItemBg: "transparent",
       darkSubMenuItemBg: "transparent",

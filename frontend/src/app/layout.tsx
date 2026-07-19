@@ -3,6 +3,7 @@ import { ReactNode } from "react";
 
 import { AntdProvider } from "@/components/providers/AntdProvider";
 import { AuthProvider } from "@/components/auth/AuthProvider";
+import { ShellGate } from "@/components/layout/ShellGate";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -15,7 +16,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="zh">
       <body>
         <AntdProvider>
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            <ShellGate>{children}</ShellGate>
+          </AuthProvider>
         </AntdProvider>
       </body>
     </html>
