@@ -24,6 +24,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.i18n import compose_spec_text, display
+from app.core.languages import INTERNAL_UI_LANGUAGE
 from app.db.models.inbound_order import InboundOrder, InboundOrderLine, InboundOrderStatus
 from app.db.models.outbound_order import (
     OutboundOrder,
@@ -184,7 +185,9 @@ async def _compose_display(db: AsyncSession, rows) -> list[dict]:
         by_cat[code] = await tmpl.suggestions_by_key(db, code)
     out = []
     for r in rows:
-        lang = r.language
+        # 内部读投影按界面语言渲染,**不取** SalesOrder.language ——
+        # 那是发给客户的单据语言,用它渲染内部列表会中英混排(见 core/languages.py)。
+        lang = INTERNAL_UI_LANGUAGE
         out.append({
             "sales_order_id": r.so_id,
             "sales_order_no": r.so_no,
@@ -231,12 +234,12 @@ async def compute_stock_balance(
     - scope 见 StockScope。page/size 均给时分页(聚合子查询外层),否则返回全量(SO 详情块)。
     """
     bal = _balance_subquery(sales_order_id, sku_id)
-    # 展示投影:join 当前档 SKU/SPU/单位 + SO 号与语言(合并键为 (so,sku),join 单值)。
+    # 展示投影:join 当前档 SKU/SPU/单位 + SO 号(合并键为 (so,sku),join 单值)。
     stmt = (
         select(
             bal.c.so_id, bal.c.sku_id,
             bal.c.ordered_qty, bal.c.inbound_qty, bal.c.outbound_qty, bal.c.available_qty,
-            SalesOrder.no.label("so_no"), SalesOrder.language.label("language"),
+            SalesOrder.no.label("so_no"),
             Sku.sku_code, Sku.name_i18n, Sku.spec_jsonb,
             Sku.unit.label("unit_code"), Unit.label_i18n.label("unit_label"),
             Spu.category_code,

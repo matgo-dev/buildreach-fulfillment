@@ -15,9 +15,13 @@ from tests.purchase_helpers import create_supplier  # noqa: F401
 
 
 async def seed_inventory_catalog(db, *, sku_codes=("SKUINV_A",), unit="ton",
-                                 cust_code="CINV0001"):
+                                 cust_code="CINV0001", quote_language=None,
+                                 sku_name_i18n=None):
     """建 ACTIVE catalog(1 SPU + N SKU)+ 客户。返回 (customer, [Sku...])。
-    多 SKU 支撑「跨 PO 不同 SKU 归属」与「同 SO 两行同 SKU 合并」两类场景。"""
+    多 SKU 支撑「跨 PO 不同 SKU 归属」与「同 SO 两行同 SKU 合并」两类场景。
+
+    quote_language:客户报价语言(非 None 时 SO 继承),用于验「内部读投影不随单据语言变」。
+    sku_name_i18n:覆盖 SKU 品名多语言,同上。"""
     if not (await db.execute(
             select(Category).where(Category.code == "10"))).scalar_one_or_none():
         db.add(Category(code="10", parent_code=None, name_i18n={"zh": "钢材"},
@@ -30,10 +34,11 @@ async def seed_inventory_catalog(db, *, sku_codes=("SKUINV_A",), unit="ton",
     skus = []
     for code in sku_codes:
         sku = Sku(spu_id=spu.id, sku_code=code, unit=unit,
-                  name_i18n={"zh": f"品名-{code}"}, created_by=1, status="ACTIVE")
+                  name_i18n=sku_name_i18n or {"zh": f"品名-{code}"},
+                  created_by=1, status="ACTIVE")
         db.add(sku)
         skus.append(sku)
-    cust = Customer(code=cust_code, name="库存客户")
+    cust = Customer(code=cust_code, name="库存客户", quote_language=quote_language)
     db.add(cust)
     await db.commit()
     for sku in skus:
