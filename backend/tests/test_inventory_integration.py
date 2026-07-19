@@ -282,3 +282,33 @@ async def test_pagination_and_filters(client, db_session, sales_headers, purchas
     # q 按 sku_code
     by_code = await _inventory(client, purchaser_headers, q="SKUINV_B")
     assert all("SKUINV_B" == it["sku_code"] for it in by_code["items"]) and by_code["total"] >= 1
+
+
+# ─────────────────── ⑧ 内部读投影按界面语言,不随单据语言漂 ───────────────────
+
+async def test_internal_projection_renders_ui_language_not_document_language(
+        client, db_session, sales_headers, purchaser_headers):
+    """英文销售单(customer.quote_language='en')的库存行,展示三件套仍是中文。
+
+    SalesOrder.language 是「发给客户的单据语言」,只该管报价单/形式发票等对外输出;
+    库存页是内部中文运营界面,拿单据语言渲染会让同一列表里中英混排(实测:单位列
+    一行「件」一行「bag」)。故内部读投影固定按界面语言渲染。
+    """
+    cust, [sku] = await seed_inventory_catalog(
+        db_session, sku_codes=("SKUINV_EN",), unit="bag", cust_code="CINV_EN",
+        quote_language="en", sku_name_i18n={"zh": "工字钢", "en": "I-beam"})
+    so_id, so_lines = await make_confirmed_so(
+        client, sales_headers, cust, [{"sku_id": sku.id, "unit_price": "9.00", "qty": 10}])
+    sup = await create_supplier(client, purchaser_headers)
+    po_id, po_lines = await make_confirmed_po(
+        client, purchaser_headers, source_sales_order_id=so_id, so_lines=so_lines,
+        supplier=sup, lines=[{"source_sales_order_line_id": so_lines[0]["id"],
+                              "qty": 10, "unit_price": "5.00"}])
+    await receive_inbound(client, purchaser_headers,
+                          purchase_order_id=po_id,
+                          lines=[{"purchase_order_line_id": po_lines[0]["id"], "qty": 10}])
+
+    page = await _inventory(client, sales_headers, sales_order_id=so_id)
+    row = rows_by_sku(page["items"])[sku.id]
+    assert row["unit"] == "包", f"单位应按界面语言取中文,实得 {row['unit']!r}"
+    assert row["name"] == "工字钢", f"品名应按界面语言取中文,实得 {row['name']!r}"
