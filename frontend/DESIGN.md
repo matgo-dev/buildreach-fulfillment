@@ -3,7 +3,8 @@
 > 内部供应链履约平台（运营/采购/财务/管理，中文，桌面优先）的**唯一前端设计源头**。
 > AI 工具 + 人类设计师都读这一份；`ff-ui-director` skill、`CLAUDE.md` 只指向它，不复制内容。
 >
-> **来源**：抽自前台仓库 `buildreach/DESIGN.md` 的「运营后台 (Admin) 轨」（主色本就是 `#003366`，与本平台一致）；**丢弃买方前台 (Mall/Teal) 轨**。视觉方向 = **B 现代 SaaS 克制型**。
+> **来源**：结构抽自前台仓库 `buildreach/DESIGN.md` 的「运营后台 (Admin) 轨」。视觉方向 = **B 现代 SaaS 克制型**。
+> **主色 = 祖母绿（2026-07-19 改版）**：动机是**品牌统一** —— 内部履约平台对齐对外 matgo 商城的品牌绿；此前的深海军蓝 `#003366` 已作废。绿作**点睛非铺满**：只落「侧栏导航激活块 + 主操作/链接」，侧栏保持深色（改深墨绿）。为避免「品牌绿 vs 成功绿」抢视觉，**成功语义改青 teal**（见 §1.3）。
 > **与前台 admin 轨的有意偏离**：① 表格**不走斑马**（去掉 `even:bg`）；② 采用暗色侧栏 + 我们新增的交互/图片/权限约定。
 
 ---
@@ -12,11 +13,14 @@
 
 ### 1.1 主色 / 品牌
 ```
-brand        #003366   主操作、导航激活、链接
-brand-dark   #002244   hover / active
-brand-mid    #0F4C81   次要蓝
-brand-accent #FF6B35   强调（少量点缀，如未读/重点标记；不与主操作抢戏）
-sidebar      #0A1929   侧边栏背景（暗色）
+brand         #15803D   主操作、链接（emerald-700）
+brand-dark    #116631   hover / active
+brand-light   #16A34A   侧栏导航激活高亮块 / 链接 hover（emerald-600）
+brand-accent  #FF6B35   强调（少量点缀，如封面星标；不与主操作抢戏）
+sidebar       #12302A   侧边栏背景（深墨绿，纯色不渐变——渐变会让底部看着像脏了一块）
+sidebar-text  #d6e4df   侧栏未激活菜单文字（深底上细字要够亮才不糊）
+sidebar-group #8aa39b   侧栏分组标题（弱于菜单项但仍可读）
+sidebar-line  rgba(255,255,255,.10)  侧栏内分隔发丝线
 ```
 
 ### 1.2 中性 / 语义文字
@@ -32,10 +36,15 @@ bg     #f4f7f9   页面背景
 ### 1.3 状态色 — 业务状态映射到语义色（不单靠颜色，配点+文字）
 | 业务状态 | 语义 | 文字 | 底 | 圆点 |
 |---|---|---|---|---|
-| 在售 | success | emerald-800 `#065f46` | emerald-50 `#ecfdf5` | emerald-500 `#10b981` |
+| 在售 / 已完成 | success | teal-700 `#0f766e` | teal-50 `#f0fdfa` | **teal-600 `#0D9488`** |
+| 进行中（在途/部分入库/锁档…） | info | blue-600 | blue-50 | `#1677ff` |
 | 停用 | neutral | slate-600 `#475569` | slate-100 `#f1f5f9` | slate-400 `#94a3b8` |
 | 草稿 | warning | amber-800 `#92400e` | amber-50 `#fffbeb` | amber-500 `#f59e0b` |
 | （危险操作）| danger | red-800 `#991b1b` | red-50 `#fef2f2` | red-500 `#ef4444` |
+
+> **成功为什么走青而不是绿**：品牌已是祖母绿，绿再兼任「成功」语义会在密集表格里与主按钮/激活块抢视觉。青与品牌绿**色相拉开**、语义仍读作「好/正常」，叠加「实心按钮 vs 浅底 chip」的形态差异，同屏共存不糊。
+> **info 必须显式钉蓝**：AntD 的 `colorInfo` 默认跟随 `colorPrimary`，不钉死则所有「处理中」态会一起变绿、与成功态糊成一片。
+> 实现：状态色**只经 AntD 语义令牌**（`colorSuccess`/`colorInfo`/…）下发，各域 `*_STATUS_META` 只写语义名（`success`/`processing`/`warning`/`error`/`default`），**不写色值**；上表底/边为 AntD 派生的设计基准。
 
 ---
 
@@ -80,12 +89,12 @@ font-family: ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Microsoft 
 
 ## 5. 组件
 
-> **组件库 = Ant Design 5+（`ConfigProvider` 主题令牌对齐本文 token：`colorPrimary=#003366`、`borderRadius=6`、`fontSize=14`、Table 无斑马）。** 下列各组件的类名/规格是**视觉规格**（间距、圆角、状态色、交互载体），实现落在 AntD 组件上、由主题令牌保证一致；纯展示的轻组件（StatusChip/缩略图等）可用 Tailwind 直接写。二者只此一套令牌源头，勿在别处另立色板。
+> **组件库 = Ant Design 5+（`ConfigProvider` 主题令牌对齐本文 token：`colorPrimary=#15803D`、`colorSuccess=#0D9488`、`colorInfo=#1677ff`、`borderRadius=6`、`fontSize=14`、Table 无斑马）。** 下列各组件的类名/规格是**视觉规格**（间距、圆角、状态色、交互载体），实现落在 AntD 组件上、由主题令牌保证一致；纯展示的轻组件（StatusChip/缩略图等）可用 Tailwind 直接写。二者只此一套令牌源头，勿在别处另立色板。
 
 - **Button**（纯色无渐变，AntD `type` 映射：主操作 `primary` / 次要 `default` / 工具栏 `text` / 危险 `danger`）：`default`(brand 主操作) / `outline`(次要) / `ghost`(工具栏) / `destructive`(危险)。
 - **Card**：`rounded-lg border border-gray-200 bg-white`。扁平、不套娃。
 - **Input**：`h-10 rounded-md border-slate-300 bg-white px-3 text-sm`，focus `ring-2 ring-brand`。
-- **Table**：表头 `bg-slate-50 text-xs text-gray-500 font-medium`；行 `border-t border-gray-100 hover:bg-blue-50/30`；**行高 ~36px**；操作列 `whitespace-nowrap`。**不用斑马**（`even:bg` 去掉——与前台 admin 的有意偏离）。
+- **Table**：表头 `bg-slate-50 text-xs text-gray-500 font-medium`；行 `border-t border-gray-100 hover:bg-slate-50`；**行高 ~36px**；操作列 `whitespace-nowrap`。**不用斑马**（`even:bg` 去掉——与前台 admin 的有意偏离）。
 - **Badge/StatusChip**：`rounded-full px-2 py-0.5 text-[11px] font-medium` + 圆点，按 §1.3 状态色。
 - **Drawer（详情/表单主载体）**：右侧滑出，遮罩 `bg-black/30`，容器白底 `rounded-xl` 左描边 + 轻阴影；含「打开完整详情页」出口。
 - **Toast**：`fixed top-4 居中 z-[9999]`，`rounded-lg px-5 py-3 shadow-lg`。
@@ -103,7 +112,16 @@ font-family: ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Microsoft 
 │ e│                                            │
 ├──┴────────────────────────────────────────────┤
 ```
-- Sidebar：`w-60`，背景 `#0A1929`（暗色），可折叠。
+- Sidebar：宽 **168px**（非 AntD 默认 200——菜单标签最长 4 个汉字，200 会在右侧留出一条明显空白带），背景 `sidebar` 深墨绿纯色，可折叠。菜单按 ERP 职能域**分 6 组**——基础资料（商品目录/客户/供应商）· 销售（报价/销售单）· 采购 · 仓储物流（入库/库存/出库/发运柜）· 财务（应收/应付）· 系统。分组**仅是呈现层**：路由与权限点不变，整组被权限过滤空则组标题一并隐藏，折叠态铺平不显组标题。激活项 = `brand-light` 实心高亮块。
+  - **一屏看完是硬指标**：13 项 + 6 个组标题必须在常见视口内不出滚动条，故菜单密度收紧一档（项高 34 / 项间距 2 / 组标题行高 26）。密集 ERP 里侧栏一出滚动条，每次导航都要先滑，是硬伤。
+  - **折叠按钮放顶栏最左端**（Gmail / GitHub / VS Code / Dynamics 主流位；已定，勿再改回侧栏内）：
+    - 不用 AntD 自带的**底部折叠条**——它绝对定位在侧栏底部，会压出一段与背景同色的死区，既吃高度又不像可点控件；这个位置是 AntD Pro / SAP Fiori 的框架惯例，不是独立验证过的交互结论。
+    - 也不放**侧栏头部右侧**（Notion / Atlassian 位）——按钮若在侧栏内，折叠时会随侧栏 168→80 一起位移，反复「收起看宽表格→展开」时目标点每次都在动（Fitts 定律）；放顶栏左端则屏幕坐标恒定，且正压在侧栏那一列上方，邻接性仍在。侧栏仅 168px 也塞不下品牌 + 按钮的两套排布。
+    - 图标用 `MenuFold`/`MenuUnfold`（带方向语义），不用无指向的汉堡。
+  - 客户/供应商**同组、两个独立入口，不合并成「往来单位」单入口 + tab**：**没有任何角色同时持有 `customer:read` 与 `supplier:read`**（连 ADMIN 都只持客户侧，见 `backend/app/rbac/permissions_config.py` 的职责分离），故 tab 方案对每个角色都必有一个死 tab——tab 的前提是「同一个人在两切面间来回切」，这个人不存在。权限过滤后各角色看到的本就只有其中一个入口，合并省不下一行。（合并成**同一张列表**则另有红线问题：二者红线字段与 RBAC 边界完全不同，会打穿脱敏，见 §9。）
+- **外壳全站唯一实例**（硬约束）：`AppShell` 只挂在根 layout 的 `ShellGate` 上，业务段 layout **只留 `RouteGuard` 权限门、不再各自套壳**。外壳若按业务域各挂一个，跨域导航会整体重挂，**侧栏滚动位置与折叠态每次归零**。侧栏 `position:sticky` 钉住视口，菜单超高时只在菜单区内部滚。
+- **面包屑从菜单结构派生**（组名 + 菜单标签），不由各段 layout 手抄——单一源头，改菜单即改面包屑。
+- **浏览器页签标题**：全站页面均为客户端组件（Next `metadata` 不生效），故 `document.title` 由 AppShell 集中设为「菜单标签 · 履约系统」。**触发式待办（现在不做）**：详情页再带上单号（如 `OB-20260717-014 · 履约系统`）只在「同时开两张同类单据来回比对」时才有增量价值，该操作路径尚未被真实使用验证；与「不做 MDI 多页签工作台」同一条线——上线后观察到真实并行路径再一起做，晚做不变贵。
 - **满屏**：主内容吃满宽高，不居中窄栏。**但**表单/详情正文有内部最大宽度（字段别拉超宽，按 1–2 列分组）；超宽屏(27″+)给内容上限或右侧留白。
 
 ---
@@ -140,7 +158,7 @@ Toast `9999` / Modal 遮罩 `50` / 抽屉 `40` / 用户菜单 `200` / 顶栏 `80
 ---
 
 ## 11. 规则
-1. **不发明新色值/字号** — 只用上表 token。**颜色只在 `tailwind.config.ts` 定义一次（语义命名 brand/sidebar/status-*，可选 CSS 变量兜底），组件只用 token 名（`bg-brand`），永不写裸 hex（`#003366`）。改色号 = 改 config 一处，全站更新。**
+1. **不发明新色值/字号** — 只用上表 token。**颜色只在 `src/lib/tokens.ts` 定义一次（语义命名 brand/sidebar/success/info…），`tailwind.config.ts` 与 AntD `ConfigProvider` 均从它取值；组件只用 token 名（`bg-brand`）或 AntD 语义名，永不写裸 hex（`#15803D`）。改色号 = 改 tokens.ts 一处，全站更新。**
 2. **间距用 4px 网格**。
 3. **后台按钮用 AntD 简洁风，不加渐变**（前台 Mall 的 pill/渐变风严禁用于本平台）。
 4. **hover 必须有反馈**（颜色/阴影至少一种）。

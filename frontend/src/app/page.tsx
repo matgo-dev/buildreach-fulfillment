@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { RouteGuard } from "@/components/auth/RouteGuard";
 import { useAuthStore } from "@/stores/authStore";
 
-// 登录后落地页:直接进商品目录操作台(带左侧导航的 AppShell)。
+// 登录后落地页:直接进商品目录操作台。
 // 尚无独立 dashboard,故首页即重定向;未登录由 RouteGuard 兜去 /login。
 function HomeRedirect() {
   const router = useRouter();

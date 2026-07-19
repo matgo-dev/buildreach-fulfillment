@@ -1,6 +1,6 @@
 "use client";
-import { ReactNode, useState } from "react";
-import { Layout, Menu, Breadcrumb, Dropdown, Avatar } from "antd";
+import { ReactNode, useEffect, useState } from "react";
+import { Layout, Menu, Breadcrumb, Dropdown, Avatar, Button } from "antd";
 import {
   AppstoreOutlined,
   FileTextOutlined,
@@ -16,6 +16,8 @@ import {
   DatabaseOutlined,
   ExportOutlined,
   ContainerOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
 } from "@ant-design/icons";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuthStore } from "@/stores/authStore";
@@ -25,27 +27,61 @@ import { colors } from "@/lib/tokens";
 
 const { Header, Sider, Content } = Layout;
 
-// 侧栏暗色底 = DESIGN §1.1 sidebar(与 AntD 默认 #001529 的有意偏离)。
-const SIDER_BG = colors.sidebar;
+// 侧栏暗色底 = DESIGN §1.1 sidebar(深墨绿;与 AntD 默认 #001529 的有意偏离)。
 
+// 菜单按 ERP 职能域分 6 组(DESIGN §6):仅呈现层分组,路由与 perm 门控逻辑不变。
 // 菜单项按权限显隐(perm=可见所需权限点),避免死链;后端 RouteGuard 仍是访问底线。
-const MENU_ITEMS = [
-  { key: "/catalog/spus", icon: <AppstoreOutlined />, label: "商品目录", perm: Permissions.PRODUCT_READ },
-  { key: "/sales/customers", icon: <TeamOutlined />, label: "客户", perm: Permissions.CUSTOMER_READ },
-  { key: "/sales/quotations", icon: <FileTextOutlined />, label: "报价管理", perm: Permissions.QUOTE_MANAGE },
-  { key: "/sales/orders", icon: <ProfileOutlined />, label: "销售单", perm: Permissions.SALES_READ },
-  { key: "/purchasing/suppliers", icon: <ShopOutlined />, label: "供应商", perm: Permissions.SUPPLIER_READ },
-  { key: "/purchasing/orders", icon: <ShoppingCartOutlined />, label: "采购单", perm: Permissions.PURCHASE_READ },
-  { key: "/inbound", icon: <InboxOutlined />, label: "入库单", perm: Permissions.INBOUND_READ },
-  { key: "/inventory", icon: <DatabaseOutlined />, label: "库存", perm: Permissions.INVENTORY_READ },
-  { key: "/outbound", icon: <ExportOutlined />, label: "出库单", perm: Permissions.OUTBOUND_READ },
-  { key: "/shipments", icon: <ContainerOutlined />, label: "发运柜", perm: Permissions.SHIPMENT_READ },
-  { key: "/finance/payables", icon: <AccountBookOutlined />, label: "财务·应付款", perm: Permissions.PAYABLE_READ },
-  { key: "/finance/receivables", icon: <AccountBookOutlined />, label: "财务·应收款", perm: Permissions.RECEIVABLE_READ },
-  { key: "/admin/users", icon: <SafetyCertificateOutlined />, label: "用户管理", perm: Permissions.USER_MANAGE },
+const MENU_GROUPS = [
+  {
+    group: "基础资料",
+    items: [
+      { key: "/catalog/spus", icon: <AppstoreOutlined />, label: "商品目录", perm: Permissions.PRODUCT_READ },
+      { key: "/sales/customers", icon: <TeamOutlined />, label: "客户", perm: Permissions.CUSTOMER_READ },
+      { key: "/purchasing/suppliers", icon: <ShopOutlined />, label: "供应商", perm: Permissions.SUPPLIER_READ },
+    ],
+  },
+  {
+    group: "销售",
+    items: [
+      { key: "/sales/quotations", icon: <FileTextOutlined />, label: "报价管理", perm: Permissions.QUOTE_MANAGE },
+      { key: "/sales/orders", icon: <ProfileOutlined />, label: "销售单", perm: Permissions.SALES_READ },
+    ],
+  },
+  {
+    group: "采购",
+    items: [
+      { key: "/purchasing/orders", icon: <ShoppingCartOutlined />, label: "采购单", perm: Permissions.PURCHASE_READ },
+    ],
+  },
+  {
+    group: "仓储物流",
+    items: [
+      { key: "/inbound", icon: <InboxOutlined />, label: "入库单", perm: Permissions.INBOUND_READ },
+      { key: "/inventory", icon: <DatabaseOutlined />, label: "库存", perm: Permissions.INVENTORY_READ },
+      { key: "/outbound", icon: <ExportOutlined />, label: "出库单", perm: Permissions.OUTBOUND_READ },
+      { key: "/shipments", icon: <ContainerOutlined />, label: "发运柜", perm: Permissions.SHIPMENT_READ },
+    ],
+  },
+  {
+    group: "财务",
+    items: [
+      { key: "/finance/receivables", icon: <AccountBookOutlined />, label: "应收款", perm: Permissions.RECEIVABLE_READ },
+      { key: "/finance/payables", icon: <AccountBookOutlined />, label: "应付款", perm: Permissions.PAYABLE_READ },
+    ],
+  },
+  {
+    group: "系统",
+    items: [
+      { key: "/admin/users", icon: <SafetyCertificateOutlined />, label: "用户管理", perm: Permissions.USER_MANAGE },
+    ],
+  },
 ];
 
-export function AppShell({ children, breadcrumb = [] }: { children: ReactNode; breadcrumb?: string[] }) {
+/**
+ * 全站唯一外壳实例(挂在根 layout 的 ShellGate 上,业务段 layout 只留 RouteGuard)。
+ * 单实例是硬要求:外壳若按业务域各挂一个,跨域导航会整体重挂,侧栏滚动位置与折叠态每次归零。
+ */
+export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
@@ -53,8 +89,12 @@ export function AppShell({ children, breadcrumb = [] }: { children: ReactNode; b
   const clear = useAuthStore((s) => s.clear);
   const hasPermission = useAuthStore((s) => s.hasPermission);
 
-  // 按权限过滤菜单项(perm 缺省=始终显示)。
-  const visibleItems = MENU_ITEMS.filter((m) => !m.perm || hasPermission(m.perm));
+  // 按权限过滤菜单项(perm 缺省=始终显示);整组被过滤空 → 该组标题一并隐藏。
+  const visibleGroups = MENU_GROUPS.map((g) => ({
+    ...g,
+    items: g.items.filter((m) => !m.perm || hasPermission(m.perm)),
+  })).filter((g) => g.items.length > 0);
+  const visibleItems = visibleGroups.flatMap((g) => g.items);
 
   // 详情页(/catalog/spus/123)仍高亮所属一级项:取最长前缀命中。
   const selectedKey =
@@ -62,6 +102,20 @@ export function AppShell({ children, breadcrumb = [] }: { children: ReactNode; b
       .map((m) => m.key)
       .filter((k) => pathname === k || pathname.startsWith(k + "/"))
       .sort((a, b) => b.length - a.length)[0] ?? pathname;
+
+  // 面包屑从菜单结构派生(组名 + 菜单标签),不再由各业务段 layout 各写一份手抄值 —— 单一源头。
+  const currentGroup = visibleGroups.find((g) => g.items.some((m) => m.key === selectedKey));
+  const currentItem = visibleItems.find((m) => m.key === selectedKey);
+  const breadcrumb = currentItem
+    ? [currentGroup?.group, currentItem.label].filter((s): s is string => Boolean(s))
+    : [];
+
+  // 全站页面均为客户端组件(Next `metadata` 不生效),故页签标题集中设在此,
+  // 保证并行开多页签各不同名。依赖收敛成字符串:visibleItems 每渲染都是新数组,直接进 deps 会每帧重跑。
+  const titleLabel = currentItem?.label;
+  useEffect(() => {
+    document.title = titleLabel ? `${titleLabel} · 履约系统` : "履约系统";
+  }, [titleLabel]);
 
   async function onLogout() {
     try {
@@ -75,34 +129,72 @@ export function AppShell({ children, breadcrumb = [] }: { children: ReactNode; b
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
-      <Sider collapsible collapsed={collapsed} onCollapse={setCollapsed} style={{ background: SIDER_BG }}>
-        {/* 品牌区:与菜单项 icon 起点(24px)对齐的紧凑行 + 底部发丝线与菜单分隔 */}
-        <div
-          style={{
-            height: 56,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: collapsed ? "center" : "flex-start",
-            paddingLeft: collapsed ? 0 : 24,
-            marginBottom: 4,
-            borderBottom: "1px solid rgba(255,255,255,0.08)",
-            color: colors.white,
-            fontSize: 15,
-            fontWeight: 600,
-            letterSpacing: 1,
-            whiteSpace: "nowrap",
-          }}
-        >
-          {collapsed ? "履约" : "履约系统"}
+      {/* 侧栏钉住视口:内容区再长也不带着导航滚;菜单超高时只在菜单区内部滚。 */}
+      <Sider
+        collapsible
+        collapsed={collapsed}
+        onCollapse={setCollapsed}
+        // 168 而非 AntD 默认 200:菜单标签最长 4 个汉字(商品目录/报价管理/用户管理),
+        // 200 会在右侧留下一条明显的空白带;168 = 图标+4字+两侧留白后仍有余量,不会挤或换行。
+        width={168}
+        // trigger={null}:AntD 自带的底部折叠条会在侧栏底部压出一条与背景同色的死区,
+        // 既浪费高度又不像可点控件;折叠按钮改放顶栏左侧(现代 admin 通行做法)。
+        trigger={null}
+        style={{ background: colors.sidebar, position: "sticky", top: 0, height: "100vh" }}
+      >
+        <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+          {/* 品牌区:与菜单项 icon 起点(24px)对齐的紧凑行 + 底部发丝线与菜单分隔 */}
+          <div
+            style={{
+              height: 48,
+              flex: "0 0 auto",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: collapsed ? "center" : "flex-start",
+              paddingLeft: collapsed ? 0 : 24,
+              marginBottom: 4,
+              borderBottom: `1px solid ${colors.sidebarLine}`,
+              color: colors.white,
+              fontSize: 15,
+              fontWeight: 600,
+              letterSpacing: 1,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {collapsed ? "履约" : "履约系统"}
+          </div>
+          <Menu
+            theme="dark"
+            mode="inline"
+            style={{
+              background: "transparent",
+              flex: "1 1 auto",
+              overflowY: "auto",
+              overflowX: "hidden",
+            }}
+            selectedKeys={[selectedKey]}
+            // 折叠态下分组标题只剩噪声(仅余图标),此时铺平只留菜单项。
+            items={
+              collapsed
+                ? visibleItems.map((m) => ({
+                    key: m.key,
+                    icon: m.icon,
+                    label: m.label,
+                  }))
+                : visibleGroups.map((g) => ({
+                    key: `group:${g.group}`,
+                    type: "group" as const,
+                    label: g.group,
+                    children: g.items.map((m) => ({
+                      key: m.key,
+                      icon: m.icon,
+                      label: m.label,
+                    })),
+                  }))
+            }
+            onClick={({ key }) => router.push(key)}
+          />
         </div>
-        <Menu
-          theme="dark"
-          mode="inline"
-          style={{ background: "transparent" }}
-          selectedKeys={[selectedKey]}
-          items={visibleItems.map((m) => ({ key: m.key, icon: m.icon, label: m.label }))}
-          onClick={({ key }) => router.push(key)}
-        />
       </Sider>
       <Layout>
         <Header
@@ -110,14 +202,27 @@ export function AppShell({ children, breadcrumb = [] }: { children: ReactNode; b
             background: colors.white,
             borderBottom: `1px solid ${colors.line}`,
             display: "flex",
-            justifyContent: "flex-end",
+            justifyContent: "space-between",
             alignItems: "center",
             paddingInline: 16,
           }}
         >
+          <Button
+            type="text"
+            aria-label={collapsed ? "展开导航" : "收起导航"}
+            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            onClick={() => setCollapsed((v) => !v)}
+          />
           <Dropdown
             menu={{
-              items: [{ key: "logout", icon: <LogoutOutlined />, label: "登出", onClick: onLogout }],
+              items: [
+                {
+                  key: "logout",
+                  icon: <LogoutOutlined />,
+                  label: "登出",
+                  onClick: onLogout,
+                },
+              ],
             }}
           >
             <span style={{ cursor: "pointer", color: colors.ink }}>

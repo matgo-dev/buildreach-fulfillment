@@ -5,7 +5,7 @@ import type { ProductStatus } from "@/lib/catalog";
 
 /** SPU 三态:草稿(录入中)/ 启用(可被报价选用)/ 停用(淘汰,留历史)。 */
 export const SPU_STATUS_META: Record<ProductStatus, { label: string; color: string }> = {
-  DRAFT: { label: "草稿", color: "gold" },
+  DRAFT: { label: "草稿", color: "warning" },
   ACTIVE: { label: "启用", color: "success" },
   INACTIVE: { label: "停用", color: "default" },
 };

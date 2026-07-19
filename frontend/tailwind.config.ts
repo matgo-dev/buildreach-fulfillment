@@ -9,6 +9,7 @@ const config: Config = {
         brand: {
           DEFAULT: colors.brand,
           dark: colors.brandDark,
+          light: colors.brandLight,
         },
       },
     },
