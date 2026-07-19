@@ -40,4 +40,5 @@ async def test_receive_unreceive_audit_trail(client, db_session, sales_headers, 
     # extra 可定位本次动作对应的 payable(撤销/重收后一单多条 payable,resource_id 不够)。
     by_action = {r.action: r for r in logs}
     assert by_action["RECEIVE"].extra == {"payable_id": payable_id}
-    assert by_action["UNRECEIVE"].extra == {"payable_id": payable_id}
+    # unreceive 补穿仓校验后 extra 增校验摘要(契约 §2:原审计不变,extra 增 unreceive_check_ok)。
+    assert by_action["UNRECEIVE"].extra == {"payable_id": payable_id, "unreceive_check_ok": True}

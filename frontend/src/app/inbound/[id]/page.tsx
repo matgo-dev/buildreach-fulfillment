@@ -21,6 +21,7 @@ import { StatusTag } from "@/components/common/StatusTag";
 import { PageLoading } from "@/components/common/PageLoading";
 import { Permissions } from "@/config/permission-matrix";
 import { formatDateTime, formatQty } from "@/lib/format";
+import { ApiError } from "@/lib/api";
 import { resolveBizError } from "@/lib/errorMessages";
 import {
   inboundOrderApi,
@@ -37,10 +38,28 @@ import {
 import { PAYABLE_STATUS_META, formatAmount } from "@/lib/payable";
 import { InboundOrderBuilder } from "@/components/inbound/InboundOrderBuilder";
 
+/** 41710 穿仓明细行。后端 data 形状:{ items: [{ sales_order_no, name_snapshot, available_qty }] }(镜像 41902)。 */
+interface UnreceiveNegative {
+  label: string;
+  salesOrderNo?: string;
+  available?: number | string;
+}
+
+function parseUnreceiveNegatives(data: unknown): UnreceiveNegative[] {
+  const arr = Array.isArray((data as { items?: unknown })?.items)
+    ? (data as { items: unknown[] }).items
+    : [];
+  return (arr as Record<string, unknown>[]).map((s) => ({
+    label: String(s.name_snapshot || s.sku_id || "该 SKU"),
+    salesOrderNo: (s.sales_order_no as string) || undefined,
+    available: s.available_qty as number | string | undefined,
+  }));
+}
+
 export default function InboundOrderDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const id = Number(params.id);
 
   const [detail, setDetail] = useState<InboundOrderDetail | null>(null);
@@ -295,13 +314,40 @@ export default function InboundOrderDetailPage() {
         confirmLoading={busy}
         onCancel={() => setUnreceiveOpen(false)}
         onOk={async () => {
-          const ok = await actDialog(
-            () => inboundOrderApi.unreceive(id, voidReason.trim() || null),
-            "已撤销入库",
-          );
-          if (ok) {
+          setBusy(true);
+          try {
+            await inboundOrderApi.unreceive(id, voidReason.trim() || null);
+            message.success("已撤销入库");
             setUnreceiveOpen(false);
             setVoidReason("");
+            load();
+          } catch (e) {
+            // 41710 穿仓:按 (SO,SKU) 明细展示,指明先撤销哪些出库(镜像出库 41902 明细弹窗)。
+            if (e instanceof ApiError && e.code === 41710) {
+              const rows = parseUnreceiveNegatives(e.data);
+              modal.error({
+                title: "库存已被出库消费,无法撤销入库",
+                content:
+                  rows.length > 0 ? (
+                    <div style={{ marginTop: 8 }}>
+                      <div style={{ marginBottom: 4 }}>请先撤销以下销售单对应的出库单:</div>
+                      {rows.map((s, i) => (
+                        <div key={i} style={{ fontSize: 13, marginBottom: 4 }}>
+                          {s.label}
+                          {s.salesOrderNo && `(${s.salesOrderNo})`}
+                          {s.available !== undefined && `:撤回后可发 ${formatQty(s.available)}`}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    "部分货物已被出库消费,请先撤销对应出库单再撤销入库。"
+                  ),
+              });
+            } else {
+              message.error(resolveBizError(e, "操作失败"));
+            }
+          } finally {
+            setBusy(false);
           }
         }}
       >

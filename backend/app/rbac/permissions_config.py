@@ -52,6 +52,10 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         Permissions.PRODUCT_READ,
         # 库存(订单履约跟踪):销售看自家 SO 的到货/可发进度。ADMIN 不授(Q25 职责分离)。
         Permissions.INVENTORY_READ,
+        # 出库/发运只读:跟踪自家 SO 发货进度;应收=客户售价侧,SALES 本就可见。
+        Permissions.OUTBOUND_READ,
+        Permissions.SHIPMENT_READ,
+        Permissions.RECEIVABLE_READ,
     ],
     # 采购员:供应商主数据全管 + 基于销售单发起采购单(建/编辑/确认/取消)。
     # sales:read = 浏览 SO 发起采购(SO 只对客售价,非红线);read_cost = 采购员当然看采购价;
@@ -72,5 +76,18 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         Permissions.PRODUCT_READ,
         # 库存(订单履约跟踪):采购看按单到货/可发,判断补采/催货。ADMIN 不授(Q25 职责分离)。
         Permissions.INVENTORY_READ,
+    ],
+    # 物流仓运:组柜/装柜是仓运动作,不并入 PURCHASER(采购侧)也不并入 SALES(销售侧);
+    # 出库/发运/物流/报关四步同一操作者。出库/柜零成本/售价 → 无红线泄露;不持 RECEIVABLE_READ
+    # (应收=客户售价,整表门控)。sales:read 浏览 SO 发起出库;inventory:read 看可发;product:read 选料溯源。
+    "LOGISTICS": [
+        *_AUTH_BASE,
+        Permissions.OUTBOUND_READ,
+        Permissions.OUTBOUND_MANAGE,
+        Permissions.SHIPMENT_READ,
+        Permissions.SHIPMENT_MANAGE,
+        Permissions.SALES_READ,
+        Permissions.INVENTORY_READ,
+        Permissions.PRODUCT_READ,
     ],
 }

@@ -14,6 +14,8 @@ import {
   LogoutOutlined,
   SafetyCertificateOutlined,
   DatabaseOutlined,
+  ExportOutlined,
+  ContainerOutlined,
 } from "@ant-design/icons";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuthStore } from "@/stores/authStore";
@@ -36,7 +38,10 @@ const MENU_ITEMS = [
   { key: "/purchasing/orders", icon: <ShoppingCartOutlined />, label: "采购单", perm: Permissions.PURCHASE_READ },
   { key: "/inbound", icon: <InboxOutlined />, label: "入库单", perm: Permissions.INBOUND_READ },
   { key: "/inventory", icon: <DatabaseOutlined />, label: "库存", perm: Permissions.INVENTORY_READ },
+  { key: "/outbound", icon: <ExportOutlined />, label: "出库单", perm: Permissions.OUTBOUND_READ },
+  { key: "/shipments", icon: <ContainerOutlined />, label: "发运柜", perm: Permissions.SHIPMENT_READ },
   { key: "/finance/payables", icon: <AccountBookOutlined />, label: "财务·应付款", perm: Permissions.PAYABLE_READ },
+  { key: "/finance/receivables", icon: <AccountBookOutlined />, label: "财务·应收款", perm: Permissions.RECEIVABLE_READ },
   { key: "/admin/users", icon: <SafetyCertificateOutlined />, label: "用户管理", perm: Permissions.USER_MANAGE },
 ];
 

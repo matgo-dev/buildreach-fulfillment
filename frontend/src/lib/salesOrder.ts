@@ -3,6 +3,7 @@ import { api } from "./api";
 import type { Page } from "./catalog";
 import type { PurchaseProgress, RelatedPurchaseOrder } from "./purchaseOrder";
 import type { StockBalanceLine } from "./inventory";
+import type { RelatedOutboundOrder } from "./outboundOrder";
 
 // 镜像后端 SalesOrderStatus:CANCELLED 终态(报价回锁档可重转);更多态留给后续增量。
 export type SalesOrderStatus = "CONFIRMED" | "CANCELLED";
@@ -52,6 +53,8 @@ export interface SalesOrderOut {
   // 库存增量扩展:仅持 inventory:read 者的详情响应附带该键(契约 §3 条件下发);
   // 前端不自判权限,响应键存在与否驱动渲染。
   stock_balances?: StockBalanceLine[];
+  // 出库增量扩展:仅持 outbound:read 者的详情响应附带该键(条件下发,同上模式)。
+  related_outbound_orders?: RelatedOutboundOrder[];
 }
 
 export interface SalesOrderListItem {

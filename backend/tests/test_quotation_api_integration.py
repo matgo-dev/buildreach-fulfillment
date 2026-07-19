@@ -30,13 +30,18 @@ async def _seed_active(db):
 @pytest.mark.asyncio
 async def test_quotation_full_lifecycle_api(client, sales_headers, db_session):
     cust, sku = await _seed_active(db_session)
+    # 一 SKU 一价公理(§0-11):两行须不同 SKU,补建 sku2。
+    sku2 = Sku(spu_id=sku.spu_id, sku_code="SKUA001B", unit="ton",
+               name_i18n={"zh": "工字钢201"}, created_by=1, status="ACTIVE")
+    db_session.add(sku2)
+    await db_session.commit()
     H = sales_headers
 
-    # create(整单:表头 + 2 行)
+    # create(整单:表头 + 2 行,不同 SKU)
     r = await client.post("/api/v1/quotations", headers=H, json={
         "customer_id": cust.id, "currency": "USD", "summary": "Q3 钢材",
         "lines": [{"sku_id": sku.id, "unit_price": 100, "qty": 2},
-                  {"sku_id": sku.id, "unit_price": 50, "qty": 1}]})
+                  {"sku_id": sku2.id, "unit_price": 50, "qty": 1}]})
     assert r.status_code == 200, r.text
     order = r.json()["data"]
     oid = order["id"]

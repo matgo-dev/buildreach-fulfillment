@@ -17,7 +17,7 @@ from collections import defaultdict
 from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
@@ -27,6 +27,7 @@ from app.audit.logger import write_audit
 from app.core.codegen import NumberScope, format_code
 from app.core.statemachine import assert_transition
 from app.core.exceptions import (
+    InboundDuplicateLineError,
     InboundLineNotInPurchaseOrderError,
     InboundOrderEditConflictError,
     InboundOrderEmptyError,
@@ -35,6 +36,7 @@ from app.core.exceptions import (
     InboundOrderNotInTransitError,
     InboundOverReceiptError,
     InboundSourcePurchaseOrderInvalidError,
+    InboundUnreceiveWouldGoNegativeError,
     PayableAllocatedCannotUnreceiveError,
 )
 from app.db.models.inbound_order import (
@@ -241,6 +243,21 @@ async def _load_po_lines(db: AsyncSession, purchase_order_id: int) -> dict[int, 
             PurchaseOrderLine.purchase_order_id == purchase_order_id))).scalars().all()}
 
 
+def _validate_lines_in_po(lines: list[dict], po_lines: dict[int, PurchaseOrderLine],
+                          purchase_order_id: int) -> None:
+    """行归属 + 单内不重复(一 PO 行一入库行)。前置拒绝给友好错,
+    DB UNIQUE(inbound_order_id, purchase_order_line_id) 兜底,不让打穿成 500(镜像出库侧)。"""
+    seen: set[int] = set()
+    for ln in lines:
+        line_id = ln["purchase_order_line_id"]
+        if line_id not in po_lines:
+            raise InboundLineNotInPurchaseOrderError(
+                f"PO 行 {line_id} 不属于 PO {purchase_order_id}")
+        if line_id in seen:
+            raise InboundDuplicateLineError(f"PO 行 {line_id} 在 payload 中重复")
+        seen.add(line_id)
+
+
 def _add_lines(db: AsyncSession, order: InboundOrder, lines: list[dict],
                po_lines: dict[int, PurchaseOrderLine]) -> None:
     """新增入库行:平移 PO 行快照(收的就是订的),qty 本次录入。无金额列。"""
@@ -261,10 +278,7 @@ async def create_order(db: AsyncSession, *, purchase_order_id, carrier_name, tra
         raise InboundOrderEmptyError()
     await _lock_confirmed_po(db, purchase_order_id)
     po_lines = await _load_po_lines(db, purchase_order_id)
-    for ln in lines:
-        if ln["purchase_order_line_id"] not in po_lines:
-            raise InboundLineNotInPurchaseOrderError(
-                f"PO 行 {ln['purchase_order_line_id']} 不属于 PO {purchase_order_id}")
+    _validate_lines_in_po(lines, po_lines, purchase_order_id)
     # 超收守卫:按 po_line 聚合本 payload 量,逐 po_line 校验(FOR UPDATE 锁额度基准)
     for po_line_id, add_qty in _payload_qty_by_poline(lines).items():
         await assert_within_po_line_quota(db, po_line_id, add_qty)
@@ -301,10 +315,7 @@ async def save_order(db: AsyncSession, *, order_id, carrier_name, tracking_no, s
     if not lines:
         raise InboundOrderEmptyError()
     po_lines = await _load_po_lines(db, order.purchase_order_id)
-    for ln in lines:
-        if ln["purchase_order_line_id"] not in po_lines:
-            raise InboundLineNotInPurchaseOrderError(
-                f"PO 行 {ln['purchase_order_line_id']} 不属于 PO {order.purchase_order_id}")
+    _validate_lines_in_po(lines, po_lines, order.purchase_order_id)
     for po_line_id, add_qty in _payload_qty_by_poline(lines).items():
         await assert_within_po_line_quota(db, po_line_id, add_qty, exclude_inbound_id=order.id)
 
@@ -385,8 +396,34 @@ async def receive_order(db: AsyncSession, *, order_id, arrived_at: date | None, 
 async def unreceive_order(db: AsyncSession, *, order_id, void_reason: str | None, actor_user_id,
                           actor_user_email, request: Request | None = None) -> InboundOrder:
     """撤销入库(RECEIVED→IN_TRANSIT)。守卫:payable 未核销(allocated=0)。
+
+    **收紧型写入口(库存契约 §2,还债)**:货可能已被出库消费,撤回将使某 (SO, SKU) 可发
+    穿仓(available < 0)。故按契约锁序补校验:
+      1. 无锁预读入库行→PO 行→SO 行链,取受影响 (so_id → {sku_id}) 与 distinct so_ids(按 id 排序);
+      2. 依序锁各 SO 头 FOR UPDATE(统一锁序消死锁环)→ 再锁入库单头(锁序合规);
+      3. 转移守卫 + payable 守卫(原逻辑不变),状态翻转 IN_TRANSIT 并 flush;
+      4. **锁内派生校验**:翻转后受影响每 (so,sku) 的 available ≥ 0,违反 → 41710(须先撤销出库)。
     同事务作废(void)payable —— 置 voided_at/by/reason,行留痕不硬删。撤销后重收 = 新建活动 payable。"""
+    from app.db.models.sales_order import SalesOrder, SalesOrderLine
+    from app.services import stock_balance_service
+
+    # 1. 无锁预读身份链:入库行 sku → PO 行 → SO 行 → so_id。
+    chain = (await db.execute(
+        select(SalesOrderLine.sales_order_id, InboundOrderLine.sku_id)
+        .join(PurchaseOrderLine, PurchaseOrderLine.id == InboundOrderLine.purchase_order_line_id)
+        .join(SalesOrderLine, SalesOrderLine.id == PurchaseOrderLine.source_sales_order_line_id)
+        .where(InboundOrderLine.inbound_order_id == order_id))).all()
+    affected: dict[int, set[int]] = defaultdict(set)
+    for so_id, sku_id in chain:
+        affected[so_id].add(sku_id)
+    so_ids = sorted(affected.keys())
+
+    # 2. 依序锁 SO 头(按 id 升序,统一锁序)→ 再锁入库单头。
+    for so_id in so_ids:
+        await db.execute(select(SalesOrder).where(SalesOrder.id == so_id).with_for_update())
     order = await get_order_for_update(db, order_id)
+
+    # 3. 转移 + payable 守卫,翻转状态(RECEIVED 退出库存 inbound 臂)。
     assert_transition(INBOUND_ORDER_TRANSITIONS, order.status, InboundOrderStatus.IN_TRANSIT,
                       InboundOrderInvalidTransitionError)
     payable = await get_active_payable(db, order.id)
@@ -399,11 +436,38 @@ async def unreceive_order(db: AsyncSession, *, order_id, void_reason: str | None
     order.status = InboundOrderStatus.IN_TRANSIT
     order.arrived_at = None  # 回在途即未到货:清到货日,与状态语义一致(重收时重新填)
     await db.flush()
+
+    # 4. 锁内派生校验:翻转后受影响每 (so,sku) 可发 ≥ 0(货已被出库则穿仓,拒)。
+    negatives = []
+    for so_id in so_ids:
+        avail = await stock_balance_service.available_by_sku(
+            db, so_id, sku_ids=list(affected[so_id]))
+        for sku_id in affected[so_id]:
+            if avail.get(sku_id, Decimal("0")) < 0:
+                negatives.append({"sales_order_id": so_id, "sku_id": sku_id,
+                                  "available_qty": float(avail.get(sku_id, Decimal("0")))})
+    if negatives:
+        # 明细补展示身份(销售单号/品名),镜像 41902 的 items 形状,运营才知道去撤哪张出库单;
+        # (SO,SKU) UNIQUE(§0-11)⇒ 每对至多一 SO 行,tuple IN 定位无歧义。
+        pairs = [(n["sales_order_id"], n["sku_id"]) for n in negatives]
+        display = {(so_id, sku_id): (so_no, name) for so_id, sku_id, so_no, name in (
+            await db.execute(
+                select(SalesOrderLine.sales_order_id, SalesOrderLine.sku_id,
+                       SalesOrder.no, SalesOrderLine.name_snapshot)
+                .join(SalesOrder, SalesOrder.id == SalesOrderLine.sales_order_id)
+                .where(tuple_(SalesOrderLine.sales_order_id,
+                              SalesOrderLine.sku_id).in_(pairs)))).all()}
+        for n in negatives:
+            so_no, name = display.get((n["sales_order_id"], n["sku_id"]), ("", ""))
+            n["sales_order_no"], n["name_snapshot"] = so_no, name
+        # 41710(整事务回滚,状态翻转撤销)
+        raise InboundUnreceiveWouldGoNegativeError(data={"items": negatives})
+
     await write_audit(db, resource_type=AuditResourceType.INBOUND_ORDER,
                       action=AuditAction.UNRECEIVE, user_id=actor_user_id,
                       user_email=actor_user_email, resource_id=order.id, request=request,
-                      extra={"payable_id": payable.id} if payable is not None else None,
-                      commit=False)
+                      extra={"payable_id": payable.id if payable is not None else None,
+                             "unreceive_check_ok": True}, commit=False)
     await db.commit()
     await db.refresh(order)
     return order

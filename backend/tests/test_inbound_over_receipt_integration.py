@@ -85,3 +85,23 @@ async def test_line_not_in_po_rejected(client, db_session, sales_headers, purcha
         client, db_session, sales_headers, purchaser_headers, so_qty=10)
     r = await _create(client, purchaser_headers, po_id, 999999, 1)
     assert r.status_code == 400 and r.json()["code"] == 41706
+
+
+async def test_duplicate_po_line_rejected(client, db_session, sales_headers, purchaser_headers):
+    """payload 同一 PO 行重复 → 41711(前置友好错,不打穿 DB UNIQUE 成 500);编辑同拒。"""
+    po_id, po_lines = await setup_confirmed_po(
+        client, db_session, sales_headers, purchaser_headers, so_qty=10)
+    pl = po_lines[0]["id"]
+    r = await client.post("/api/v1/inbound-orders", headers=purchaser_headers, json={
+        "purchase_order_id": po_id,
+        "lines": [{"purchase_order_line_id": pl, "qty": 3},
+                  {"purchase_order_line_id": pl, "qty": 4}]})
+    assert r.status_code == 400 and r.json()["code"] == 41711
+    # 编辑路径同守卫。
+    r1 = await _create(client, purchaser_headers, po_id, pl, 5)
+    inb_id = r1.json()["data"]["order"]["id"]
+    r2 = await client.put(f"/api/v1/inbound-orders/{inb_id}", headers=purchaser_headers, json={
+        "lines": [{"purchase_order_line_id": pl, "qty": 2},
+                  {"purchase_order_line_id": pl, "qty": 3}],
+        "expected_updated_at": r1.json()["data"]["order"]["updated_at"]})
+    assert r2.status_code == 400 and r2.json()["code"] == 41711

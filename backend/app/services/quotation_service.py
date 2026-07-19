@@ -17,6 +17,7 @@ from app.core.exceptions import (
     QuotationCannotUnlockConvertedError,
     QuotationCannotVoidError,
     QuotationCustomerInactiveError,
+    QuotationDuplicateSkuError,
     QuotationEditConflictError,
     QuotationEmptyLinesError,
     QuotationInvalidLineError,
@@ -143,6 +144,11 @@ async def _assert_lines_deletable(db: AsyncSession, line_ids: list[int]) -> None
 
 async def _reconcile_lines(db: AsyncSession, order: QuotationOrder, lines: list[dict]) -> Decimal:
     """按行 id 对账到期望态:有 id→UPDATE、库中缺席→DELETE、无 id→INSERT。返回总额。"""
+    # 同一 SKU 仅一行(契约 §0-11 业务公理:一 SKU 一价,无阶梯价)——service 前置拒绝,
+    # DB UNIQUE(quotation_order_id, sku_id)(0024)兜底。转销售单继承此唯一性(SO 行来自报价转单)。
+    payload_skus = [ln["sku_id"] for ln in lines]
+    if len(payload_skus) != len(set(payload_skus)):
+        raise QuotationDuplicateSkuError()
     existing = {ln.id: ln for ln in await list_lines(db, order.id)}
     payload_ids = {ln["id"] for ln in lines if ln.get("id") is not None}
     # payload 出现库中不存在的行 id = 并发删除/篡改(乐观锁已过仍出现)→ 冲突。

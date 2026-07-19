@@ -25,6 +25,8 @@ import {
 import { PurchaseOrderBuilder } from "@/components/purchasing/PurchaseOrderBuilder";
 import type { StockBalanceLine } from "@/lib/inventory";
 import { NumCell } from "@/components/common/NumCell";
+import type { RelatedOutboundOrder } from "@/lib/outboundOrder";
+import { OUTBOUND_ORDER_STATUS_META } from "@/lib/outboundOrderStatus";
 
 export default function SalesOrderDetailPage() {
   const params = useParams();
@@ -91,6 +93,7 @@ export default function SalesOrderDetailPage() {
 
   const relatedPOs = order.related_purchase_orders; // undefined = 无 purchase:read,不渲染区块
   const stockBalances = order.stock_balances; // undefined = 无 inventory:read,不渲染区块(响应键存在与否驱动渲染)
+  const relatedOutbounds = order.related_outbound_orders; // undefined = 无 outbound:read,不渲染区块
 
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
@@ -264,6 +267,72 @@ export default function SalesOrderDetailPage() {
             pagination={false}
             scroll={{ x: 720 }}
             locale={{ emptyText: "暂无库存数据" }}
+          />
+        </Card>
+      )}
+
+      {/* 关联出库单:仅 outbound:read 者的响应带 related_outbound_orders;无权者无此键,整块不渲染。
+          纯仓单,无金额;出库单号链接详情,发运柜链接按 shipment:read 降级(DESIGN §7)。 */}
+      {relatedOutbounds && (
+        <Card title="关联出库单">
+          <Table<RelatedOutboundOrder>
+            rowKey="id"
+            size="small"
+            columns={[
+              {
+                title: "出库单号",
+                dataIndex: "no",
+                width: 160,
+                render: (v: string, r) => (
+                  <Button
+                    type="link"
+                    size="small"
+                    style={{ padding: 0 }}
+                    onClick={() => router.push(`/outbound/${r.id}`)}
+                  >
+                    {v}
+                  </Button>
+                ),
+              },
+              {
+                title: "发运柜",
+                dataIndex: "shipment_no",
+                width: 170,
+                render: (v: string, r) => {
+                  const label = r.container_no || v;
+                  return (
+                    <Can perm={Permissions.SHIPMENT_READ} fallback={<span>{label}</span>}>
+                      <Button
+                        type="link"
+                        size="small"
+                        style={{ padding: 0 }}
+                        onClick={() => router.push(`/shipments/${r.shipment_id}`)}
+                      >
+                        {label}
+                      </Button>
+                    </Can>
+                  );
+                },
+              },
+              {
+                title: "状态",
+                dataIndex: "status",
+                width: 100,
+                render: (s: RelatedOutboundOrder["status"]) => (
+                  <StatusTag meta={OUTBOUND_ORDER_STATUS_META} value={s} />
+                ),
+              },
+              {
+                title: "确认时间",
+                dataIndex: "issued_at",
+                width: 170,
+                render: (v: string | null) => (v ? formatDateTime(v) : "—"),
+              },
+            ]}
+            dataSource={relatedOutbounds}
+            pagination={false}
+            scroll={{ x: 620 }}
+            locale={{ emptyText: "暂无关联出库单" }}
           />
         </Card>
       )}

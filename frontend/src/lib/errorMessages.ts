@@ -26,11 +26,30 @@ const INBOUND_ERROR_MESSAGES: Record<number, string> = {
   41707: "入库单至少需要一行",
   41708: "对应应付款已有核销,不可撤销入库",
   41709: "入库单已被他人修改,请刷新后重试",
+  41711: "入库单行重复引用同一采购单行",
+};
+
+// 出库 / 发运柜域(镜像 exceptions.py 段 419xx 出库 / 420xx 柜 / 41710 入库补 / 41412 报价补)。
+const OUTBOUND_ERROR_MESSAGES: Record<number, string> = {
+  41901: "非法的出库单状态流转",
+  41902: "可发数量不足",
+  41903: "出库行不属于该销售单",
+  41904: "该柜内此销售单已有活动出库单",
+  41905: "来源销售单未确认,不可出库",
+  41906: "发运柜不在组柜中状态",
+  41907: "对应应收款已有核销,不可撤销出库",
+  41908: "出库单已被他人修改,请刷新后重试",
+  41909: "出库单行重复引用同一销售单行",
+  41412: "报价单同 SKU 不可重复",
+  42001: "柜下存在活动出库单,不可取消",
+  42002: "非法的发运柜状态流转",
+  41710: "库存已被出库消费,请先撤销出库再撤销入库",
 };
 
 const BIZ_ERROR_MESSAGES: Record<number, string> = {
   ...PURCHASE_ERROR_MESSAGES,
   ...INBOUND_ERROR_MESSAGES,
+  ...OUTBOUND_ERROR_MESSAGES,
 };
 
 /** 统一错误提示入口:ApiError 且 code 已注册 → 注册文案;其它 Error → e.message;非 Error → fallback。 */

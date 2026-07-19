@@ -11,6 +11,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -89,6 +90,9 @@ class QuotationLine(Base, TimestampUpdateMixin):
         CheckConstraint("unit_price >= 0", name="ck_qlines_unit_price_nn"),
         CheckConstraint("line_total >= 0", name="ck_qlines_line_total_nn"),
         CheckConstraint("sort_order >= 0", name="ck_qlines_sort_nn"),
+        # 一 SKU 一价公理(无阶梯价):同报价单同 SKU 至多一行。单一源头落 DB,
+        # 与 migration 0024 同名;应用层 41412 守卫在前给友好错。
+        UniqueConstraint("quotation_order_id", "sku_id", name="uq_qlines_order_sku"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

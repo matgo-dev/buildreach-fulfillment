@@ -17,6 +17,7 @@ from app.rbac.guards import has_permission, require_permission
 from app.rbac.redaction import can_see_cost
 from app.schemas.common import Page, PageParams
 from app.schemas.inventory import StockBalanceRow
+from app.schemas.outbound_order import OutboundableLineOut, RelatedOutboundOrderItem
 from app.schemas.purchase_order import RelatedPurchaseOrderItem
 from app.schemas.sales_order import (
     SalesOrderCancelIn,
@@ -24,13 +25,19 @@ from app.schemas.sales_order import (
     SalesOrderListItem,
     SalesOrderOut,
 )
-from app.services import purchase_order_service, sales_order_service, stock_balance_service
+from app.services import (
+    outbound_service,
+    purchase_order_service,
+    sales_order_service,
+    stock_balance_service,
+)
 from app.services.stock_balance_service import StockScope
 
 router = APIRouter(prefix="/sales-orders", tags=["sales-orders"])
 
 _GUARD = Depends(require_permission(Permissions.SALES_READ))
 _MANAGE = Depends(require_permission(Permissions.SALES_MANAGE))
+_OUTBOUND_MANAGE = Depends(require_permission(Permissions.OUTBOUND_MANAGE))
 
 
 @router.get("", summary="销售单列表(筛选/排序/分页/采购进度)")
@@ -78,6 +85,13 @@ async def cancel_sales_order(
     })
 
 
+@router.get("/{order_id}/outboundable-lines", summary="某 CONFIRMED SO 的可发行(出库建单器数据源)")
+async def outboundable_lines(order_id: int, _current: CurrentUser = _OUTBOUND_MANAGE,
+                             db: AsyncSession = Depends(get_db)):
+    rows = await outbound_service.outboundable_lines(db, order_id)
+    return success({"items": [OutboundableLineOut.model_validate(r).model_dump() for r in rows]})
+
+
 @router.get("/{order_id}", summary="取销售单(含行 + 来源报价 + 采购进度/关联PO)")
 async def get_sales_order(
     order_id: int,
@@ -100,6 +114,11 @@ async def get_sales_order(
         order_out["related_purchase_orders"] = [
             RelatedPurchaseOrderItem.build(it, can_see_cost=can_see_cost(current))
             for it in related]
+    # 关联出库单区:仅 outbound:read 者下发(单号/柜/状态,链接详情;无金额)。
+    if has_permission(current, Permissions.OUTBOUND_READ):
+        related_ob = await outbound_service.list_related_by_sales_order(db, order_id)
+        order_out["related_outbound_orders"] = [
+            RelatedOutboundOrderItem.model_validate(it).model_dump() for it in related_ob]
     # 库存跟踪块:仅 inventory:read 者下发(响应键存在与否驱动前端,后端脱敏非前端隐藏)。
     # scope=ALL:该 SO 全部 (sku) 行含已入 0,对照订购;无成本/供应商字段 → 非红线。
     if has_permission(current, Permissions.INVENTORY_READ):

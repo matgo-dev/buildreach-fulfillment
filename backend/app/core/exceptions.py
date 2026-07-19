@@ -15,8 +15,10 @@
   14 | 报价       | 414xx
   15 | 供应商     | 415xx
   16 | 采购单     | 416xx
-  17 | 入库/应付  | 417xx
+  17 | 入库/应付  | 417xx(含 41710 撤销入库穿仓守卫)
   18 | 销售单     | 418xx
+  19 | 出库单     | 419xx
+  20 | 柜/发运    | 420xx
 
 兜底码:
   40000 = 通用客户端兜底(裸 HTTPException 降级)
@@ -243,6 +245,14 @@ class QuotationCustomerInactiveError(BusinessError):
         super().__init__(status.HTTP_409_CONFLICT, 41410, message)
 
 
+class QuotationDuplicateSkuError(BusinessError):
+    """报价单/销售单同一 SKU 重复行(上游守卫,契约 §0-11 / §1):一 SKU 一价,
+    结构性禁重复(DB UNIQUE 兜底,service 前置拒绝)。业务公理:无阶梯价/同 SKU 多价。"""
+
+    def __init__(self, message: str = "Duplicate SKU line in quotation or sales order"):
+        super().__init__(status.HTTP_409_CONFLICT, 41412, message)
+
+
 # 模块段 15 = 供应商(供应商主数据)。见 db/models/supplier.py SupplierStatus。
 class SupplierNotFoundError(BusinessError):
     def __init__(self, message: str = "Supplier not found"):
@@ -409,6 +419,24 @@ class InboundOrderEditConflictError(BusinessError):
                          message_key=MessageKey.INBOUND_ORDER_EDIT_CONFLICT)
 
 
+class InboundUnreceiveWouldGoNegativeError(BusinessError):
+    """撤销入库被拦:货已被出库消费,撤回将使某 (SO, SKU) 可发穿仓(available < 0)。
+    须先撤销相关出库单再撤销入库(库存契约收紧型写入口守卫)。
+    biz_data 带逐 (so,sku) 明细(销售单号/品名/穿仓后可发),镜像 41902 的明细形状。"""
+
+    def __init__(self, message: str = "Cannot unreceive: stock has been outbound, revert outbound first",
+                 data: Any = None):
+        super().__init__(status.HTTP_409_CONFLICT, 41710, message, data=data)
+
+
+class InboundDuplicateLineError(BusinessError):
+    """入库单 payload 同一 PO 行重复出现(一 PO 行一入库行,DB UNIQUE(inb, po_line) 兜底,
+    service 前置拒绝——否则打穿到约束成 500)。"""
+
+    def __init__(self, message: str = "Duplicate purchase order line in inbound payload"):
+        super().__init__(status.HTTP_400_BAD_REQUEST, 41711, message)
+
+
 # 模块段 18 = 销售单(SO 状态机)。见 db/models/sales_order.py SalesOrderStatus。
 class SalesOrderInvalidTransitionError(BusinessError):
     """状态转移不在 SALES_ORDER_TRANSITIONS 矩阵(重复取消等)。"""
@@ -425,6 +453,96 @@ class SalesOrderHasActivePurchaseError(BusinessError):
     def __init__(self, message: str = "Cannot cancel a sales order with active purchase orders"):
         super().__init__(status.HTTP_409_CONFLICT, 41802, message,
                          message_key=MessageKey.SALES_ORDER_HAS_ACTIVE_PURCHASE)
+
+
+class SalesOrderHasActiveOutboundError(BusinessError):
+    """取消被拦:存在非 CANCELLED 的出库单(镜像 41802,下游轴从采购扩到出库)。
+    不级联砍下游——解链人工自下而上:先取消/撤销全部出库单再取消 SO。"""
+
+    def __init__(self, message: str = "Cannot cancel a sales order with active outbound orders"):
+        super().__init__(status.HTTP_409_CONFLICT, 41803, message)
+
+
+# 模块段 19 = 出库单(出库单状态机 + 确认装柜可发闸)。见 db/models/outbound_order.py。
+class OutboundOrderInvalidTransitionError(BusinessError):
+    """状态转移不在 OUTBOUND_ORDER_TRANSITIONS 矩阵。"""
+
+    def __init__(self, message: str = "Illegal outbound order status transition"):
+        super().__init__(status.HTTP_409_CONFLICT, 41901, message)
+
+
+class OutboundInsufficientAvailableError(BusinessError):
+    """确认装柜被拦:某 (SO, SKU) 本单需发量 > 可发(available = Σ入库 − Σ出库)。
+    biz_data 带逐 sku 明细(可发/需发)。"""
+
+    def __init__(self, message: str = "Insufficient available stock to issue outbound", data: Any = None):
+        super().__init__(status.HTTP_409_CONFLICT, 41902, message, data=data)
+
+
+class OutboundLineNotInSalesOrderError(BusinessError):
+    """出库行引用的 SO 行不属于该出库单头上的 SO,或行 sku 与 SO 行不一致。"""
+
+    def __init__(self, message: str = "Outbound line references a sales order line not on this SO"):
+        super().__init__(status.HTTP_400_BAD_REQUEST, 41903, message)
+
+
+class OutboundActiveOrderExistsError(BusinessError):
+    """同柜同来源 SO 已存在活动出库单(偏唯一 uq_oborders_shipment_so_active 兜底,service 前置拒绝)。"""
+
+    def __init__(self, message: str = "An active outbound order already exists for this shipment and sales order"):
+        super().__init__(status.HTTP_409_CONFLICT, 41904, message)
+
+
+class OutboundSalesOrderNotConfirmedError(BusinessError):
+    """出库须锚定 CONFIRMED 销售单(取消/其它态一律拒)。"""
+
+    def __init__(self, message: str = "Outbound requires a confirmed sales order"):
+        super().__init__(status.HTTP_409_CONFLICT, 41905, message)
+
+
+class OutboundShipmentNotOpenError(BusinessError):
+    """装柜须柜为 OPEN(已取消柜不可再装)。"""
+
+    def __init__(self, message: str = "Outbound requires an open shipment"):
+        super().__init__(status.HTTP_409_CONFLICT, 41906, message)
+
+
+class ReceivableAllocatedCannotRevertError(BusinessError):
+    """撤销出库被拦:对应 receivable 已有核销(amount_allocated > 0),不可撤销(镜像 41708)。"""
+
+    def __init__(self, message: str = "Cannot revert outbound: receivable has been partially allocated"):
+        super().__init__(status.HTTP_409_CONFLICT, 41907, message)
+
+
+class OutboundOrderEditConflictError(BusinessError):
+    """乐观锁:expected_updated_at 与库中不一致(草稿被他人改后 stale 提交)。镜像 41605/41411。
+    与 41901(非法转移/非草稿编辑)分开,前端据此提示「已被他人修改,请刷新」而非「状态非法」。"""
+
+    def __init__(self, message: str = "Outbound order was modified by someone else"):
+        super().__init__(status.HTTP_409_CONFLICT, 41908, message)
+
+
+class OutboundDuplicateLineError(BusinessError):
+    """出库单 payload 同一 SO 行重复出现(一 SO 行一出库行,DB UNIQUE(ob, so_line) 兜底,
+    service 前置拒绝——否则打穿到约束成 500。镜像 41711)。"""
+
+    def __init__(self, message: str = "Duplicate sales order line in outbound payload"):
+        super().__init__(status.HTTP_400_BAD_REQUEST, 41909, message)
+
+
+# 模块段 20 = 柜 / 发运(发运单状态机)。见 db/models/shipment_order.py。
+class ShipmentHasActiveOutboundError(BusinessError):
+    """取消柜被拦:柜下存在非 CANCELLED 出库单。先取消柜内出库单再取消柜。"""
+
+    def __init__(self, message: str = "Cannot cancel a shipment with active outbound orders"):
+        super().__init__(status.HTTP_409_CONFLICT, 42001, message)
+
+
+class ShipmentInvalidTransitionError(BusinessError):
+    """状态转移不在 SHIPMENT_ORDER_TRANSITIONS 矩阵。"""
+
+    def __init__(self, message: str = "Illegal shipment status transition"):
+        super().__init__(status.HTTP_409_CONFLICT, 42002, message)
 
 
 def success(data: Any = None, message: str = "ok") -> dict:

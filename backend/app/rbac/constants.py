@@ -54,6 +54,15 @@ class Permissions:
     # 无 manage 轴:库存无写入口(无手工调整/盘点),数字全由单据链派生。零成本/供应商字段 → 非红线。
     INVENTORY_READ = "inventory:read"
 
+    # ----- 履约:outbound(出库单)/ shipment(柜/发运)-----
+    # 出库/柜全链路零成本/售价列(纯仓单),非红线;售价侧在 receivable(整表门控)。
+    OUTBOUND_READ = "outbound:read"
+    OUTBOUND_MANAGE = "outbound:manage"
+    SHIPMENT_READ = "shipment:read"
+    SHIPMENT_MANAGE = "shipment:manage"
+    # 🔴红线开关:应收款整域(客户售价)可见;端点级门控,无此权限则整块不下发(镜像 PAYABLE_READ)。
+    RECEIVABLE_READ = "receivable:read"
+
 
 # auth:* 是系统底层会话权限,不归任何资源域(供启动同步识别,不进矩阵)
 SYSTEM_RESERVED_CODES = frozenset({
@@ -100,6 +109,12 @@ PERMISSION_META: dict[str, dict[str, str]] = {
     Permissions.INBOUND_READ: {"name": "入库查看", "module": ModuleLabel.FULFILLMENT},
     Permissions.PAYABLE_READ: {"name": "应付款查看", "module": ModuleLabel.FULFILLMENT},
     Permissions.INVENTORY_READ: {"name": "库存查看", "module": ModuleLabel.FULFILLMENT},
+
+    Permissions.OUTBOUND_READ: {"name": "出库查看", "module": ModuleLabel.FULFILLMENT},
+    Permissions.OUTBOUND_MANAGE: {"name": "出库管理", "module": ModuleLabel.FULFILLMENT},
+    Permissions.SHIPMENT_READ: {"name": "发运查看", "module": ModuleLabel.FULFILLMENT},
+    Permissions.SHIPMENT_MANAGE: {"name": "发运管理", "module": ModuleLabel.FULFILLMENT},
+    Permissions.RECEIVABLE_READ: {"name": "应收款查看", "module": ModuleLabel.FULFILLMENT},
 }
 
 
@@ -108,4 +123,5 @@ ROLE_META: dict[str, dict[str, str]] = {
     "PRODUCT_OPERATOR": {"name": "商品运营", "description": "商品 SPU/SKU 增改上下架"},
     "SALES": {"name": "销售", "description": "报价单全生命周期;读客户/商品选料"},
     "PURCHASER": {"name": "采购员", "description": "供应商主数据 + 基于销售单发起采购单(建/确认/取消);见采购成本"},
+    "LOGISTICS": {"name": "物流仓运", "description": "组柜/装柜出库(建/改/确认/撤销/取消);出库/发运/物流/报关同一操作者。无成本/售价可见"},
 }

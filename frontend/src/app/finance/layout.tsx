@@ -1,14 +1,7 @@
-"use client";
 import { ReactNode } from "react";
-import { RouteGuard } from "@/components/auth/RouteGuard";
-import { AppShell } from "@/components/layout/AppShell";
-import { Permissions } from "@/config/permission-matrix";
 
-// 财务·应付款段权限门:payable:read(与后端 GET /payables 守卫一致;整域红线,后端才是安全底线)。
+// 财务段是多子域(应付 / 应收),各子域权限门不同(payable:read / receivable:read),
+// 故守卫 + AppShell 外壳下沉到各子路由 layout,本层仅透传。
 export default function FinanceLayout({ children }: { children: ReactNode }) {
-  return (
-    <RouteGuard requiredPermissions={[Permissions.PAYABLE_READ]}>
-      <AppShell breadcrumb={["财务", "应付款"]}>{children}</AppShell>
-    </RouteGuard>
-  );
+  return <>{children}</>;
 }

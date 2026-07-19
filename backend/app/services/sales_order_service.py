@@ -18,6 +18,7 @@ from app.core.statemachine import assert_transition
 from app.core.exceptions import (
     NotFoundError,
     QuotationCannotConvertError,
+    SalesOrderHasActiveOutboundError,
     SalesOrderHasActivePurchaseError,
     SalesOrderInvalidTransitionError,
 )
@@ -114,10 +115,16 @@ async def cancel_order(db: AsyncSession, *, order_id: int, reason: str | None, a
     """整单取消(CONFIRMED→CANCELLED,终态)+ 报价 CONVERTED→LOCKED 回退可重转。单事务原子。
 
     - 锁序 SO 头 → 报价头(建 PO = SO头→SO行;convert = 仅报价头;无环无死锁,评审 B2 核定);
-    - 下游守卫:存在非 CANCELLED 的 PO → 41802(不级联砍下游,解链人工自下而上);
+    - 下游守卫(两条互不替代,分别拦采购/出库两条下游链):
+      - 存在非 CANCELLED 的 PO → 41802;
+      - 存在非 CANCELLED 的出库单(含 DRAFT 草稿)→ 41803 —— 草稿未扣库存但引用了本 SO 的
+        行/价,放行会留下一张指向已取消 SO 的活动出库单(悬空引用,后续确认装柜前才会被
+        41905 兜底,但草稿态本身已是脏数据,故此处提前拦)。
+      不级联砍下游——解链人工自下而上:先取消全部 PO / 出库单再取消 SO。
     - 报价断言 CONVERTED 后回退 LOCKED(断言失败 = 不变式破坏,如实 RuntimeError 500);
     - 审计两行 extra 互指:CANCEL/SO(quotation_id)+ UNCONVERT/报价(sales_order_id)。
     """
+    from app.db.models.outbound_order import OutboundOrder, OutboundOrderStatus
     from app.db.models.purchase_order import PurchaseOrder, PurchaseOrderStatus
 
     so = await get_order_for_update(db, order_id)
@@ -130,6 +137,13 @@ async def cancel_order(db: AsyncSession, *, order_id: int, reason: str | None, a
     if active_po:
         raise SalesOrderHasActivePurchaseError(
             f"存在活动采购单(如 #{active_po[0]}),请先取消全部采购单")
+    active_ob = (await db.execute(
+        select(OutboundOrder.id).where(
+            OutboundOrder.sales_order_id == so.id,
+            OutboundOrder.status != OutboundOrderStatus.CANCELLED).limit(1))).first()
+    if active_ob:
+        raise SalesOrderHasActiveOutboundError(
+            f"存在活动出库单(如 #{active_ob[0]}),请先取消/撤销全部出库单")
 
     so.status = SalesOrderStatus.CANCELLED
     so.cancelled_at = datetime.now(timezone.utc).replace(tzinfo=None)

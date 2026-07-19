@@ -85,5 +85,9 @@ def require_any_permission(*perm_codes: str):
     async def checker(current: CurrentUser = Depends(get_current_user)) -> CurrentUser:
         if not any(code in current.permissions for code in allowed):
             raise PermissionDeniedError("Permission denied")
+        # 强制改密期间同样拦(镜像 require_permission);此依赖只用于业务读端点(见各
+        # api/v1/*.py 的 _READ),豁免码集合(登录/登出/读自身资料)不会出现在 perm_codes 里,
+        # 故不做逐码豁免判定,统一按「持任一业务权限仍须先改密」处理。
+        _raise_if_must_change(current)
         return current
     return checker

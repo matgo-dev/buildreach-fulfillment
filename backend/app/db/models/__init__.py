@@ -19,6 +19,9 @@ from app.db.models.supplier import Supplier  # noqa: F401
 from app.db.models.purchase_order import PurchaseOrder, PurchaseOrderLine  # noqa: F401
 from app.db.models.inbound_order import InboundOrder, InboundOrderLine  # noqa: F401
 from app.db.models.payable import Payable  # noqa: F401
+from app.db.models.shipment_order import ShipmentOrder  # noqa: F401
+from app.db.models.outbound_order import OutboundOrder, OutboundOrderLine  # noqa: F401
+from app.db.models.receivable import Receivable  # noqa: F401
 
 __all__ = [
     "User", "Role", "RoleCode", "Permission",
@@ -27,4 +30,5 @@ __all__ = [
     "ProductImage", "QuotationOrder", "QuotationLine", "SalesOrder", "SalesOrderLine",
     "Supplier", "PurchaseOrder", "PurchaseOrderLine",
     "InboundOrder", "InboundOrderLine", "Payable",
+    "ShipmentOrder", "OutboundOrder", "OutboundOrderLine", "Receivable",
 ]

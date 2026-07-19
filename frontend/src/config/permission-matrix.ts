@@ -49,6 +49,14 @@ export const Permissions = {
 
   // ----- 履约:库存(订单履约跟踪,纯派生,无 manage 轴)-----
   INVENTORY_READ: "inventory:read",
+
+  // ----- 履约:出库单 / 发运柜(出库单据零售价/零成本,故无 read_cost 轴)-----
+  OUTBOUND_READ: "outbound:read",
+  OUTBOUND_MANAGE: "outbound:manage",
+  SHIPMENT_READ: "shipment:read",
+  SHIPMENT_MANAGE: "shipment:manage",
+  // 红线域:应收款整域只对持 receivable:read 者下发(后端整块门控,非字段级)。
+  RECEIVABLE_READ: "receivable:read",
 } as const;
 
 export type PermissionCode = (typeof Permissions)[keyof typeof Permissions];

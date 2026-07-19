@@ -294,3 +294,19 @@ async def purchaser_headers(client, db_session) -> dict[str, str]:
     r = await client.post("/api/v1/auth/login", json={"identifier": email, "password": pw})
     assert r.status_code == 200, r.text
     return {"Authorization": f"Bearer {r.json()['data']['access_token']}"}
+
+
+@pytest_asyncio.fixture
+async def logistics_headers(client, db_session) -> dict[str, str]:
+    """LOGISTICS 账号 headers。持 outbound:*/shipment:* + sales:read/inventory:read/product:read。
+    不持 receivable:read(应收=客户售价整表门控)、不持成本轴(出库/柜零金额)。"""
+    from app.services.user_service import create_internal_user
+
+    email = "logistics@fulfillment.local"
+    pw = "LogisticsOp123456"
+    await create_internal_user(
+        db_session, email=email, name="物流仓运", password=pw, role="LOGISTICS",
+        must_change_password=False, actor_user_id=0, actor_user_email="system@test")
+    r = await client.post("/api/v1/auth/login", json={"identifier": email, "password": pw})
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['data']['access_token']}"}

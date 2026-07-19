@@ -17,6 +17,7 @@ export const ROLE_META: Record<string, string> = {
   PRODUCT_OPERATOR: "商品运营",
   SALES: "销售",
   PURCHASER: "采购员",
+  LOGISTICS: "物流仓运",
 };
 
 export const ROLE_OPTIONS = Object.entries(ROLE_META).map(([value, label]) => ({ value, label }));

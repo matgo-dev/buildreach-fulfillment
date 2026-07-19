@@ -65,28 +65,30 @@ async def test_split_two_po_two_inbound_ordered_not_doubled(
     assert row["sku_code"] == "SKUINV_A"
 
 
-# ─────────────────────────── ② 同 SO 两行同 SKU 合并 + 当前档展示 ───────────────────────────
+# ─────────────────────────── ② 库存展示取 SKU 当前档(非行快照)───────────────────────────
+# 原「同 SO 两行同 SKU 合并」场景在 §0-11(UNIQUE(sales_order_id, sku_id))后结构性消失
+# ——一 SKU 至多一 SO 行,故本例改为单行验「当前档展示」这一保留语义(合并按 (so,sku) 聚合仍在,
+# 但不再由多 SO 行触发)。
 
-async def test_two_so_lines_same_sku_merge_and_current_archive(
+async def test_stock_balance_shows_current_archive_not_snapshot(
         client, db_session, sales_headers, purchaser_headers):
     cust, [sku] = await seed_inventory_catalog(db_session, sku_codes=("SKUINV_A",))
     so_id, so_lines = await make_confirmed_so(client, sales_headers, cust, [
-        {"sku_id": sku.id, "unit_price": "9.00", "qty": 300},
-        {"sku_id": sku.id, "unit_price": "9.00", "qty": 200}])
-    assert len({ln["id"] for ln in so_lines}) == 2  # 两条独立 SO 行,同 SKU
+        {"sku_id": sku.id, "unit_price": "9.00", "qty": 500}])
+    assert len(so_lines) == 1
 
     # 改 SKU 当前档品名 → 断言库存展示取的是当前档,不是行快照
     db_sku = (await db_session.execute(select(Sku).where(Sku.id == sku.id))).scalar_one()
     db_sku.name_i18n = {"zh": "改名后的当前档品名"}
     await db_session.commit()
 
-    # SO 详情块含全部行(含已入 0),合并成一行 ordered=500
+    # SO 详情块含全部行(含已入 0),(so,sku) 一行 ordered=500
     detail = (await client.get(f"/api/v1/sales-orders/{so_id}",
                                headers=sales_headers)).json()["data"]
     blocks = detail["order"]["stock_balances"]
     assert len(blocks) == 1
     row = blocks[0]
-    assert row["ordered_qty"] == 500.0          # 300 + 200 合并
+    assert row["ordered_qty"] == 500.0
     assert row["inbound_qty"] == 0.0
     assert row["name"] == "改名后的当前档品名"   # 当前档,非行快照
 
