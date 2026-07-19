@@ -10,15 +10,29 @@ import { colors } from "@/lib/tokens";
 // 状态色/中性阶沿用 DESIGN §1;Table 默认无斑马,恰合 B 风格(§11.8)。
 const themeConfig = {
   token: {
-    colorPrimary: colors.brand, // §1.1 brand
+    colorPrimary: colors.brand, // §1.1 brand(祖母绿)
     colorLink: colors.brand,
-    colorLinkHover: colors.brandMid, // brand-mid
+    colorLinkHover: colors.brandLight, // brand-light
+    // §1.3:成功走青,与品牌绿拉开;info 显式钉蓝 —— AntD 默认 colorInfo 跟随 colorPrimary,
+    // 不钉则「处理中」类 Tag(在途/部分入库/锁档…)会一起变绿,与成功态糊成一片。
+    colorSuccess: colors.success,
+    colorInfo: colors.info,
     borderRadius: 6, // DESIGN §4 按钮/输入 rounded-md
     fontSize: 14, // DESIGN §2 text-sm
     controlHeight: 32,
     colorText: colors.ink, // §1.2 ink
     colorTextHeading: colors.navy, // navy
     colorBorder: colors.line, // line
+  },
+  // 暗色 Menu(全站唯一消费者=AppShell 侧栏):激活块走更亮的 brand-light,底色透明吃 Sider 渐变。
+  components: {
+    Menu: {
+      darkItemBg: "transparent",
+      darkSubMenuItemBg: "transparent",
+      darkItemSelectedBg: colors.brandLight,
+      darkItemColor: colors.sidebarText,
+      darkGroupTitleColor: colors.sidebarGroup,
+    },
   },
   algorithm: theme.defaultAlgorithm,
 };
