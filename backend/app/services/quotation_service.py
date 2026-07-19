@@ -40,26 +40,24 @@ from app.db.models.quotation import (
 from app.db.models.customer import Customer, CustomerStatus
 from app.db.models.sku import Sku
 from app.db.models.spu import Spu
-from app.db.models.unit import Unit
 from app.db.models.user import User
 from app.services import customer_service, sku_service, spec_template_service as tmpl, user_service
 from app.services.numbering import allocate
 from app.services.repo import assert_no_edit_conflict, get_or_404, paginate
 
 
-def _compose_snapshot(sku: Sku, spu: Spu, by_key: dict, unit_row: Unit | None,
-                      order_lang: str) -> tuple[str, str, str]:
+def _compose_snapshot(sku: Sku, spu: Spu, by_key: dict, order_lang: str) -> tuple[str, str, str]:
     """纯内存组装行快照三件套(name, spec_text, unit)——所需 DB 取数由调用方预取传入。
     单行 compose_line_snapshot 与批量 _reconcile_lines 共用此组装逻辑(单一源头,防两处漂移)。
 
     spec_text **只组自 SKU.spec_jsonb(变体轴)**——产品级属性对整个 SPU 一致,进单据行规格
     串只会重复噪音;单据要区分的是"哪个变体",故只冻结轴属性(compose_spec_text 规则)。
-    unit 解析 units.label_i18n 冻结成展示文字。
+    unit 冻结 **units.code**(不是展示文字):单位是主数据、code 永久不变、语义不漂,展示时
+    再按界面语言翻译(services/unit_service.py);存展示值会让中文界面中英混排。
     """
     name = display(sku.name_i18n, order_lang)
     spec_text = compose_spec_text(list(sku.spec_jsonb or []), by_key, order_lang)
-    unit = display(unit_row.label_i18n, order_lang) if unit_row is not None else sku.unit
-    return name, spec_text, unit
+    return name, spec_text, sku.unit
 
 
 async def compose_line_snapshot(db: AsyncSession, sku: Sku, order_lang: str) -> tuple[str, str, str]:
@@ -67,9 +65,7 @@ async def compose_line_snapshot(db: AsyncSession, sku: Sku, order_lang: str) -> 
     (批量写路径见 _reconcile_lines 的预取)。"""
     spu = (await db.execute(select(Spu).where(Spu.id == sku.spu_id))).scalar_one()
     by_key = await tmpl.suggestions_by_key(db, spu.category_code)
-    unit_row = (await db.execute(
-        select(Unit).where(Unit.code == sku.unit))).scalar_one_or_none()
-    return _compose_snapshot(sku, spu, by_key, unit_row, order_lang)
+    return _compose_snapshot(sku, spu, by_key, order_lang)
 
 
 async def assert_sku_available(db: AsyncSession, sku_id: int) -> Sku:
@@ -160,8 +156,9 @@ async def _reconcile_lines(db: AsyncSession, order: QuotationOrder, lines: list[
     for lid in to_delete:
         await db.delete(existing[lid])
 
-    # 批量预取(替代逐行 N+1:原每行 sku+spu+模板+单位 ~5 查):sku→spu→按品类去重的模板
-    # by_key→单位,循环内纯内存组装。总查询数 ≈ 3 + 去重品类数,与行数无关。
+    # 批量预取(替代逐行 N+1:原每行 sku+spu+模板 ~4 查):sku→spu→按品类去重的模板
+    # by_key,循环内纯内存组装。总查询数 ≈ 2 + 去重品类数,与行数无关。
+    # (单位不再预取:快照存 sku.unit 这个 code 本身,无需查 units 解析展示文字。)
     sku_ids = {ln["sku_id"] for ln in lines}
     skus = {s.id: s for s in (await db.execute(
         select(Sku).where(Sku.id.in_(sku_ids), Sku.deleted_at.is_(None)))).scalars()} if sku_ids else {}
@@ -176,9 +173,6 @@ async def _reconcile_lines(db: AsyncSession, order: QuotationOrder, lines: list[
             raise QuotationInvalidLineError(f"SKU 不可报价(不存在/已删/非 ACTIVE): {sid}")
     by_key_by_cat = {c: await tmpl.suggestions_by_key(db, c)
                      for c in {spus[s.spu_id].category_code for s in skus.values()}}
-    unit_codes = {s.unit for s in skus.values()}
-    units = {u.code: u for u in (await db.execute(
-        select(Unit).where(Unit.code.in_(unit_codes)))).scalars()} if unit_codes else {}
 
     total = Decimal("0")
     for idx, ln in enumerate(lines):
@@ -192,7 +186,7 @@ async def _reconcile_lines(db: AsyncSession, order: QuotationOrder, lines: list[
             name, spec_text, unit = row.name_snapshot, row.spec_text_snapshot, row.unit_snapshot
         else:
             name, spec_text, unit = _compose_snapshot(
-                sku, spu, by_key_by_cat[spu.category_code], units.get(sku.unit), order.language)
+                sku, spu, by_key_by_cat[spu.category_code], order.language)
         line_total = Decimal(str(ln["unit_price"])) * Decimal(str(ln["qty"]))
         total += line_total
         sort_order = ln.get("sort_order", idx)

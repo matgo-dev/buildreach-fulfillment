@@ -33,7 +33,7 @@ async def test_snapshot_freezes_sku_axis_only(db_session):
     assert name == "工字钢 200"
     assert "DN200" in spec_text    # 变体轴(SKU.spec_jsonb)进规格串
     assert "Q235" not in spec_text  # 产品级(SPU.spec_jsonb)退出规格串,不再并进来
-    assert unit == "吨" and unit != sku.unit   # 冻结 units.label_i18n 展示文字,非 code "ton"
+    assert unit == sku.unit == "ton"   # 冻结 units.code(展示文字由 unit_service 在出口翻译)
 
 
 @pytest.mark.asyncio

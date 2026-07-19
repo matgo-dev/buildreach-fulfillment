@@ -26,7 +26,7 @@ from app.schemas.quotation import (
     QuotationVoidIn,
 )
 from app.schemas.sales_order import SalesOrderLineOut, SalesOrderOut
-from app.services import quotation_service, sales_order_service
+from app.services import quotation_service, sales_order_service, unit_service
 
 router = APIRouter(prefix="/quotations", tags=["quotations"])
 
@@ -89,8 +89,9 @@ async def get_quotation(
                    if order.status == QuotationStatus.CONVERTED else None)
     return success({
         "order": {**_order_out(order), **parties, "sales_order": sales_order},
-        "lines": [QuotationLineOut.model_validate(l, from_attributes=True).model_dump()
-                  for l in lines],
+        "lines": await unit_service.translate_unit_snapshots(
+            db, [QuotationLineOut.model_validate(l, from_attributes=True).model_dump()
+                 for l in lines]),
     })
 
 
@@ -180,6 +181,7 @@ async def convert_quotation(
     parties = await sales_order_service.resolve_order_parties(db, so)
     return success({
         "order": {**SalesOrderOut.model_validate(so, from_attributes=True).model_dump(), **parties},
-        "lines": [SalesOrderLineOut.model_validate(l, from_attributes=True).model_dump()
-                  for l in lines],
+        "lines": await unit_service.translate_unit_snapshots(
+            db, [SalesOrderLineOut.model_validate(l, from_attributes=True).model_dump()
+                 for l in lines]),
     })

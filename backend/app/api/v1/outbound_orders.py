@@ -22,7 +22,7 @@ from app.schemas.outbound_order import (
     OutboundOrderRevertIn,
     OutboundOrderUpdateIn,
 )
-from app.services import outbound_service
+from app.services import outbound_service, unit_service
 
 router = APIRouter(prefix="/outbound-orders", tags=["outbound-orders"])
 
@@ -35,7 +35,8 @@ async def _detail_payload(db, order) -> dict:
     parties = await outbound_service.resolve_order_parties(db, order)
     return {
         "order": OutboundOrderOut.build(order, parties),
-        "lines": [OutboundOrderLineOut.model_validate(ln).model_dump() for ln in lines],
+        "lines": await unit_service.translate_unit_snapshots(
+            db, [OutboundOrderLineOut.model_validate(ln).model_dump() for ln in lines]),
     }
 
 

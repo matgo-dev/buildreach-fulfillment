@@ -25,7 +25,7 @@ from app.schemas.purchase_order import (
     PurchaseOrderOut,
     PurchaseOrderUpdateIn,
 )
-from app.services import inbound_order_service, purchase_order_service
+from app.services import inbound_order_service, purchase_order_service, unit_service
 
 router = APIRouter(prefix="/purchase-orders", tags=["purchase-orders"])
 
@@ -52,6 +52,8 @@ async def _detail_payload(db, po, current) -> dict:
         d["received_qty"] = float(rcv) if rcv is not None else 0.0
         d["in_transit_qty"] = float((inb or 0) - (rcv or 0))
         line_dicts.append(d)
+    # 单位快照存 code,展示层按界面语言翻译(脱敏工厂已产出 dict,不碰 ORM)。
+    await unit_service.translate_unit_snapshots(db, line_dicts)
     related_inbound = await inbound_order_service.list_related_by_purchase_order(db, po.id)
     return {
         "order": PurchaseOrderOut.build(po, {
@@ -107,7 +109,7 @@ async def list_purchase_orders(page_params: PageParams = Depends(),
 async def purchasable_lines(source_sales_order_id: int = Query(...),
                             _current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
     rows = await purchase_order_service.purchasable_lines(db, source_sales_order_id)
-    return success({"items": rows})
+    return success({"items": await unit_service.translate_unit_snapshots(db, rows)})
 
 
 @router.get("/{order_id}", summary="取采购单(含行)")
