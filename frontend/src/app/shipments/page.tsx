@@ -17,7 +17,7 @@ import { SHIPMENT_STATUS_META, CONTAINER_TYPE_OPTIONS } from "@/lib/shipmentStat
 const STATUS_TABS = [
   { label: "全部", value: "" },
   { label: "组柜中", value: "OPEN" },
-  { label: "已装柜", value: "LOADED" },
+  { label: "已封柜", value: "LOADED" },
   { label: "已发运", value: "DEPARTED" },
   { label: "已取消", value: "CANCELLED" },
 ];

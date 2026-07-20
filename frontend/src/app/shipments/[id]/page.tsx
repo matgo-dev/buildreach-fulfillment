@@ -155,8 +155,10 @@ export default function ShipmentDetailPage() {
     }
   }
 
-  // 装柜确认:守卫 42003(草稿单号列表)/ 42004(空柜),按明细展示。
+  // 封柜确认:守卫 42003(草稿单号列表)/ 42004(空柜),按明细展示;
+  // 补录覆盖柜号/封条 → 携乐观锁基线(冲突 42006 提示刷新)。
   async function onLoad() {
+    if (!detail) return;
     const v = await loadForm.validateFields().catch(() => null);
     if (!v) return;
     setBusy(true);
@@ -164,8 +166,9 @@ export default function ShipmentDetailPage() {
       await shipmentApi.load(id, {
         container_no: v.container_no?.trim() || null,
         seal_no: v.seal_no?.trim() || null,
+        expected_updated_at: detail.shipment.updated_at,
       });
-      message.success("已装柜确认");
+      message.success("已封柜确认");
       setLoadOpen(false);
       loadForm.resetFields();
       load();
@@ -173,10 +176,10 @@ export default function ShipmentDetailPage() {
       if (e instanceof ApiError && e.code === 42003) {
         const nos = (e.data as { draft_nos?: string[] } | null)?.draft_nos ?? [];
         modal.error({
-          title: "柜内存在草稿出库单,不可装柜",
+          title: "柜内存在草稿出库单,不可封柜",
           content: (
             <div style={{ marginTop: 8 }}>
-              <div style={{ marginBottom: 6 }}>请先确认或移除以下草稿出库单后再装柜:</div>
+              <div style={{ marginBottom: 6 }}>请先确认或移除以下草稿出库单后再封柜:</div>
               {nos.map((no) => (
                 <div key={no} style={{ fontSize: 13 }}>
                   {no}
@@ -186,7 +189,7 @@ export default function ShipmentDetailPage() {
           ),
         });
       } else {
-        message.error(resolveBizError(e, "装柜失败"));
+        message.error(resolveBizError(e, "封柜失败"));
       }
     } finally {
       setBusy(false);
@@ -271,7 +274,7 @@ export default function ShipmentDetailPage() {
   // 柜内可加/管出库单仅组柜中(封柜后柜内出库单冻结,镜像后端 41906/41910)。
   const isOpen = shipment.status === "OPEN";
 
-  // 时间线三节点:建柜(必达)→ 装柜(loaded_at)→ 离港(atd),已发生亮蓝、未发生灰。
+  // 时间线三节点:建柜(必达)→ 封柜(loaded_at)→ 离港(atd),已发生亮蓝、未发生灰。
   const timelineItems = [
     {
       color: "blue",
@@ -286,9 +289,9 @@ export default function ShipmentDetailPage() {
       color: shipment.loaded_at ? "blue" : "gray",
       children: (
         <div>
-          <div style={{ fontWeight: 600 }}>装柜</div>
+          <div style={{ fontWeight: 600 }}>封柜</div>
           <div style={{ fontSize: 12, color: colors.muted }}>
-            {shipment.loaded_at ? formatDateTime(shipment.loaded_at) : "待装柜"}
+            {shipment.loaded_at ? formatDateTime(shipment.loaded_at) : "待封柜"}
           </div>
         </div>
       ),
@@ -340,7 +343,7 @@ export default function ShipmentDetailPage() {
                     setLoadOpen(true);
                   }}
                 >
-                  装柜确认
+                  封柜确认
                 </Button>
               )}
               {shipmentDepartable(shipment.status) && (
@@ -356,17 +359,17 @@ export default function ShipmentDetailPage() {
               )}
               {shipmentUnloadable(shipment.status) && (
                 <Popconfirm
-                  title="撤装柜?"
-                  description="撤回到组柜中,清空装柜时间,柜内出库单解冻可再编辑。用于纠错未离港的误装柜。"
-                  onConfirm={() => act(() => shipmentApi.unload(id), "已撤装柜")}
+                  title="撤封柜?"
+                  description="撤回到组柜中,清空封柜时间,柜内出库单解冻可再编辑。用于纠错未离港的误封柜。"
+                  onConfirm={() => act(() => shipmentApi.unload(id), "已撤封柜")}
                 >
-                  <Button loading={busy}>撤装柜</Button>
+                  <Button loading={busy}>撤封柜</Button>
                 </Popconfirm>
               )}
               {shipmentUndepartable(shipment.status) && (
                 <Popconfirm
                   title="撤离港?"
-                  description="撤回到已装柜,清空实际离港日(ATD)。用于纠正误点的离港确认。"
+                  description="撤回到已封柜,清空实际离港日(ATD)。用于纠正误点的离港确认。"
                   onConfirm={() => act(() => shipmentApi.undepart(id), "已撤离港")}
                 >
                   <Button loading={busy}>撤离港</Button>
@@ -418,7 +421,7 @@ export default function ShipmentDetailPage() {
             <Descriptions.Item label="ETD(预计离港)">{shipment.etd || "—"}</Descriptions.Item>
             <Descriptions.Item label="ETA(预计到港)">{shipment.eta || "—"}</Descriptions.Item>
             <Descriptions.Item label="ATD(实际离港)">{shipment.atd || "—"}</Descriptions.Item>
-            <Descriptions.Item label="装柜时间">
+            <Descriptions.Item label="封柜时间">
               {shipment.loaded_at ? formatDateTime(shipment.loaded_at) : "—"}
             </Descriptions.Item>
           </Descriptions>
@@ -545,11 +548,11 @@ export default function ShipmentDetailPage() {
         </Form>
       </Modal>
 
-      {/* 装柜确认:可补录封条/柜号(封号贴封条时才知道)。 */}
+      {/* 封柜确认:可补录封条/柜号(封号贴封条时才知道)。 */}
       <Modal
-        title="装柜确认"
+        title="封柜确认"
         open={loadOpen}
-        okText="确认装柜"
+        okText="确认封柜"
         confirmLoading={busy}
         onCancel={() => {
           setLoadOpen(false);
@@ -559,7 +562,7 @@ export default function ShipmentDetailPage() {
       >
         <Space direction="vertical" style={{ width: "100%" }} size="middle">
           <span>
-            装柜确认后柜进入「已装柜」,柜内出库单冻结(不可撤销/编辑)。要求柜内至少 1
+            封柜确认后柜进入「已封柜」,柜内出库单冻结(不可撤销/编辑)。要求柜内至少 1
             张出库单且全部已确认出库。可在此补录封条号 / 柜号。
           </span>
           <Form form={loadForm} layout="vertical">

@@ -87,12 +87,12 @@ export default function OutboundOrderDetailPage() {
     }
   }
 
-  // 确认装柜:41902 可发不足 → 按 sku 明细展示(其余走通用错误映射)。
+  // 确认出库:41902 可发不足 → 按 sku 明细展示(其余走通用错误映射)。
   async function onConfirm() {
     setBusy(true);
     try {
       await outboundOrderApi.confirm(id);
-      message.success("已确认出库装柜");
+      message.success("已确认出库");
       load();
     } catch (e) {
       if (e instanceof ApiError && e.code === 41902) {
@@ -162,14 +162,14 @@ export default function OutboundOrderDetailPage() {
               )}
               {outboundOrderConfirmable(order.status) && (
                 <Button type="primary" loading={busy} onClick={onConfirm}>
-                  确认装柜
+                  确认出库
                 </Button>
               )}
               {outboundOrderRevertable(order.status) &&
-                // 柜非 OPEN(已装柜/发运)时撤销被后端 41910 拒;前端镜像:禁用 + tooltip 讲清路径。
+                // 柜非 OPEN(已封柜/发运)时撤销被后端 41910 拒;前端镜像:禁用 + tooltip 讲清路径。
                 (order.shipment_status && order.shipment_status !== "OPEN" ? (
                   // disabled 按钮不派发鼠标事件,Tooltip 须包 span 才能触发(AntD FAQ 官方姿势)。
-                  <Tooltip title="柜已装柜/发运,请先撤装柜再撤销出库">
+                  <Tooltip title="柜已封柜/发运,请先撤封柜再撤销出库">
                     <span style={{ display: "inline-block", cursor: "not-allowed" }}>
                       <Button disabled style={{ pointerEvents: "none" }}>
                         撤销出库

@@ -1,5 +1,5 @@
-"""发运单(=柜)服务:组柜容器 + 船务生命周期(装柜/离港)。
-建 / 改(diff 式字段门禁 + 乐观锁)/ 取消 / 装柜确认 / 撤装柜 / 离港确认 / 撤离港。
+"""发运单(=柜)服务:组柜容器 + 船务生命周期(封柜/离港)。
+建 / 改(diff 式字段门禁 + 乐观锁)/ 取消 / 封柜确认 / 撤封柜 / 离港确认 / 撤离港。
 
 发运不碰库存、不碰应收(扣库存 + 建应收都在出库确认);柜只管船务生命周期。无红线字段。
 
@@ -150,13 +150,16 @@ async def cancel_order(db: AsyncSession, *, shipment_id, actor_user_id, actor_us
 # ---------- 船务状态机(叶子锁:只锁柜头,读出库聚合不加锁)----------
 
 
-async def load_order(db: AsyncSession, *, shipment_id, container_no=None, seal_no=None,
-                     actor_user_id, actor_user_email,
+async def load_order(db: AsyncSession, *, shipment_id, expected_updated_at,
+                     container_no=None, seal_no=None, actor_user_id, actor_user_email,
                      request: Request | None = None) -> ShipmentOrder:
-    """装柜确认(OPEN→LOADED)。守卫:柜内 ≥1 非 CANCELLED 出库单(空柜 42004),
-    且全部为 ISSUED(存在 DRAFT → 42003 带草稿单号列表)。置 loaded_at;可带 seal_no/
-    container_no 补录(封条贴上才知)。柜头 FOR UPDATE(叶子锁),出库聚合只读不加锁。"""
+    """封柜确认(OPEN→LOADED)。检查管线 = 锁 → 乐观锁基线 → 状态机边 → 业务守卫
+    (与 save_order 同序):stale 提交 → 42006(补录会覆盖柜号/封条,须持最新基线);
+    柜内 ≥1 非 CANCELLED 出库单(空柜 42004)且全部 ISSUED(存在 DRAFT → 42003 带草稿
+    单号列表)。置 loaded_at;补录覆盖旧值记审计 extra。柜头 FOR UPDATE(叶子锁),
+    出库聚合只读不加锁。"""
     ship = await get_order_for_update(db, shipment_id)
+    assert_no_edit_conflict(ship, expected_updated_at, ShipmentEditConflictError)
     _assert_edge(ship, ShipmentOrderStatus.OPEN, ShipmentOrderStatus.LOADED)
     rows = (await db.execute(
         select(OutboundOrder.no, OutboundOrder.status).where(
@@ -167,9 +170,13 @@ async def load_order(db: AsyncSession, *, shipment_id, container_no=None, seal_n
     draft_nos = [no for no, st in rows if st == OutboundOrderStatus.DRAFT]
     if draft_nos:
         raise ShipmentHasDraftOutboundError(data={"draft_nos": draft_nos})
-    if container_no is not None:
+    # 补录覆盖旧值 → extra 留痕(排障:谁在封柜时改了柜号/封条、改前是什么)。
+    extra: dict = {}
+    if container_no is not None and container_no != ship.container_no:
+        extra["container_no"] = {"old": ship.container_no, "new": container_no}
         ship.container_no = container_no
-    if seal_no is not None:
+    if seal_no is not None and seal_no != ship.seal_no:
+        extra["seal_no"] = {"old": ship.seal_no, "new": seal_no}
         ship.seal_no = seal_no
     ship.status = ShipmentOrderStatus.LOADED
     ship.loaded_at = _now()
@@ -177,7 +184,7 @@ async def load_order(db: AsyncSession, *, shipment_id, container_no=None, seal_n
     await write_audit(db, resource_type=AuditResourceType.SHIPMENT_ORDER,
                       action=AuditAction.LOAD, user_id=actor_user_id,
                       user_email=actor_user_email, resource_id=ship.id, request=request,
-                      commit=False)
+                      extra=extra or None, commit=False)
     await db.commit()
     await db.refresh(ship)
     return ship
@@ -185,7 +192,7 @@ async def load_order(db: AsyncSession, *, shipment_id, container_no=None, seal_n
 
 async def unload_order(db: AsyncSession, *, shipment_id, actor_user_id, actor_user_email,
                        request: Request | None = None) -> ShipmentOrder:
-    """撤装柜(LOADED→OPEN,纠错口)。清 loaded_at;柜内出库单随之解冻(可撤/可改)。"""
+    """撤封柜(LOADED→OPEN,纠错口)。清 loaded_at;柜内出库单随之解冻(可撤/可改)。"""
     ship = await get_order_for_update(db, shipment_id)
     _assert_edge(ship, ShipmentOrderStatus.LOADED, ShipmentOrderStatus.OPEN)
     ship.status = ShipmentOrderStatus.OPEN

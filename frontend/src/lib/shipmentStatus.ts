@@ -12,19 +12,19 @@ export const CONTAINER_TYPE_OPTIONS = [
 ] as const;
 
 /**
- * 四态单线:组柜中(OPEN)→ 已装柜(LOADED)→ 已发运(DEPARTED)(+已取消 CANCELLED 终态)。
+ * 四态单线:组柜中(OPEN)→ 已封柜(LOADED)→ 已发运(DEPARTED)(+已取消 CANCELLED 终态)。
  * 色遵 DESIGN.md §1.3(只写语义名,不写色值,由 AntD 令牌下发):
- * 组柜中=processing(蓝/进行中)/ 已装柜=warning(橙金/待离港)/ 已发运=success(青/完成)/ 已取消=default(中性)。
+ * 组柜中=processing(蓝/进行中)/ 已封柜=warning(橙金/待离港)/ 已发运=success(青/完成)/ 已取消=default(中性)。
  */
 export const SHIPMENT_STATUS_META: Record<ShipmentStatus, { label: string; color: string }> = {
   OPEN: { label: "组柜中", color: "processing" },
-  LOADED: { label: "已装柜", color: "warning" },
+  LOADED: { label: "已封柜", color: "warning" },
   DEPARTED: { label: "已发运", color: "success" },
   CANCELLED: { label: "已取消", color: "default" },
 };
 
 // 镜像转移矩阵(model SHIPMENT_ORDER_TRANSITIONS):
-// OPEN→{LOADED,CANCELLED} / LOADED→{DEPARTED,OPEN}(撤装柜) / DEPARTED→{LOADED}(撤离港) / CANCELLED→{}。
+// OPEN→{LOADED,CANCELLED} / LOADED→{DEPARTED,OPEN}(撤封柜) / DEPARTED→{LOADED}(撤离港) / CANCELLED→{}。
 const SHIPMENT_ORDER_TRANSITIONS: Record<ShipmentStatus, ShipmentStatus[]> = {
   OPEN: ["LOADED", "CANCELLED"],
   LOADED: ["DEPARTED", "OPEN"],
@@ -68,15 +68,15 @@ export const shipmentEditable = (s: ShipmentStatus): boolean =>
   SHIPMENT_EDITABLE_FIELDS_BY_STATUS[s].size > 0;
 
 // 每个动作对应一条具名有向边(源→目标)。转移矩阵里同一目标态可从多源可达
-// (如 LOADED 既是 OPEN 装柜的目标、也是 DEPARTED 撤离港的目标),故按「源态 + 该边合法」双判,
-// 不能只查「目标 ∈ transitions」——否则会把撤离港误当装柜、把装柜误当撤离港。
+// (如 LOADED 既是 OPEN 封柜的目标、也是 DEPARTED 撤离港的目标),故按「源态 + 该边合法」双判,
+// 不能只查「目标 ∈ transitions」——否则会把撤离港误当封柜、把封柜误当撤离港。
 const canTransit = (from: ShipmentStatus, to: ShipmentStatus): boolean =>
   SHIPMENT_ORDER_TRANSITIONS[from].includes(to);
 
-/** 装柜确认 = OPEN→LOADED(后端守卫:非空柜 42004、全 ISSUED 否则 42003)。 */
+/** 封柜确认 = OPEN→LOADED(后端守卫:非空柜 42004、全 ISSUED 否则 42003)。 */
 export const shipmentLoadable = (s: ShipmentStatus): boolean =>
   s === "OPEN" && canTransit(s, "LOADED");
-/** 撤装柜 = LOADED→OPEN(纠错口,清 loaded_at)。 */
+/** 撤封柜 = LOADED→OPEN(纠错口,清 loaded_at)。 */
 export const shipmentUnloadable = (s: ShipmentStatus): boolean =>
   s === "LOADED" && canTransit(s, "OPEN");
 /** 离港确认 = LOADED→DEPARTED(录 atd)。 */

@@ -45,11 +45,11 @@ class AuditAction(str, Enum):
     # 收货/撤销是独立业务语义,不复用 CONFIRM/CANCEL。
     RECEIVE = "RECEIVE"
     UNRECEIVE = "UNRECEIVE"
-    # 出库单状态跃迁:DRAFT→ISSUED(确认装柜/扣库存)/ ISSUED→DRAFT(撤销出库)。
-    # 装柜/撤销是独立业务语义,不复用 CONFIRM/CANCEL(镜像 RECEIVE/UNRECEIVE 先例)。
+    # 出库单状态跃迁:DRAFT→ISSUED(确认出库/扣库存)/ ISSUED→DRAFT(撤销出库)。
+    # 出库确认/撤销是独立业务语义,不复用 CONFIRM/CANCEL(镜像 RECEIVE/UNRECEIVE 先例)。
     ISSUE = "ISSUE"
     UNISSUE = "UNISSUE"
-    # 柜/发运状态跃迁:OPEN→LOADED(装柜确认)/ LOADED→OPEN(撤装柜)/
+    # 柜/发运状态跃迁:OPEN→LOADED(封柜确认)/ LOADED→OPEN(撤封柜)/
     # LOADED→DEPARTED(离港确认)/ DEPARTED→LOADED(撤离港)。船务生命周期独立动词,
     # 不复用 CONFIRM/CANCEL(镜像 ISSUE/UNISSUE 先例)。
     LOAD = "LOAD"

@@ -302,7 +302,7 @@ export function OutboundOrderBuilder({
           </div>
 
           <div style={{ marginBottom: 8, color: colors.muted, fontSize: 12 }}>
-            勾选可发行、录本次出库数量(受可发量约束)。草稿不扣库存,确认装柜时才扣减并生成应收。
+            勾选可发行、录本次出库数量(受可发量约束)。草稿不扣库存,确认出库时才扣减并生成应收。
           </div>
           <Table<BuilderRow>
             rowKey="sales_order_line_id"

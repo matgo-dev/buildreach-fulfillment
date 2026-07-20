@@ -63,7 +63,7 @@ async def test_cancelled_shipment_invalid_transition_and_edit(client, logistics_
     edit = await client.patch(f"/api/v1/shipments/{ship['id']}", headers=logistics_headers,
                               json={"container_no": "N",
                                     "expected_updated_at": canc.json()["data"]["shipment"]["updated_at"]})
-    assert edit.status_code == 400 and edit.json()["code"] == 42005
+    assert edit.status_code == 409 and edit.json()["code"] == 42005
 
 
 async def test_shipment_list_and_detail(client, db_session, sales_headers, purchaser_headers,

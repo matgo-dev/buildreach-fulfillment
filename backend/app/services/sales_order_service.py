@@ -118,7 +118,7 @@ async def cancel_order(db: AsyncSession, *, order_id: int, reason: str | None, a
     - 下游守卫(两条互不替代,分别拦采购/出库两条下游链):
       - 存在非 CANCELLED 的 PO → 41802;
       - 存在非 CANCELLED 的出库单(含 DRAFT 草稿)→ 41803 —— 草稿未扣库存但引用了本 SO 的
-        行/价,放行会留下一张指向已取消 SO 的活动出库单(悬空引用,后续确认装柜前才会被
+        行/价,放行会留下一张指向已取消 SO 的活动出库单(悬空引用,后续确认出库前才会被
         41905 兜底,但草稿态本身已是脏数据,故此处提前拦)。
       不级联砍下游——解链人工自下而上:先取消全部 PO / 出库单再取消 SO。
     - 报价断言 CONVERTED 后回退 LOCKED(断言失败 = 不变式破坏,如实 RuntimeError 500);

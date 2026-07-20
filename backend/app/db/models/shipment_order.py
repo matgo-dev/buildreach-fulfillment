@@ -17,9 +17,9 @@ class ShipmentOrderStatus:
 
 
 # 状态机单一源头(model 层常量)。发运单 = 柜:船务生命周期单线 OPEN→LOADED→DEPARTED(+CANCELLED)。
-# OPEN(组柜中)→{LOADED,CANCELLED};LOADED(已装柜)→{DEPARTED,OPEN}(撤装柜纠错口);
+# OPEN(组柜中)→{LOADED,CANCELLED};LOADED(已封柜)→{DEPARTED,OPEN}(撤封柜纠错口);
 # DEPARTED(已发运)→{LOADED}(撤离港纠错口,清 atd);CANCELLED 终态(仅 OPEN 可达)。
-# 装柜守卫(空柜 42004 / 含草稿 42003)与出库撤销守卫(41910)在 service 层。
+# 封柜守卫(空柜 42004 / 含草稿 42003)与出库撤销守卫(41910)在 service 层。
 SHIPMENT_ORDER_TRANSITIONS: dict[str, set[str]] = {
     ShipmentOrderStatus.OPEN: {ShipmentOrderStatus.LOADED, ShipmentOrderStatus.CANCELLED},
     ShipmentOrderStatus.LOADED: {ShipmentOrderStatus.DEPARTED, ShipmentOrderStatus.OPEN},
@@ -49,7 +49,7 @@ SHIPMENT_EDITABLE_FIELDS_BY_STATUS: dict[str, frozenset[str]] = {
 
 
 class ShipmentOrder(Base, TimestampUpdateMixin):
-    """发运单(=柜)。组柜容器 + 船务生命周期(装柜/离港)。船务字段全 nullable,逐步补录;
+    """发运单(=柜)。组柜容器 + 船务生命周期(封柜/离港)。船务字段全 nullable,逐步补录;
     无红线字段(成本/供应商/售价);发运不碰库存/应收(扣库存+建应收在出库确认)。"""
     __tablename__ = "shipment_orders"
     __table_args__ = (
@@ -79,7 +79,7 @@ class ShipmentOrder(Base, TimestampUpdateMixin):
     etd: Mapped[date | None] = mapped_column(Date, nullable=True)
     eta: Mapped[date | None] = mapped_column(Date, nullable=True)
     atd: Mapped[date | None] = mapped_column(Date, nullable=True)
-    # 装柜确认置、撤装柜清(镜像出库 issued_at:详情时间线消费者;离港不另立 departed_at,
+    # 封柜确认置、撤封柜清(镜像出库 issued_at:详情时间线消费者;离港不另立 departed_at,
     # atd 即离港业务日,动作系统时刻走 audit_logs,无双源头)。
     loaded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # 列表状态过滤路径。index=True 走默认命名(ix_shipment_orders_status),与迁移 0025 同名。

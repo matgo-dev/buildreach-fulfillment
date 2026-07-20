@@ -1,4 +1,4 @@
-"""发运单(=柜)路由 /api/v1/shipments。组柜容器 + 船务生命周期(装柜/离港)。
+"""发运单(=柜)路由 /api/v1/shipments。组柜容器 + 船务生命周期(封柜/离港)。
 
 守 shipment:manage(写)/ shipment:read(读)。柜无红线字段(成本/供应商/售价)。
 详情内嵌柜内出库单列表(组柜工作台数据),仅数量/状态,无金额。
@@ -84,16 +84,17 @@ async def update_shipment(shipment_id: int, body: ShipmentUpdateIn, request: Req
     return success(await _detail_payload(db, ship))
 
 
-@router.post("/{shipment_id}/load", summary="装柜确认(OPEN→LOADED,可补录封条/柜号)")
+@router.post("/{shipment_id}/load", summary="封柜确认(OPEN→LOADED,乐观锁必填,可补录封条/柜号)")
 async def load_shipment(shipment_id: int, body: ShipmentLoadIn, request: Request,
                         current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
     ship = await shipment_service.load_order(
-        db, shipment_id=shipment_id, container_no=body.container_no, seal_no=body.seal_no,
+        db, shipment_id=shipment_id, expected_updated_at=body.expected_updated_at,
+        container_no=body.container_no, seal_no=body.seal_no,
         actor_user_id=current.id, actor_user_email=current.email, request=request)
     return success(await _detail_payload(db, ship))
 
 
-@router.post("/{shipment_id}/unload", summary="撤装柜(LOADED→OPEN,清 loaded_at)")
+@router.post("/{shipment_id}/unload", summary="撤封柜(LOADED→OPEN,清 loaded_at)")
 async def unload_shipment(shipment_id: int, request: Request,
                           current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
     ship = await shipment_service.unload_order(

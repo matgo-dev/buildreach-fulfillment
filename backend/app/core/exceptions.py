@@ -17,8 +17,8 @@
   16 | 采购单     | 416xx
   17 | 入库/应付  | 417xx(含 41710 撤销入库穿仓守卫)
   18 | 销售单     | 418xx
-  19 | 出库单     | 419xx(含 41910 撤销出库·柜已装柜/发运守卫)
-  20 | 柜/发运    | 420xx(42002 非法转移·单义;42003/42004 装柜守卫;42005 字段门禁;42006 编辑冲突)
+  19 | 出库单     | 419xx(含 41910 撤销出库·柜已封柜/发运守卫)
+  20 | 柜/发运    | 420xx(42002 非法转移·单义;42003/42004 封柜守卫;42005 字段门禁;42006 编辑冲突)
 
 兜底码:
   40000 = 通用客户端兜底(裸 HTTPException 降级)
@@ -463,7 +463,7 @@ class SalesOrderHasActiveOutboundError(BusinessError):
         super().__init__(status.HTTP_409_CONFLICT, 41803, message)
 
 
-# 模块段 19 = 出库单(出库单状态机 + 确认装柜可发闸)。见 db/models/outbound_order.py。
+# 模块段 19 = 出库单(出库单状态机 + 确认出库可发闸)。见 db/models/outbound_order.py。
 class OutboundOrderInvalidTransitionError(BusinessError):
     """状态转移不在 OUTBOUND_ORDER_TRANSITIONS 矩阵。"""
 
@@ -472,7 +472,7 @@ class OutboundOrderInvalidTransitionError(BusinessError):
 
 
 class OutboundInsufficientAvailableError(BusinessError):
-    """确认装柜被拦:某 (SO, SKU) 本单需发量 > 可发(available = Σ入库 − Σ出库)。
+    """确认出库被拦:某 (SO, SKU) 本单需发量 > 可发(available = Σ入库 − Σ出库)。
     biz_data 带逐 sku 明细(可发/需发)。"""
 
     def __init__(self, message: str = "Insufficient available stock to issue outbound", data: Any = None):
@@ -501,7 +501,7 @@ class OutboundSalesOrderNotConfirmedError(BusinessError):
 
 
 class OutboundShipmentNotOpenError(BusinessError):
-    """装柜须柜为 OPEN(已取消柜不可再装)。"""
+    """出库单挂柜/确认出库须柜为 OPEN(已取消或已封柜的柜不可再入单)。"""
 
     def __init__(self, message: str = "Outbound requires an open shipment"):
         super().__init__(status.HTTP_409_CONFLICT, 41906, message)
@@ -531,7 +531,7 @@ class OutboundDuplicateLineError(BusinessError):
 
 
 class OutboundShipmentLoadedCannotRevertError(BusinessError):
-    """撤销出库被拦:柜已装柜/发运(status ≠ OPEN)——封柜后柜内出库单冻结,须先撤装柜
+    """撤销出库被拦:柜已封柜/发运(status ≠ OPEN)——封柜后柜内出库单冻结,须先撤封柜
     (发运侧 LOADED→OPEN)再撤出库(兑现出库契约预留守卫;守卫在锁序末尾锁柜头 FOR UPDATE)。"""
 
     def __init__(self, message: str = "Cannot revert outbound: shipment already loaded or departed"):
@@ -555,8 +555,8 @@ class ShipmentInvalidTransitionError(BusinessError):
 
 
 class ShipmentHasDraftOutboundError(BusinessError):
-    """装柜确认被拦:柜内存在草稿(DRAFT)出库单——只有已确认(已扣库存)的出库单代表真实
-    装柜,草稿只是意图。biz_data 带草稿单号列表({"draft_nos": [...]})。"""
+    """封柜确认被拦:柜内存在草稿(DRAFT)出库单——只有已确认(已扣库存)的出库单代表柜内真实
+    货物,草稿只是意图。biz_data 带草稿单号列表({"draft_nos": [...]})。"""
 
     def __init__(self, message: str = "Cannot load: shipment has draft outbound orders",
                  data: Any = None):
@@ -564,7 +564,7 @@ class ShipmentHasDraftOutboundError(BusinessError):
 
 
 class ShipmentEmptyCannotLoadError(BusinessError):
-    """装柜确认被拦:空柜(无任何非 CANCELLED 出库单)不可装柜。"""
+    """封柜确认被拦:空柜(无任何非 CANCELLED 出库单)不可封柜。"""
 
     def __init__(self, message: str = "Cannot load an empty shipment"):
         super().__init__(status.HTTP_409_CONFLICT, 42004, message)
@@ -573,11 +573,12 @@ class ShipmentEmptyCannotLoadError(BusinessError):
 class ShipmentFieldNotEditableError(BusinessError):
     """编辑门禁:提交值 ≠ 库中值,且该字段 ∉ 当前状态可编辑集(diff 式门禁,
     SHIPMENT_EDITABLE_FIELDS_BY_STATUS 单一源头)。biz_data 带被拒字段名({"fields": [...]})。
-    与 42002(非法转移)分码:是两种用户情境(镜像出库 41901/41908 分码先例)。"""
+    与 42002(非法转移)分码:是两种用户情境(镜像出库 41901/41908 分码先例)。
+    409:请求本身合法,被拒源于资源当前状态(与 41901 先例及 REST 语义齐)。"""
 
     def __init__(self, message: str = "Field not editable in current shipment status",
                  data: Any = None):
-        super().__init__(status.HTTP_400_BAD_REQUEST, 42005, message, data=data)
+        super().__init__(status.HTTP_409_CONFLICT, 42005, message, data=data)
 
 
 class ShipmentEditConflictError(BusinessError):

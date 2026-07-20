@@ -32,7 +32,7 @@ def test_outbound_status_all_covers_matrix():
 def test_shipment_transitions_matrix():
     S = ShipmentOrderStatus
     assert SHIPMENT_ORDER_TRANSITIONS[S.OPEN] == {S.LOADED, S.CANCELLED}
-    assert SHIPMENT_ORDER_TRANSITIONS[S.LOADED] == {S.DEPARTED, S.OPEN}   # 撤装柜纠错口
+    assert SHIPMENT_ORDER_TRANSITIONS[S.LOADED] == {S.DEPARTED, S.OPEN}   # 撤封柜纠错口
     assert SHIPMENT_ORDER_TRANSITIONS[S.DEPARTED] == {S.LOADED}           # 撤离港纠错口
     assert SHIPMENT_ORDER_TRANSITIONS[S.CANCELLED] == set()               # 终态
 

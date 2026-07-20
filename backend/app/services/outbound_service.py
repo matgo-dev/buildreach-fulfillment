@@ -1,5 +1,5 @@
 """出库单服务(销售单×柜双锚定):基于 CONFIRMED SO + OPEN 柜建 DRAFT 出库单
-+ 确认装柜(唯一扣库存事件,锁内派生可发闸)+ 撤销出库(库存派生自然恢复)
++ 确认出库(唯一扣库存事件,锁内派生可发闸)+ 撤销出库(库存派生自然恢复)
 + 同事务生成/作废应收款(应收=发货,与应付=入库完全对称)。
 
 核心不变量:
@@ -248,7 +248,7 @@ async def save_order(db: AsyncSession, *, order_id, note, lines: list[dict],
     return order
 
 
-# ---------- 确认装柜 / 撤销出库(收紧型写入口,契约 §2 锁序 SO头→出库单头)----------
+# ---------- 确认出库 / 撤销出库(收紧型写入口,契约 §2 锁序 SO头→出库单头)----------
 
 
 def _compute_receivable_amount(lines: list[OutboundOrderLine],
@@ -264,7 +264,7 @@ def _compute_receivable_amount(lines: list[OutboundOrderLine],
 
 async def confirm_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_email,
                         request: Request | None = None) -> OutboundOrder:
-    """确认装柜(DRAFT→ISSUED,唯一扣库存事件)。契约 §2:
+    """确认出库(DRAFT→ISSUED,唯一扣库存事件)。契约 §2:
     无锁预读身份链 → 锁 SO 头 FOR UPDATE → 锁出库单头 → 转移守卫 → 锁内单一库存闸
     (Σ本单该 sku qty ≤ available(so,sku),不足 41902 带逐 sku 明细)→ ISSUED
     → 同事务建 receivable(偏唯一保幂等)→ 审计 + commit。"""
@@ -337,8 +337,8 @@ async def _get_active_receivable(db: AsyncSession, outbound_order_id: int) -> Re
 async def revert_order(db: AsyncSession, *, order_id, void_reason: str | None, actor_user_id,
                        actor_user_email, request: Request | None = None) -> OutboundOrder:
     """撤销出库(ISSUED→DRAFT)。锁序 SO头→出库单头→柜头(叶子);守卫:
-    ① 柜已装柜/发运(status ≠ OPEN)→ 拒 41910(封柜后柜内出库单冻结,须先撤装柜);
-    锁读柜头(FOR UPDATE)防 TOCTOU——无锁快照读会与并发装柜确认交错,破 D2 封柜不变量。
+    ① 柜已封柜/发运(status ≠ OPEN)→ 拒 41910(封柜后柜内出库单冻结,须先撤封柜);
+    锁读柜头(FOR UPDATE)防 TOCTOU——无锁快照读会与并发封柜确认交错,破 D2 封柜不变量。
     ② receivable.amount_allocated=0(已核销拒,41907)。
     作废(void)应收留痕、issued_at 清空,库存派生自然恢复可发。"""
     pre = await get_order(db, order_id)

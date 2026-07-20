@@ -114,7 +114,7 @@ async def test_create_empty_lines_422(client, db_session, sales_headers, purchas
     assert r.status_code == 422
 
 
-# ---------- 确认装柜:库存闸 ----------
+# ---------- 确认出库:库存闸 ----------
 
 
 async def test_confirm_insufficient_available(client, db_session, sales_headers,

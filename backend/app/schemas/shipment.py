@@ -1,4 +1,4 @@
-"""发运单(=柜)schemas。组柜容器 + 船务生命周期(装柜/离港)。无红线字段(成本/供应商/售价)。
+"""发运单(=柜)schemas。组柜容器 + 船务生命周期(封柜/离港)。无红线字段(成本/供应商/售价)。
 
 柜型 = 应用层受控值域(20GP/40GP/40HQ/45HQ),单一源头在此(前端镜像),不落 DB CHECK。
 船务字段全可选(逐步补录);编辑门禁(哪个字段在哪个状态可改)权威源在
@@ -49,9 +49,12 @@ class ShipmentUpdateIn(_ShipmentWriteBase):
 
 
 class ShipmentLoadIn(BaseModel):
-    """装柜确认(OPEN→LOADED)。可带 seal_no/container_no 补录(封号贴封条时才知道)。"""
+    """封柜确认(OPEN→LOADED)。可带 seal_no/container_no 补录(封号贴封条时才知道)。
+    补录会覆盖柜上已有值 → 与 PATCH 同口径携乐观锁基线,**必填**(漏传 422),
+    防 stale 界面无感覆盖他人刚改的柜号/封条;冲突 → 42006。"""
     container_no: str | None = Field(default=None, max_length=20)
     seal_no: str | None = Field(default=None, max_length=30)
+    expected_updated_at: datetime
 
 
 class ShipmentDepartIn(BaseModel):

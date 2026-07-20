@@ -55,7 +55,7 @@ async def create_outbound(client, logistics_headers, *, sales_order_id, shipment
 
 async def create_and_confirm_outbound(client, logistics_headers, *, sales_order_id,
                                       shipment_id, lines):
-    """建 + 确认装柜,返回 (outbound_id, confirm_response)。"""
+    """建 + 确认出库,返回 (outbound_id, confirm_response)。"""
     cr = await create_outbound(client, logistics_headers, sales_order_id=sales_order_id,
                                shipment_id=shipment_id, lines=lines)
     assert cr.status_code == 200, cr.text
@@ -66,7 +66,7 @@ async def create_and_confirm_outbound(client, logistics_headers, *, sales_order_
 
 async def make_loadable_shipment(client, db_session, sales_headers, purchaser_headers,
                                  logistics_headers, *, qty=5):
-    """造一个「可装柜」的柜:有可发库存的 CONFIRMED SO + 一张 ISSUED 出库单进柜(OPEN)。
+    """造一个「可封柜」的柜:有可发库存的 CONFIRMED SO + 一张 ISSUED 出库单进柜(OPEN)。
     返回 setup_available_stock 的 ctx + {shipment, outbound_id}。发运状态机测试的公共起点。"""
     ctx = await setup_available_stock(client, db_session, sales_headers, purchaser_headers,
                                       so_qty=10, received=10)
