@@ -4,8 +4,8 @@
  * 与后端 app/rbac/constants.py 等价。后端是权威,前端是 UX 友好层 —
  * 任何冲突以后端为准。
  *
- * 与后端 app/rbac/constants.py 等价。业务域:商品(PRODUCT_OPERATOR)、报价(SALES);
- * ADMIN 不触业务数据(Q25),仅系统域 + 客户管理过渡桥。
+ * 与后端 app/rbac/constants.py 等价。业务域:商品(PRODUCT_OPERATOR)、报价/客户(SALES)、
+ * 供应商/采购(PURCHASER)、出库/发运(LOGISTICS);ADMIN 纯系统域,不持任何业务权限点(Q25 职责分离)。
  */
 
 import type { RoleCode } from "@/lib/auth";

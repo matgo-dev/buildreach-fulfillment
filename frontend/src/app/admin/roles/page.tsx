@@ -60,34 +60,32 @@ export default function RolePermissionMatrixPage() {
     });
   });
 
-  const columns: ColumnsType<PermissionRow> = [
-    {
-      title: "权限点",
-      dataIndex: "name",
-      width: 220,
-      render: (name: string, r) => (
-        <span>
-          {name}
-          <span style={{ color: colors.muted, marginLeft: 8, fontSize: 12 }}>{r.code}</span>
-        </span>
+  const permColumn: ColumnsType<PermissionRow>[number] = {
+    title: "权限点",
+    dataIndex: "name",
+    width: 220,
+    render: (name: string, r: PermissionRow) => (
+      <span>
+        {name}
+        <span style={{ color: colors.muted, marginLeft: 8, fontSize: 12 }}>{r.code}</span>
+      </span>
+    ),
+  };
+  const roleColumn = (role: RoleOut): ColumnsType<PermissionRow>[number] => ({
+    title: (
+      <span>
+        {role.name}
+        <span style={{ color: colors.muted, marginLeft: 6, fontSize: 12 }}>{role.code}</span>
+      </span>
+    ),
+    key: role.code,
+    width: 150,
+    align: "center" as const,
+    render: (_: unknown, r: PermissionRow) =>
+      r.byRole[role.code] ? <CheckOutlined style={{ color: colors.success }} /> : (
+        <span style={{ color: colors.muted }}>—</span>
       ),
-    },
-    ...roles.map((role) => ({
-      title: (
-        <span>
-          {role.name}
-          <span style={{ color: colors.muted, marginLeft: 6, fontSize: 12 }}>{role.code}</span>
-        </span>
-      ),
-      key: role.code,
-      width: 150,
-      align: "center" as const,
-      render: (_: unknown, r: PermissionRow) =>
-        r.byRole[role.code] ? <CheckOutlined style={{ color: colors.success }} /> : (
-          <span style={{ color: colors.muted }}>—</span>
-        ),
-    })),
-  ];
+  });
 
   return (
     <Card>
@@ -99,6 +97,13 @@ export default function RolePermissionMatrixPage() {
           .filter((r) => r.module === mod)
           .sort((a, b) => a.code.localeCompare(b.code));
         if (!rows.length) return null;
+        // 每段只显示在该段实际持有权限的角色列:某角色在本段无任何权限点则不出列
+        // (通用规则,不针对具体角色)。ADMIN 纯系统域,故不出现在「履约业务」段。
+        const rolesInModule = roles.filter((role) => rows.some((r) => r.byRole[role.code]));
+        const columns: ColumnsType<PermissionRow> = [
+          permColumn,
+          ...rolesInModule.map(roleColumn),
+        ];
         return (
           <div key={mod} style={{ marginBottom: 32 }}>
             <Typography.Title level={5} style={{ marginBottom: 12 }}>
@@ -110,7 +115,7 @@ export default function RolePermissionMatrixPage() {
               columns={columns}
               dataSource={rows}
               pagination={false}
-              scroll={{ x: 220 + roles.length * 150 }}
+              scroll={{ x: 220 + rolesInModule.length * 150 }}
             />
           </div>
         );

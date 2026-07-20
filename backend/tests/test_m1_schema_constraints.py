@@ -29,10 +29,10 @@ async def _prep_customer_and_sku(client, headers, catalog_headers, db_session):
 
 @pytest.mark.asyncio
 async def test_line_rejects_zero_qty(
-    client, superadmin_headers, product_operator_headers, sales_headers, db_session
+    client, product_operator_headers, sales_headers, db_session
 ):
     cust, sku = await _prep_customer_and_sku(
-        client, superadmin_headers, product_operator_headers, db_session)
+        client, sales_headers, product_operator_headers, db_session)
     r = await client.post("/api/v1/quotations", headers=sales_headers,
                           json={"customer_id": cust["id"], "currency": "USD",
                                 "lines": [{"sku_id": sku["id"], "unit_price": 100.0, "qty": 0}]})
@@ -41,10 +41,10 @@ async def test_line_rejects_zero_qty(
 
 @pytest.mark.asyncio
 async def test_line_rejects_negative_price(
-    client, superadmin_headers, product_operator_headers, sales_headers, db_session
+    client, product_operator_headers, sales_headers, db_session
 ):
     cust, sku = await _prep_customer_and_sku(
-        client, superadmin_headers, product_operator_headers, db_session)
+        client, sales_headers, product_operator_headers, db_session)
     r = await client.post("/api/v1/quotations", headers=sales_headers,
                           json={"customer_id": cust["id"], "currency": "USD",
                                 "lines": [{"sku_id": sku["id"], "unit_price": -1.0, "qty": 2}]})

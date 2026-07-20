@@ -23,17 +23,14 @@ _AUTH_BASE = [
 ROLE_PERMISSIONS: dict[str, list[str]] = {
     "ADMIN": [
         *_AUTH_BASE,
-        # 系统级,严格不触业务(Q25 + RBAC 规范 §4.3 / §8.6 职责分离)
+        # 系统级,严格不触业务(Q25 + RBAC 规范 §4.3 / §8.6 职责分离)。
+        # 业务权限点(customer:* 兜底、product:read 过渡桥)已全部摘除 → ADMIN 纯系统域。
+        # 客户主数据由 SALES 持有;需兼管客户/商品者,给账号叠加对应功能角色,而非给 ADMIN 加权。
         Permissions.USER_MANAGE,
         Permissions.ROLE_MANAGE,
         Permissions.PERMISSION_MANAGE,
         Permissions.SYSTEM_CONFIG,
         Permissions.SYSTEM_AUDIT,
-        # 履约:customer 管理 ADMIN 与 SALES 共持(SALES=业务主责,ADMIN=兜底);product 只留 read 过渡桥,
-        # manage 已拆给 PRODUCT_OPERATOR。quote:manage 已归位到 SALES(Q25 职责分离),ADMIN 不再持有。
-        Permissions.CUSTOMER_MANAGE,
-        Permissions.CUSTOMER_READ,
-        Permissions.PRODUCT_READ,
     ],
     "PRODUCT_OPERATOR": [
         *_AUTH_BASE,
