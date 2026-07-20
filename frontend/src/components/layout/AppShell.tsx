@@ -13,6 +13,7 @@ import {
   UserOutlined,
   LogoutOutlined,
   SafetyCertificateOutlined,
+  KeyOutlined,
   DatabaseOutlined,
   ExportOutlined,
   ContainerOutlined,
@@ -73,6 +74,7 @@ const MENU_GROUPS = [
     group: "系统",
     items: [
       { key: "/admin/users", icon: <SafetyCertificateOutlined />, label: "用户管理", perm: Permissions.USER_MANAGE },
+      { key: "/admin/roles", icon: <KeyOutlined />, label: "角色权限", perm: Permissions.ROLE_MANAGE },
     ],
   },
 ];
