@@ -1,4 +1,4 @@
-"""出库单路由 /api/v1/outbound-orders。销售单×柜双锚定;确认装柜=唯一扣库存事件。
+"""出库单路由 /api/v1/outbound-orders。销售单×柜双锚定;确认出库=唯一扣库存事件。
 
 守 outbound:manage(写)/ outbound:read(读)。出库单/行零金额列(纯仓单,契约 §3),
 读投影天然无红线;应收(客户售价)不经本 API 回显,走 /receivables(整表 receivable:read 门控)。
@@ -80,7 +80,7 @@ async def update_outbound_order(order_id: int, body: OutboundOrderUpdateIn, requ
     return success(await _detail_payload(db, order))
 
 
-@router.post("/{order_id}/confirm", summary="确认装柜(DRAFT→ISSUED,扣库存+生成应收)")
+@router.post("/{order_id}/confirm", summary="确认出库(DRAFT→ISSUED,扣库存+生成应收)")
 async def confirm_outbound_order(order_id: int, request: Request,
                                  current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
     order = await outbound_service.confirm_order(

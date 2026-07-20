@@ -4,7 +4,7 @@
 import type { OutboundOrderStatus } from "@/lib/outboundOrder";
 
 /**
- * 三态:草稿(可编辑,不扣库存)/ 已出库(确认装柜,唯一扣减事件,生成应收)/ 已取消(终态)。
+ * 三态:草稿(可编辑,不扣库存)/ 已出库(确认出库,唯一扣减事件,生成应收)/ 已取消(终态)。
  * 色值遵契约 §4:草稿=灰 / 已出库=绿 / 已取消=中性(草稿与取消同为中性灰,靠文字区分)。
  */
 export const OUTBOUND_ORDER_STATUS_META: Record<
@@ -27,7 +27,7 @@ const OUTBOUND_ORDER_TRANSITIONS: Record<OutboundOrderStatus, OutboundOrderStatu
 export const outboundOrderEditable = (s: OutboundOrderStatus): boolean => s === "DRAFT";
 
 /** 详情页状态门禁动作(镜像转移矩阵)。 */
-/** 确认装柜 = DRAFT→ISSUED。 */
+/** 确认出库 = DRAFT→ISSUED。 */
 export const outboundOrderConfirmable = (s: OutboundOrderStatus): boolean =>
   OUTBOUND_ORDER_TRANSITIONS[s].includes("ISSUED");
 /** 取消 = DRAFT→CANCELLED。 */

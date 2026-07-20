@@ -15,7 +15,8 @@ async def test_create_and_update_shipment(client, logistics_headers):
                                  container_type="40HQ", seal_no="SEAL1")
     assert ship["status"] == "OPEN" and ship["no"].startswith("SH")
     r = await client.patch(f"/api/v1/shipments/{ship['id']}", headers=logistics_headers, json={
-        "container_no": "XYZU7654321", "container_type": "20GP", "seal_no": "SEAL2"})
+        "container_no": "XYZU7654321", "container_type": "20GP", "seal_no": "SEAL2",
+        "expected_updated_at": ship["updated_at"]})
     assert r.status_code == 200, r.text
     assert r.json()["data"]["shipment"]["container_no"] == "XYZU7654321"
     assert r.json()["data"]["shipment"]["container_type"] == "20GP"
@@ -53,14 +54,16 @@ async def test_cancel_blocked_with_active_outbound(client, db_session, sales_hea
 
 
 async def test_cancelled_shipment_invalid_transition_and_edit(client, logistics_headers):
-    """已取消柜再取消/编辑 → 42002。"""
+    """已取消柜再取消 → 42002(非法转移);改字段 → 42005(CANCELLED 可编辑集为空,diff 门禁)。"""
     ship = await create_shipment(client, logistics_headers)
-    await client.post(f"/api/v1/shipments/{ship['id']}/cancel", headers=logistics_headers)
+    canc = await client.post(f"/api/v1/shipments/{ship['id']}/cancel", headers=logistics_headers)
     again = await client.post(f"/api/v1/shipments/{ship['id']}/cancel", headers=logistics_headers)
     assert again.status_code == 409 and again.json()["code"] == 42002
+    # 带取消后的最新基线(乐观锁先于字段门禁):CANCELLED 可编辑集为空 → 改字段 42005。
     edit = await client.patch(f"/api/v1/shipments/{ship['id']}", headers=logistics_headers,
-                              json={"container_no": "N"})
-    assert edit.status_code == 409 and edit.json()["code"] == 42002
+                              json={"container_no": "N",
+                                    "expected_updated_at": canc.json()["data"]["shipment"]["updated_at"]})
+    assert edit.status_code == 409 and edit.json()["code"] == 42005
 
 
 async def test_shipment_list_and_detail(client, db_session, sales_headers, purchaser_headers,

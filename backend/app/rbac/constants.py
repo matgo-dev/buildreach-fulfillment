@@ -123,5 +123,5 @@ ROLE_META: dict[str, dict[str, str]] = {
     "PRODUCT_OPERATOR": {"name": "商品运营", "description": "商品 SPU/SKU 增改上下架"},
     "SALES": {"name": "销售", "description": "报价单全生命周期;读客户/商品选料"},
     "PURCHASER": {"name": "采购员", "description": "供应商主数据 + 基于销售单发起采购单(建/确认/取消);见采购成本"},
-    "LOGISTICS": {"name": "物流仓运", "description": "组柜/装柜出库(建/改/确认/撤销/取消);出库/发运/物流/报关同一操作者。无成本/售价可见"},
+    "LOGISTICS": {"name": "物流仓运", "description": "组柜/封柜/出库(建/改/确认/撤销/取消);出库/发运/物流/报关同一操作者。无成本/售价可见"},
 }

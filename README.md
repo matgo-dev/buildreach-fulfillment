@@ -215,14 +215,14 @@
 
 - **出库 + 发运骨架 + 应收款(主流程第六步,分支 `feat/outbound-increment`)**:出库单 = **销售单 N:1 × 发运单(柜)N:1**
   的桥;行不跨 SO、不跨柜,一柜内每来源 SO 各一张。参照 SAP/NetSuite:两段式 `草稿 → 已出库`(无 WMS 拣货/复核中间态),
-  **确认装柜 = 唯一扣库存事件**(草稿不扣),可撤销恢复(装船前);**应收随发货成立**(与应付=收货完全对称)。
+  **确认出库 = 唯一扣库存事件**(草稿不扣),可撤销恢复(装船前);**应收随发货成立**(与应付=收货完全对称)。
   - **状态机(model 层单一源头)**:出库单 `DRAFT→{ISSUED,CANCELLED}` / `ISSUED→{DRAFT}`(撤销出库);
     柜 `OPEN→{CANCELLED}`(订舱/装船态归发运步扩展)。偏唯一 `UNIQUE(shipment_id, sales_order_id) WHERE status<>'CANCELLED'`
     =「一柜内每来源 SO 各一张」落 DB;取消退出偏唯一可重开。
   - **库存 outbound 臂接入**:`compute_stock_balance` 第三臂 = `Σ(qty) FROM outbound_order_lines JOIN outbound_orders
     WHERE status='ISSUED' GROUP BY (sales_order_id, sku_id)`,`available = 入库 − 出库`(草稿不计,撤销回 DRAFT 自然恢复)。
     锁内校验/穿仓守卫经 `available_by_sku()` **复用同一 `_balance_subquery`**(单一口径,不另写聚合)。
-  - **并发 = 悲观锁(收紧型写入口仅两处,同锁序 `SO 头 → 出库单头`)**:① 确认装柜:无锁预读身份链 → 锁 SO 头
+  - **并发 = 悲观锁(收紧型写入口仅两处,同锁序 `SO 头 → 出库单头`)**:① 确认出库:无锁预读身份链 → 锁 SO 头
     `FOR UPDATE` → 锁出库单头 → 转移守卫 → **锁内单一库存闸**(Σ本单该 sku qty ≤ available,不足 `41902` 带逐 sku 明细)
     → 同事务建 receivable(偏唯一保幂等)。② **unreceive 穿仓守卫补全(还库存契约的债)**:撤销入库先锁受影响 SO 头
     (按 id 排序)→ 锁入库头 → 翻转后锁内派生校验受影响每 `(so,sku)` available ≥ 0,违反 `41710`(货已被出库,先撤销出库)。
@@ -236,7 +236,7 @@
     `UNIQUE(sales_order_id, sku_id)`(迁移 `0024`)+ 报价 create/save service 前置守卫(重复 SKU `41412`);SO 行来自
     报价转单,继承唯一性。
   - **RBAC**:新增角色 **`LOGISTICS`(物流仓运)** = `outbound:*` + `shipment:*` + `sales:read`/`inventory:read`/`product:read`
-    (组柜/装柜是仓运动作,不并入采购/销售;出库/发运/物流/报关四步同一操作者)。`SALES` 增只读 `outbound:read`/`shipment:read`/
+    (组柜/封柜是仓运动作,不并入采购/销售;出库/发运/物流/报关四步同一操作者)。`SALES` 增只读 `outbound:read`/`shipment:read`/
     `receivable:read`(跟踪自家 SO 发货 + 应收=客户售价本就可见)。审计加 `ISSUE`/`UNISSUE` 动作 + `outbound_order`/`shipment_order` 资源类型。
   - **端点**:出库单 `POST /outbound-orders`、列表/详情、`PUT`(仅草稿整单重写+乐观锁)、`confirm`/`revert`/`cancel`;
     柜 `POST /shipments`、列表/详情(组柜工作台)、`PATCH`/`cancel`;`GET /sales-orders/{id}/outboundable-lines`(建单器
@@ -245,6 +245,31 @@
     + `41710`(撤销入库穿仓)。迁移 `0024_quotation_so_sku_unique` + `0025_outbound` + `0026_receivable`。
   - **性能**:确认出库锁内派生(`available_by_sku` → `_balance_subquery`)`EXPLAIN ANALYZE` 全走 FK 索引(bitmap/index scan,
     无 seq scan),小规模 **≈0.5ms**;衰老方式同库存步 = 变慢有界,物化期权触发前不建。
+
+- **发运(主流程第八步,分支 `feat/shipment-increment`)**:发运单 = 柜(承接出库骨架),本步把柜从「组柜容器」
+  扩为承载**船务生命周期**(封柜/离港)。**发运不碰库存、不碰应收**——扣库存 + 建应收都在出库确认,发运只管柜的船务态。
+  参照 SAP LE-TRA/D365/CargoWise 三段式,裁掉 TMS 多轴复杂度取**单线状态机**。
+  - **状态机(model 层单一源头)**:柜 `OPEN→{LOADED,CANCELLED}` / `LOADED→{DEPARTED,OPEN}`(撤封柜纠错口)/
+    `DEPARTED→{LOADED}`(撤离港纠错口,清 `atd`)/ `CANCELLED` 终态。**LOADED = 封柜事实点**:出库撤销守卫需要它
+    (封柜后柜内出库单冻结,离港常在封柜数日后)。已装/已发柜取消 = 沿反向边走回(undepart→unload→撤出库→cancel),
+    每步守卫自然把关。命名动作 = 特定边,守卫**锚定源态**(load 与 undepart 同目标 LOADED,只查目标会误放行)。
+  - **船务字段(迁移 `0028`,加列 + 改 CHECK,零新表/零新 FK/零新索引)**:`booking_no`/`vessel_name`/`voyage_no`/
+    `bl_no`/`port_of_loading`/`port_of_discharge`(String,全 nullable 逐步补录)+ `etd`/`eta`/`atd`(Date)+ `loaded_at`
+    (DateTime,封柜确认置/撤封柜清)。`ck_shporders_status` 重建为 4 值。港口自由文本(唯一消费者=展示,消费者出现再升 UN/LOCODE)。
+    日期不加 CHECK(`atd` 早于 `etd` = 提前离港,合法)。柜量月十位数级,100× 后仍小表,不预设索引。
+  - **封柜守卫 + 编辑门禁**:封柜确认(`load`)要求柜内 **≥1 非 CANCELLED 出库单**(空柜 `42004`)且**全部 ISSUED**
+    (存在草稿 `42003` 带草稿单号列表)。编辑门禁单一源头 = `SHIPMENT_EDITABLE_FIELDS_BY_STATUS`(status→可编辑字段集):
+    OPEN 全开 / LOADED 锁柜物理组(船务组仍可改)/ DEPARTED 仅 `{bl_no,eta,note}` / CANCELLED 空。门禁 = **diff 式**
+    (提交值≠库中值 且 字段∉可编辑集 → `42005` 带字段名;值未变即放行,对全量 payload 稳健)+ 乐观锁 `expected_updated_at`(冲突 `42006`)。
+  - **出库撤销收紧(兑现出库契约预留)**:`revert_order`(ISSUED→DRAFT)锁序末尾追加**柜头 `FOR UPDATE`**
+    (SO 头→出库单头→柜头,叶子锁),柜 `status≠OPEN` → 拒 `41910`(封柜后冻结,须先撤封柜);锁读防 TOCTOU。
+    所有触柜写入口单向同序(发运侧只锁柜头),无环无死锁。
+  - **RBAC**:**零新增权限点**,复用 `shipment:read`/`shipment:manage`(封柜/离港/撤销均 manage;LOGISTICS 出库/发运/物流/报关
+    同一操作者)。审计加 `LOAD`/`UNLOAD`/`DEPART`/`UNDEPART` 四动词(`depart` extra 记 `atd`、`undepart` 记被清 atd)。
+    新增字段全组非红线(船名/航次/港/提单/日期,零成本/售价/供应商)。
+  - **端点**:柜 `POST /shipments`(可带船务字段)、列表(status 筛选扩 4 态 + 船务概览列)/详情(发运工作台)、
+    `PATCH`(门禁+乐观锁)、`load`/`unload`/`depart`/`undepart`/`cancel`(全守 `shipment:manage`)。
+    错误码段 20 补 `42003`/`42004`/`42005`/`42006`(`42002` 保持单义=非法转移)+ 出库段 `41910`。迁移 `0028_shipment_shipping_fields`。
 
 ## 本地开发
 

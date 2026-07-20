@@ -55,10 +55,25 @@ async def create_outbound(client, logistics_headers, *, sales_order_id, shipment
 
 async def create_and_confirm_outbound(client, logistics_headers, *, sales_order_id,
                                       shipment_id, lines):
-    """建 + 确认装柜,返回 (outbound_id, confirm_response)。"""
+    """建 + 确认出库,返回 (outbound_id, confirm_response)。"""
     cr = await create_outbound(client, logistics_headers, sales_order_id=sales_order_id,
                                shipment_id=shipment_id, lines=lines)
     assert cr.status_code == 200, cr.text
     ob_id = cr.json()["data"]["order"]["id"]
     conf = await client.post(f"/api/v1/outbound-orders/{ob_id}/confirm", headers=logistics_headers)
     return ob_id, conf
+
+
+async def make_loadable_shipment(client, db_session, sales_headers, purchaser_headers,
+                                 logistics_headers, *, qty=5):
+    """造一个「可封柜」的柜:有可发库存的 CONFIRMED SO + 一张 ISSUED 出库单进柜(OPEN)。
+    返回 setup_available_stock 的 ctx + {shipment, outbound_id}。发运状态机测试的公共起点。"""
+    ctx = await setup_available_stock(client, db_session, sales_headers, purchaser_headers,
+                                      so_qty=10, received=10)
+    so_id, so_lines = ctx["sales_order_id"], ctx["so_lines"]
+    ship = await create_shipment(client, logistics_headers)
+    ob_id, conf = await create_and_confirm_outbound(
+        client, logistics_headers, sales_order_id=so_id, shipment_id=ship["id"],
+        lines=[{"sales_order_line_id": so_lines[0]["id"], "qty": qty}])
+    assert conf.status_code == 200, conf.text
+    return {**ctx, "shipment": ship, "outbound_id": ob_id}

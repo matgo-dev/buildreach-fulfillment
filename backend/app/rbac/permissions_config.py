@@ -77,7 +77,7 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         # 库存(订单履约跟踪):采购看按单到货/可发,判断补采/催货。ADMIN 不授(Q25 职责分离)。
         Permissions.INVENTORY_READ,
     ],
-    # 物流仓运:组柜/装柜是仓运动作,不并入 PURCHASER(采购侧)也不并入 SALES(销售侧);
+    # 物流仓运:组柜/封柜是仓运动作,不并入 PURCHASER(采购侧)也不并入 SALES(销售侧);
     # 出库/发运/物流/报关四步同一操作者。出库/柜零成本/售价 → 无红线泄露;不持 RECEIVABLE_READ
     # (应收=客户售价,整表门控)。sales:read 浏览 SO 发起出库;inventory:read 看可发;product:read 选料溯源。
     "LOGISTICS": [

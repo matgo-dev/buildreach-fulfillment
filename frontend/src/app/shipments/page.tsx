@@ -17,6 +17,8 @@ import { SHIPMENT_STATUS_META, CONTAINER_TYPE_OPTIONS } from "@/lib/shipmentStat
 const STATUS_TABS = [
   { label: "全部", value: "" },
   { label: "组柜中", value: "OPEN" },
+  { label: "已封柜", value: "LOADED" },
+  { label: "已发运", value: "DEPARTED" },
   { label: "已取消", value: "CANCELLED" },
 ];
 
@@ -78,13 +80,35 @@ export default function ShipmentListPage() {
     {
       title: "柜型",
       dataIndex: "container_type",
-      width: 100,
+      width: 90,
+      render: (v: string | null) => v || "—",
+    },
+    {
+      title: "船名 / 航次",
+      key: "vessel",
+      width: 180,
+      ellipsis: true,
+      render: (_, r) =>
+        r.vessel_name || r.voyage_no
+          ? `${r.vessel_name || "—"}${r.voyage_no ? ` / ${r.voyage_no}` : ""}`
+          : "—",
+    },
+    {
+      title: "ETD",
+      dataIndex: "etd",
+      width: 120,
+      render: (v: string | null) => v || "—",
+    },
+    {
+      title: "ATD",
+      dataIndex: "atd",
+      width: 120,
       render: (v: string | null) => v || "—",
     },
     {
       title: "状态",
       dataIndex: "status",
-      width: 110,
+      width: 100,
       render: (s: ShipmentListItem["status"]) => (
         <StatusTag meta={SHIPMENT_STATUS_META} value={s} />
       ),
@@ -142,7 +166,7 @@ export default function ShipmentListPage() {
           columns={columns}
           dataSource={rows}
           loading={loading}
-          scroll={{ x: 830 }}
+          scroll={{ x: 1190 }}
           locale={{
             emptyText: (
               <Empty description="暂无发运柜">

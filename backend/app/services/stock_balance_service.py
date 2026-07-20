@@ -103,7 +103,7 @@ def _inbound_cte(sales_order_id, sku_id):
 
 def _outbound_cte(sales_order_id, sku_id):
     """臂3:只从 ISSUED 出库单按 (so, sku) 预聚合已出库量(so_id 取自出库单头)。
-    草稿/取消出库不计(status=ISSUED,契约 §1.5)—— 确认装柜是唯一扣库存事件,
+    草稿/取消出库不计(status=ISSUED,契约 §1.5)—— 确认出库是唯一扣库存事件,
     撤销出库回 DRAFT 后本臂自然剔除,可发恢复。"""
     stmt = (
         select(
