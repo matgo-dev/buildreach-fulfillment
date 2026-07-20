@@ -3,8 +3,6 @@
 
 发运不碰库存/应收:所有船务动作对 compute_stock_balance 派生结果零影响(回归断言)。
 """
-import datetime as _dt
-
 import pytest
 
 from tests.inventory_helpers import find_line
@@ -40,10 +38,11 @@ async def test_full_lifecycle_load_depart_undepart_unload(
     body = ld.json()["data"]["shipment"]
     assert body["status"] == "LOADED" and body["loaded_at"] is not None
 
-    dp = await client.post(f"/api/v1/shipments/{sid}/depart", headers=logistics_headers, json={})
+    dp = await client.post(f"/api/v1/shipments/{sid}/depart", headers=logistics_headers,
+                           json={"atd": "2026-07-18"})
     assert dp.status_code == 200
     assert dp.json()["data"]["shipment"]["status"] == "DEPARTED"
-    assert dp.json()["data"]["shipment"]["atd"] is not None
+    assert dp.json()["data"]["shipment"]["atd"] == "2026-07-18"
 
     ud = await client.post(f"/api/v1/shipments/{sid}/undepart", headers=logistics_headers)
     assert ud.status_code == 200
@@ -64,9 +63,10 @@ async def test_illegal_transitions_42002(
                                      logistics_headers)
     sid = d["shipment"]["id"]
 
+    # depart 带合法 body(atd 必填),否则 422 先于状态机守卫;undepart/unload 无 body 模型。
     for path in ("depart", "undepart", "unload"):
         r = await client.post(f"/api/v1/shipments/{sid}/{path}", headers=logistics_headers,
-                              json={})
+                              json={"atd": "2026-07-18"})
         assert r.status_code == 409 and r.json()["code"] == 42002, (path, r.text)
 
     await client.post(f"/api/v1/shipments/{sid}/load", headers=logistics_headers, json={})
@@ -76,10 +76,11 @@ async def test_illegal_transitions_42002(
     canc = await client.post(f"/api/v1/shipments/{sid}/cancel", headers=logistics_headers)
     assert canc.status_code == 409 and canc.json()["code"] == 42002
 
-    await client.post(f"/api/v1/shipments/{sid}/depart", headers=logistics_headers, json={})
+    await client.post(f"/api/v1/shipments/{sid}/depart", headers=logistics_headers,
+                      json={"atd": "2026-07-18"})
     for path in ("depart", "unload"):
         r = await client.post(f"/api/v1/shipments/{sid}/{path}", headers=logistics_headers,
-                              json={})
+                              json={"atd": "2026-07-18"})
         assert r.status_code == 409 and r.json()["code"] == 42002, (path, r.text)
 
 
@@ -152,7 +153,8 @@ async def test_revert_outbound_blocked_after_depart_41910(
                                      logistics_headers)
     sid, ob_id = d["shipment"]["id"], d["outbound_id"]
     await client.post(f"/api/v1/shipments/{sid}/load", headers=logistics_headers, json={})
-    await client.post(f"/api/v1/shipments/{sid}/depart", headers=logistics_headers, json={})
+    await client.post(f"/api/v1/shipments/{sid}/depart", headers=logistics_headers,
+                      json={"atd": "2026-07-18"})
     blocked = await client.post(f"/api/v1/outbound-orders/{ob_id}/revert",
                                 headers=logistics_headers, json={})
     assert blocked.status_code == 409 and blocked.json()["code"] == 41910
@@ -202,7 +204,8 @@ async def test_field_gate_departed_only_bl_eta_note(
                                      logistics_headers)
     sid = d["shipment"]["id"]
     await client.post(f"/api/v1/shipments/{sid}/load", headers=logistics_headers, json={})
-    dep = await client.post(f"/api/v1/shipments/{sid}/depart", headers=logistics_headers, json={})
+    dep = await client.post(f"/api/v1/shipments/{sid}/depart", headers=logistics_headers,
+                            json={"atd": "2026-07-18"})
     upd = dep.json()["data"]["shipment"]["updated_at"]
     ok = await client.patch(f"/api/v1/shipments/{sid}", headers=logistics_headers, json={
         "bl_no": "MBLLONG123", "eta": "2026-10-01", "note": "已签提单",
@@ -244,24 +247,24 @@ async def test_edit_optimistic_lock_42006(client, logistics_headers):
     assert r.status_code == 409 and r.json()["code"] == 42006
 
 
-# ---------- 离港 atd 默认/显式 ----------
+# ---------- 离港 atd 必填 ----------
 
 
-async def test_depart_default_today(client, db_session, sales_headers, purchaser_headers,
-                                    logistics_headers):
-    """离港确认不带 atd → 默认当日(UTC)。"""
+async def test_depart_missing_atd_422(client, db_session, sales_headers, purchaser_headers,
+                                      logistics_headers):
+    """atd 必填:业务日期由操作者按本地时区给出,服务端不以 UTC 猜「当日」
+    (东八区 0-8 点会错一天)。漏传 → 422,不落隐式默认。"""
     d = await make_loadable_shipment(client, db_session, sales_headers, purchaser_headers,
                                      logistics_headers)
     sid = d["shipment"]["id"]
     await client.post(f"/api/v1/shipments/{sid}/load", headers=logistics_headers, json={})
     dp = await client.post(f"/api/v1/shipments/{sid}/depart", headers=logistics_headers, json={})
-    today = _dt.datetime.now(_dt.timezone.utc).date().isoformat()
-    assert dp.json()["data"]["shipment"]["atd"] == today
+    assert dp.status_code == 422, dp.text
 
 
 async def test_depart_explicit_atd(client, db_session, sales_headers, purchaser_headers,
                                    logistics_headers):
-    """离港确认带显式 atd(早于 etd 合法:提前离港)→ 采用该值。"""
+    """离港确认带 atd(早于 etd 合法:提前离港)→ 采用该值。"""
     d = await make_loadable_shipment(client, db_session, sales_headers, purchaser_headers,
                                      logistics_headers)
     sid = d["shipment"]["id"]
@@ -286,7 +289,7 @@ async def test_shipment_lifecycle_does_not_touch_stock(
     # 出库已发 6,收货 10 → 可发基线 4。
     base = await _available(client, logistics_headers, so_id, sku_id)
     assert base == 4.0
-    for path, body in (("load", {}), ("depart", {}), ("undepart", None),
+    for path, body in (("load", {}), ("depart", {"atd": "2026-07-18"}), ("undepart", None),
                        ("unload", None)):
         r = await client.post(f"/api/v1/shipments/{sid}/{path}", headers=logistics_headers,
                               json=body if body is not None else None)
@@ -303,8 +306,10 @@ async def test_rbac_sales_read_only_403_on_shipment_actions(
     d = await make_loadable_shipment(client, db_session, sales_headers, purchaser_headers,
                                      logistics_headers)
     sid = d["shipment"]["id"]
+    # depart 带合法 body:403 不依赖「鉴权先于 body 校验」的框架内部顺序;多余键被其余端点忽略。
     for path in ("load", "depart", "unload", "undepart"):
-        r = await client.post(f"/api/v1/shipments/{sid}/{path}", headers=sales_headers, json={})
+        r = await client.post(f"/api/v1/shipments/{sid}/{path}", headers=sales_headers,
+                              json={"atd": "2026-07-18"})
         assert r.status_code == 403, (path, r.text)
     patch = await client.patch(f"/api/v1/shipments/{sid}", headers=sales_headers,
                                json={"vessel_name": "X",

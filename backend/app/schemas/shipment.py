@@ -55,8 +55,10 @@ class ShipmentLoadIn(BaseModel):
 
 
 class ShipmentDepartIn(BaseModel):
-    """离港确认(LOADED→DEPARTED)。atd 实际离港日,缺省 = 当日。"""
-    atd: date | None = None
+    """离港确认(LOADED→DEPARTED)。atd 实际离港日,**必填**(漏传 422):业务日期由
+    操作者按本地时区给出,服务端不以 UTC 猜「当日」(东八区 0-8 点会错一天);
+    「默认今天」的便利在前端 DatePicker 预填。"""
+    atd: date
 
 
 class ShipmentOut(BaseModel):

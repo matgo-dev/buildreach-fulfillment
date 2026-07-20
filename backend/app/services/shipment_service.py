@@ -55,8 +55,9 @@ def _assert_edge(ship: ShipmentOrder, source: str, target: str) -> None:
     """命名动作 = 状态机的一条特定边(source→target)。守卫必须锚定**源态**:
     仅校验 target∈matrix[current] 不够——load(OPEN→LOADED)与 undepart(DEPARTED→LOADED)
     同目标,只查目标会让 undepart 在 OPEN 柜上误通过。current≠源态 → 非法转移(单义 42002)。
-    边本身须在矩阵内(契约不变量,防手误加错动作)。"""
-    assert target in SHIPMENT_ORDER_TRANSITIONS[source]
+    边本身须在矩阵内(契约不变量,防手误加错动作;显式 raise 不用 assert——-O 下不可剥)。"""
+    if target not in SHIPMENT_ORDER_TRANSITIONS[source]:
+        raise RuntimeError(f"动作未对应状态机合法边: {source} → {target}")
     if ship.status != source:
         raise ShipmentInvalidTransitionError(f"非法转移: {ship.status} → {target}")
 
@@ -199,12 +200,13 @@ async def unload_order(db: AsyncSession, *, shipment_id, actor_user_id, actor_us
     return ship
 
 
-async def depart_order(db: AsyncSession, *, shipment_id, atd: date | None, actor_user_id,
+async def depart_order(db: AsyncSession, *, shipment_id, atd: date, actor_user_id,
                        actor_user_email, request: Request | None = None) -> ShipmentOrder:
-    """离港确认(LOADED→DEPARTED)。atd 实际离港日,缺省 = 当日。extra 记 atd。"""
+    """离港确认(LOADED→DEPARTED)。atd 实际离港日,**必填**(schema 422 兜底)——
+    业务日期须由操作者按本地时区给出,服务端 UTC 猜「当日」在东八区 0-8 点必错一天;
+    「默认今天」的便利活在前端 DatePicker,不落服务端。extra 记 atd。"""
     ship = await get_order_for_update(db, shipment_id)
     _assert_edge(ship, ShipmentOrderStatus.LOADED, ShipmentOrderStatus.DEPARTED)
-    atd = atd or datetime.now(timezone.utc).date()
     ship.status = ShipmentOrderStatus.DEPARTED
     ship.atd = atd
     await db.flush()

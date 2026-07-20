@@ -102,7 +102,7 @@ async def unload_shipment(shipment_id: int, request: Request,
     return success(await _detail_payload(db, ship))
 
 
-@router.post("/{shipment_id}/depart", summary="离港确认(LOADED→DEPARTED,atd 默认当日)")
+@router.post("/{shipment_id}/depart", summary="离港确认(LOADED→DEPARTED,atd 必填)")
 async def depart_shipment(shipment_id: int, body: ShipmentDepartIn, request: Request,
                           current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
     ship = await shipment_service.depart_order(

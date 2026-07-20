@@ -168,8 +168,13 @@ export default function OutboundOrderDetailPage() {
               {outboundOrderRevertable(order.status) &&
                 // 柜非 OPEN(已装柜/发运)时撤销被后端 41910 拒;前端镜像:禁用 + tooltip 讲清路径。
                 (order.shipment_status && order.shipment_status !== "OPEN" ? (
+                  // disabled 按钮不派发鼠标事件,Tooltip 须包 span 才能触发(AntD FAQ 官方姿势)。
                   <Tooltip title="柜已装柜/发运,请先撤装柜再撤销出库">
-                    <Button disabled>撤销出库</Button>
+                    <span style={{ display: "inline-block", cursor: "not-allowed" }}>
+                      <Button disabled style={{ pointerEvents: "none" }}>
+                        撤销出库
+                      </Button>
+                    </span>
                   </Tooltip>
                 ) : (
                   <Button loading={busy} onClick={() => setRevertOpen(true)}>

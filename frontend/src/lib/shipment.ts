@@ -97,9 +97,9 @@ export interface ShipmentLoadBody {
   seal_no?: string | null;
 }
 
-/** 离港确认入参:atd 实际离港日,缺省 = 后端当日。 */
+/** 离港确认入参:atd 实际离港日,必填(业务日期由操作者按本地时区给出,服务端不猜「当日」)。 */
 export interface ShipmentDepartBody {
-  atd?: string | null;
+  atd: string;
 }
 
 function qs(p: Record<string, unknown>): string {

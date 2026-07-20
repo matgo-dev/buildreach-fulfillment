@@ -26,6 +26,7 @@ import { PageLoading } from "@/components/common/PageLoading";
 import { Permissions } from "@/config/permission-matrix";
 import { ApiError } from "@/lib/api";
 import { formatDateTime, formatQty } from "@/lib/format";
+import { colors } from "@/lib/tokens";
 import { resolveBizError } from "@/lib/errorMessages";
 import {
   shipmentApi,
@@ -119,8 +120,6 @@ export default function ShipmentDetailPage() {
     setEditOpen(true);
   }
 
-  // 全量覆盖式保存(对齐后端 diff 门禁):可编辑字段取表单值,不可编辑字段回填库中原值
-  // (值未变则通过门禁,不被 42005 误拒);携 expected_updated_at 乐观锁(冲突 42006)。
   async function onSaveInfo() {
     if (!detail) return;
     const s = detail.shipment;
@@ -194,13 +193,14 @@ export default function ShipmentDetailPage() {
     }
   }
 
-  // 离港确认:atd 默认今日,可改。
+  // 离港确认:atd 必填(后端 422 兜底),表单预填本地今日、可改——「默认今天」只活在这里,
+  // 服务端不以 UTC 猜业务日期。
   async function onDepart() {
     const v = await departForm.validateFields().catch(() => null);
     if (!v) return;
     setBusy(true);
     try {
-      await shipmentApi.depart(id, { atd: v.atd ? v.atd.format("YYYY-MM-DD") : null });
+      await shipmentApi.depart(id, { atd: (v.atd as dayjs.Dayjs).format("YYYY-MM-DD") });
       message.success("已离港确认");
       setDepartOpen(false);
       load();
@@ -278,7 +278,7 @@ export default function ShipmentDetailPage() {
       children: (
         <div>
           <div style={{ fontWeight: 600 }}>建柜</div>
-          <div style={{ fontSize: 12, color: "#6b7a90" }}>{formatDateTime(shipment.created_at)}</div>
+          <div style={{ fontSize: 12, color: colors.muted }}>{formatDateTime(shipment.created_at)}</div>
         </div>
       ),
     },
@@ -287,7 +287,7 @@ export default function ShipmentDetailPage() {
       children: (
         <div>
           <div style={{ fontWeight: 600 }}>装柜</div>
-          <div style={{ fontSize: 12, color: "#6b7a90" }}>
+          <div style={{ fontSize: 12, color: colors.muted }}>
             {shipment.loaded_at ? formatDateTime(shipment.loaded_at) : "待装柜"}
           </div>
         </div>
@@ -298,7 +298,7 @@ export default function ShipmentDetailPage() {
       children: (
         <div>
           <div style={{ fontWeight: 600 }}>离港</div>
-          <div style={{ fontSize: 12, color: "#6b7a90" }}>{shipment.atd || "待离港"}</div>
+          <div style={{ fontSize: 12, color: colors.muted }}>{shipment.atd || "待离港"}</div>
         </div>
       ),
     },
@@ -585,7 +585,11 @@ export default function ShipmentDetailPage() {
         <Space direction="vertical" style={{ width: "100%" }} size="middle">
           <span>确认后柜进入「已发运」。请填写实际离港日(ATD)。</span>
           <Form form={departForm} layout="vertical">
-            <Form.Item name="atd" label="实际离港日(ATD)">
+            <Form.Item
+              name="atd"
+              label="实际离港日(ATD)"
+              rules={[{ required: true, message: "请填写实际离港日" }]}
+            >
               <DatePicker style={{ width: "100%" }} allowClear={false} />
             </Form.Item>
           </Form>
