@@ -53,14 +53,14 @@ async def test_cancel_blocked_with_active_outbound(client, db_session, sales_hea
 
 
 async def test_cancelled_shipment_invalid_transition_and_edit(client, logistics_headers):
-    """已取消柜再取消/编辑 → 42002。"""
+    """已取消柜再取消 → 42002(非法转移);改字段 → 42005(CANCELLED 可编辑集为空,diff 门禁)。"""
     ship = await create_shipment(client, logistics_headers)
     await client.post(f"/api/v1/shipments/{ship['id']}/cancel", headers=logistics_headers)
     again = await client.post(f"/api/v1/shipments/{ship['id']}/cancel", headers=logistics_headers)
     assert again.status_code == 409 and again.json()["code"] == 42002
     edit = await client.patch(f"/api/v1/shipments/{ship['id']}", headers=logistics_headers,
                               json={"container_no": "N"})
-    assert edit.status_code == 409 and edit.json()["code"] == 42002
+    assert edit.status_code == 400 and edit.json()["code"] == 42005
 
 
 async def test_shipment_list_and_detail(client, db_session, sales_headers, purchaser_headers,

@@ -1,4 +1,4 @@
-"""发运单(=柜)路由 /api/v1/shipments。本步组柜容器骨架。
+"""发运单(=柜)路由 /api/v1/shipments。组柜容器 + 船务生命周期(装柜/离港)。
 
 守 shipment:manage(写)/ shipment:read(读)。柜无红线字段(成本/供应商/售价)。
 详情内嵌柜内出库单列表(组柜工作台数据),仅数量/状态,无金额。
@@ -16,7 +16,9 @@ from app.rbac.guards import require_any_permission, require_permission
 from app.schemas.common import Page, PageParams
 from app.schemas.shipment import (
     ShipmentCreateIn,
+    ShipmentDepartIn,
     ShipmentListItem,
+    ShipmentLoadIn,
     ShipmentOut,
     ShipmentUpdateIn,
 )
@@ -43,12 +45,11 @@ async def _detail_payload(db, ship) -> dict:
     }
 
 
-@router.post("", summary="建柜(组柜中)")
+@router.post("", summary="建柜(组柜中,可带船务字段)")
 async def create_shipment(body: ShipmentCreateIn, request: Request,
                           current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
     ship = await shipment_service.create_order(
-        db, container_no=body.container_no, container_type=body.container_type,
-        seal_no=body.seal_no, note=body.note, actor_user_id=current.id,
+        db, fields=body.model_dump(), actor_user_id=current.id,
         actor_user_email=current.email, request=request)
     return success(await _detail_payload(db, ship))
 
@@ -64,20 +65,56 @@ async def list_shipments(page_params: PageParams = Depends(), status: str | None
         total=total, page=page_params.page, size=page_params.size).model_dump())
 
 
-@router.get("/{shipment_id}", summary="取柜(组柜工作台:柜信息 + 柜内出库单)")
+@router.get("/{shipment_id}", summary="取柜(组柜工作台:柜信息 + 船务 + 柜内出库单)")
 async def get_shipment(shipment_id: int, _current: CurrentUser = _READ,
                        db: AsyncSession = Depends(get_db)):
     ship = await shipment_service.get_order(db, shipment_id)
     return success(await _detail_payload(db, ship))
 
 
-@router.patch("/{shipment_id}", summary="改柜(仅组柜中:柜号/柜型/封条/备注)")
+@router.patch("/{shipment_id}", summary="改柜(按状态×字段门禁 + 乐观锁)")
 async def update_shipment(shipment_id: int, body: ShipmentUpdateIn, request: Request,
                           current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
     ship = await shipment_service.save_order(
-        db, shipment_id=shipment_id, container_no=body.container_no,
-        container_type=body.container_type, seal_no=body.seal_no, note=body.note,
+        db, shipment_id=shipment_id, fields=body.model_dump(exclude={"expected_updated_at"}),
+        expected_updated_at=body.expected_updated_at, actor_user_id=current.id,
+        actor_user_email=current.email, request=request)
+    return success(await _detail_payload(db, ship))
+
+
+@router.post("/{shipment_id}/load", summary="装柜确认(OPEN→LOADED,可补录封条/柜号)")
+async def load_shipment(shipment_id: int, body: ShipmentLoadIn, request: Request,
+                        current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
+    ship = await shipment_service.load_order(
+        db, shipment_id=shipment_id, container_no=body.container_no, seal_no=body.seal_no,
         actor_user_id=current.id, actor_user_email=current.email, request=request)
+    return success(await _detail_payload(db, ship))
+
+
+@router.post("/{shipment_id}/unload", summary="撤装柜(LOADED→OPEN,清 loaded_at)")
+async def unload_shipment(shipment_id: int, request: Request,
+                          current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
+    ship = await shipment_service.unload_order(
+        db, shipment_id=shipment_id, actor_user_id=current.id, actor_user_email=current.email,
+        request=request)
+    return success(await _detail_payload(db, ship))
+
+
+@router.post("/{shipment_id}/depart", summary="离港确认(LOADED→DEPARTED,atd 默认当日)")
+async def depart_shipment(shipment_id: int, body: ShipmentDepartIn, request: Request,
+                          current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
+    ship = await shipment_service.depart_order(
+        db, shipment_id=shipment_id, atd=body.atd, actor_user_id=current.id,
+        actor_user_email=current.email, request=request)
+    return success(await _detail_payload(db, ship))
+
+
+@router.post("/{shipment_id}/undepart", summary="撤离港(DEPARTED→LOADED,清 atd)")
+async def undepart_shipment(shipment_id: int, request: Request,
+                            current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
+    ship = await shipment_service.undepart_order(
+        db, shipment_id=shipment_id, actor_user_id=current.id, actor_user_email=current.email,
+        request=request)
     return success(await _detail_payload(db, ship))
 
 

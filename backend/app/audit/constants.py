@@ -49,6 +49,13 @@ class AuditAction(str, Enum):
     # 装柜/撤销是独立业务语义,不复用 CONFIRM/CANCEL(镜像 RECEIVE/UNRECEIVE 先例)。
     ISSUE = "ISSUE"
     UNISSUE = "UNISSUE"
+    # 柜/发运状态跃迁:OPEN→LOADED(装柜确认)/ LOADED→OPEN(撤装柜)/
+    # LOADED→DEPARTED(离港确认)/ DEPARTED→LOADED(撤离港)。船务生命周期独立动词,
+    # 不复用 CONFIRM/CANCEL(镜像 ISSUE/UNISSUE 先例)。
+    LOAD = "LOAD"
+    UNLOAD = "UNLOAD"
+    DEPART = "DEPART"
+    UNDEPART = "UNDEPART"
     LOGIN_SUCCESS = "LOGIN_SUCCESS"
     LOGIN_FAILED = "LOGIN_FAILED"
     LOGIN_LOCKED = "LOGIN_LOCKED"

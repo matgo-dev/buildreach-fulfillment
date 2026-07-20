@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { App, Button, Card, Descriptions, Input, Modal, Popconfirm, Space, Table } from "antd";
+import { App, Button, Card, Descriptions, Input, Modal, Popconfirm, Space, Table, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import { Can } from "@/components/common/Can";
@@ -165,11 +165,17 @@ export default function OutboundOrderDetailPage() {
                   确认装柜
                 </Button>
               )}
-              {outboundOrderRevertable(order.status) && (
-                <Button loading={busy} onClick={() => setRevertOpen(true)}>
-                  撤销出库
-                </Button>
-              )}
+              {outboundOrderRevertable(order.status) &&
+                // 柜非 OPEN(已装柜/发运)时撤销被后端 41910 拒;前端镜像:禁用 + tooltip 讲清路径。
+                (order.shipment_status && order.shipment_status !== "OPEN" ? (
+                  <Tooltip title="柜已装柜/发运,请先撤装柜再撤销出库">
+                    <Button disabled>撤销出库</Button>
+                  </Tooltip>
+                ) : (
+                  <Button loading={busy} onClick={() => setRevertOpen(true)}>
+                    撤销出库
+                  </Button>
+                ))}
               {outboundOrderCancellable(order.status) && (
                 <Popconfirm
                   title="取消该出库单?"

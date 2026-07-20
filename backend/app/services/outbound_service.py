@@ -33,6 +33,7 @@ from app.core.exceptions import (
     OutboundOrderInvalidTransitionError,
     OutboundOrderEditConflictError,
     OutboundSalesOrderNotConfirmedError,
+    OutboundShipmentLoadedCannotRevertError,
     OutboundShipmentNotOpenError,
     ReceivableAllocatedCannotRevertError,
 )
@@ -99,16 +100,18 @@ async def list_line_views(db: AsyncSession, order_id: int) -> list[dict]:
 
 
 async def resolve_order_parties(db: AsyncSession, order: OutboundOrder) -> dict:
-    """详情投影:来源 SO 号 + 柜号(组柜期可空显 None)。无红线字段。"""
+    """详情投影:来源 SO 号 + 柜号(组柜期可空显 None)+ 柜状态。无红线字段。
+    shipment_status 供前端「撤销出库」按钮门禁:柜非 OPEN 时禁用(镜像 41910)。"""
     so_no = (await db.execute(
         select(SalesOrder.no).where(SalesOrder.id == order.sales_order_id))).scalar_one_or_none()
     ship = (await db.execute(
-        select(ShipmentOrder.no, ShipmentOrder.container_no)
+        select(ShipmentOrder.no, ShipmentOrder.container_no, ShipmentOrder.status)
         .where(ShipmentOrder.id == order.shipment_id))).first()
     return {
         "sales_order_no": so_no or f"#{order.sales_order_id}",
         "shipment_no": ship[0] if ship else f"#{order.shipment_id}",
         "container_no": ship[1] if ship else None,
+        "shipment_status": ship[2] if ship else None,
     }
 
 
@@ -333,14 +336,23 @@ async def _get_active_receivable(db: AsyncSession, outbound_order_id: int) -> Re
 
 async def revert_order(db: AsyncSession, *, order_id, void_reason: str | None, actor_user_id,
                        actor_user_email, request: Request | None = None) -> OutboundOrder:
-    """撤销出库(ISSUED→DRAFT)。同锁序 SO头→出库单头;守卫 receivable.amount_allocated=0
-    (已核销拒,41907)。作废(void)应收留痕、issued_at 清空,库存派生自然恢复可发。"""
+    """撤销出库(ISSUED→DRAFT)。锁序 SO头→出库单头→柜头(叶子);守卫:
+    ① 柜已装柜/发运(status ≠ OPEN)→ 拒 41910(封柜后柜内出库单冻结,须先撤装柜);
+    锁读柜头(FOR UPDATE)防 TOCTOU——无锁快照读会与并发装柜确认交错,破 D2 封柜不变量。
+    ② receivable.amount_allocated=0(已核销拒,41907)。
+    作废(void)应收留痕、issued_at 清空,库存派生自然恢复可发。"""
     pre = await get_order(db, order_id)
     (await db.execute(
         select(SalesOrder).where(SalesOrder.id == pre.sales_order_id).with_for_update())).scalar_one()
     order = await get_order_for_update(db, order_id)
     assert_transition(OUTBOUND_ORDER_TRANSITIONS, order.status, OutboundOrderStatus.DRAFT,
                       OutboundOrderInvalidTransitionError)
+    # 柜头 = 锁序末尾叶子锁(与发运侧 load/unload/depart/undepart 同向,无环)。
+    ship = (await db.execute(
+        select(ShipmentOrder).where(ShipmentOrder.id == order.shipment_id)
+        .with_for_update())).scalar_one()
+    if ship.status != ShipmentOrderStatus.OPEN:
+        raise OutboundShipmentLoadedCannotRevertError()
     receivable = await _get_active_receivable(db, order.id)
     if receivable is not None and Decimal(str(receivable.amount_allocated)) > 0:
         raise ReceivableAllocatedCannotRevertError()

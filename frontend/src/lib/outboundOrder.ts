@@ -3,6 +3,7 @@
 // 出库行本身不存快照,展示字段(name/spec/unit)由后端 join SO 行回填(契约 §1.3 单一源头)。
 import { api } from "./api";
 import type { Page } from "./catalog";
+import type { ShipmentStatus } from "./shipment";
 
 export type OutboundOrderStatus = "DRAFT" | "ISSUED" | "CANCELLED";
 
@@ -32,6 +33,8 @@ export interface OutboundOrderOut {
   sales_order_no: string;
   shipment_no: string | null;
   container_no: string | null;
+  // 柜状态(resolve_order_parties 回填):柜非 OPEN 时「撤销出库」按钮禁用(镜像 41910)。
+  shipment_status: ShipmentStatus | null;
 }
 
 export interface OutboundOrderListItem {
