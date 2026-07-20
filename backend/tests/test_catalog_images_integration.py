@@ -24,9 +24,9 @@ async def test_create_upload_returns_key_url_method(client, product_operator_hea
 
 
 @pytest.mark.asyncio
-async def test_create_upload_requires_manage_permission(client, superadmin_headers):
-    # ADMIN 有 product:read 无 product:manage → 403(能改商品才能传图)
-    r = await client.post("/api/v1/uploads", headers=superadmin_headers,
+async def test_create_upload_requires_manage_permission(client, product_readonly_headers):
+    # 只读角色无 product:manage → 403(能改商品才能传图)
+    r = await client.post("/api/v1/uploads", headers=product_readonly_headers,
                           json={"filename": "photo.jpg", "content_type": "image/jpeg"})
     assert r.status_code == 403
 
@@ -49,8 +49,8 @@ async def test_put_upload_local_backend_receives_and_persists(client, product_op
 
 
 @pytest.mark.asyncio
-async def test_put_upload_requires_manage_permission(client, superadmin_headers):
-    r = await client.put("/api/v1/uploads/img/whatever.jpg", headers=superadmin_headers,
+async def test_put_upload_requires_manage_permission(client, product_readonly_headers):
+    r = await client.put("/api/v1/uploads/img/whatever.jpg", headers=product_readonly_headers,
                          content=b"x")
     assert r.status_code == 403
 

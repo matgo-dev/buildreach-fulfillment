@@ -55,9 +55,9 @@ async def test_spu_crud_flow(client, product_operator_headers, db_session):
 
 
 @pytest.mark.asyncio
-async def test_spu_list_read_allowed_for_admin(client, superadmin_headers):
-    r = await client.get("/api/v1/spus", headers=superadmin_headers)
-    assert r.status_code == 200  # ADMIN 有 product:read
+async def test_spu_list_read_allowed_for_readonly_role(client, product_readonly_headers):
+    r = await client.get("/api/v1/spus", headers=product_readonly_headers)
+    assert r.status_code == 200  # 只读角色有 product:read
 
 
 @pytest.mark.asyncio
@@ -87,7 +87,7 @@ async def test_spu_detail_category_full_path(client, product_operator_headers, d
 
 
 @pytest.mark.asyncio
-async def test_spu_detail_cost_masked_for_read_only_role(client, superadmin_headers,
+async def test_spu_detail_cost_masked_for_read_only_role(client, product_readonly_headers,
                                                           product_operator_headers, db_session):
     """详情内嵌 SKU 的 reference_price:PRODUCT_MANAGE 可见,仅 PRODUCT_READ 脱敏。"""
     await _seed_category(db_session, "10")
@@ -104,8 +104,8 @@ async def test_spu_detail_cost_masked_for_read_only_role(client, superadmin_head
     d_op = await client.get(f"/api/v1/spus/{sid}", headers=product_operator_headers)
     assert float(d_op.json()["data"]["skus"][0]["reference_price"]) == 12.50
 
-    # 仅 PRODUCT_READ(admin)看不到成本(脱敏为 None)
-    d_admin = await client.get(f"/api/v1/spus/{sid}", headers=superadmin_headers)
+    # 仅 PRODUCT_READ(只读角色)看不到成本(脱敏为 None)
+    d_admin = await client.get(f"/api/v1/spus/{sid}", headers=product_readonly_headers)
     assert d_admin.json()["data"]["skus"][0]["reference_price"] is None
 
 

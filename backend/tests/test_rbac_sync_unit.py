@@ -56,13 +56,18 @@ def test_catalog_operator_has_read_and_manage():
     assert Permissions.PRODUCT_MANAGE in perms
 
 
-def test_admin_has_catalog_read_but_not_manage():
+def test_admin_is_system_domain_only():
+    # Q25「ADMIN 严格不触业务数据」:业务权限点(customer:* 兜底、product:read 过渡桥)已全部摘除,
+    # ADMIN 只剩 auth base + 系统域(user/role/permission/system)。需兼管业务者给账号叠加功能角色。
     perms = ROLE_PERMISSIONS["ADMIN"]
-    assert Permissions.PRODUCT_READ in perms
+    assert Permissions.PRODUCT_READ not in perms
     assert Permissions.PRODUCT_MANAGE not in perms
-    # ADMIN 兜底共持客户主数据:manage 不隐含 read(扁平权限码无蕴含关系,read+manage 成对纪律),
-    # 前端 RouteGuard(/sales/customers)要求 customer:read,需显式补齐才能进页面。
-    assert Permissions.CUSTOMER_READ in perms
+    assert Permissions.CUSTOMER_READ not in perms
+    assert Permissions.CUSTOMER_MANAGE not in perms
+    # 系统域权限仍在
+    assert Permissions.USER_MANAGE in perms
+    assert Permissions.ROLE_MANAGE in perms
+    assert Permissions.SYSTEM_AUDIT in perms
 
 
 def test_admin_no_longer_holds_quote_manage():

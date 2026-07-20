@@ -282,6 +282,43 @@ async def sales_readonly_headers(client, db_session) -> dict[str, str]:
 
 
 @pytest_asyncio.fixture
+async def product_readonly_headers(client, db_session) -> dict[str, str]:
+    """合成角色:仅持 product:read(+ auth base),无 product:manage、无成本轴。
+    ADMIN 摘除 product:read 过渡桥后,商品读/成本脱敏边界测试改用此纯只读身份,
+    不再借 ADMIN 当只读脚手架。合成角色不在 RoleCode.ALL,直接建 Role/RolePermission/User。"""
+    from sqlalchemy import select
+
+    from app.core.security import hash_password
+    from app.db.models.permission import Permission
+    from app.db.models.role import Role, RoleScope
+    from app.db.models.role_permission import RolePermission
+    from app.db.models.user import User, UserStatus
+    from app.db.models.user_role import UserRole
+    from app.rbac.constants import Permissions
+
+    role = Role(code="PRODUCT_RO_TEST", name="只读商品(测试)",
+                scope=RoleScope.GLOBAL, description="仅 product:read 合成角色")
+    db_session.add(role)
+    await db_session.flush()
+    codes = [Permissions.AUTH_LOGIN, Permissions.AUTH_LOGOUT, Permissions.AUTH_ME,
+             Permissions.PRODUCT_READ]
+    perm_ids = (await db_session.execute(
+        select(Permission.id).where(Permission.code.in_(codes)))).scalars().all()
+    for pid in perm_ids:
+        db_session.add(RolePermission(role_id=role.id, permission_id=pid))
+    email, pw = "product_ro@fulfillment.local", "ProductRo123456"
+    user = User(email=email, name="只读商品", password_hash=hash_password(pw),
+                status=UserStatus.ACTIVE, must_change_password=False)
+    db_session.add(user)
+    await db_session.flush()
+    db_session.add(UserRole(user_id=user.id, role_id=role.id))
+    await db_session.commit()
+    r = await client.post("/api/v1/auth/login", json={"identifier": email, "password": pw})
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['data']['access_token']}"}
+
+
+@pytest_asyncio.fixture
 async def purchaser_headers(client, db_session) -> dict[str, str]:
     """PURCHASER 账号 headers。持 supplier:*/purchase:*(含 read_cost)+ sales:read(发起采购)。"""
     from app.services.user_service import create_internal_user

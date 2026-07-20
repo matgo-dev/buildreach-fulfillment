@@ -12,7 +12,7 @@ async def _seed_cat_unit(db):
 
 @pytest.mark.asyncio
 async def test_create_sku_with_physical_and_masking(
-        client, product_operator_headers, superadmin_headers, db_session):
+        client, product_operator_headers, product_readonly_headers, db_session):
     await _seed_cat_unit(db_session)
     spu_id = (await client.post("/api/v1/spus", headers=product_operator_headers, json={
         "category_code": "10", "name_i18n": {"zh": "海螺水泥"},
@@ -27,7 +27,7 @@ async def test_create_sku_with_physical_and_masking(
     d = r.json()["data"]
     assert float(d["weight_kg"]) == 1000 and float(d["height_cm"]) == 120
 
-    # 只读用户(ADMIN,仅 PRODUCT_READ):物理字段可见,reference_price 脱敏为 null
-    dr = (await client.get(f"/api/v1/skus/{sku_id}", headers=superadmin_headers)).json()["data"]
+    # 只读用户(仅 PRODUCT_READ):物理字段可见,reference_price 脱敏为 null
+    dr = (await client.get(f"/api/v1/skus/{sku_id}", headers=product_readonly_headers)).json()["data"]
     assert dr["reference_price"] is None
     assert float(dr["weight_kg"]) == 1000 and float(dr["length_cm"]) == 100

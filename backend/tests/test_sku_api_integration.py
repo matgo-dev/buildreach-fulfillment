@@ -13,7 +13,7 @@ async def _seed_category(db_session, code="10"):
 
 
 @pytest.mark.asyncio
-async def test_sku_flow_and_cost_redaction(client, product_operator_headers, superadmin_headers,
+async def test_sku_flow_and_cost_redaction(client, product_operator_headers, product_readonly_headers,
                                            db_session):
     h = product_operator_headers
     await _seed_category(db_session, "10")
@@ -26,9 +26,9 @@ async def test_sku_flow_and_cost_redaction(client, product_operator_headers, sup
     sku = r.json()["data"]
     assert sku["reference_price"] in ("12.50", 12.5)
 
-    # ADMIN(仅 read)读该 SKU → reference_price 脱敏为 null
+    # 只读角色(仅 read)读该 SKU → reference_price 脱敏为 null
     rid = sku["id"]
-    r2 = await client.get(f"/api/v1/skus/{rid}", headers=superadmin_headers)
+    r2 = await client.get(f"/api/v1/skus/{rid}", headers=product_readonly_headers)
     assert r2.status_code == 200
     assert r2.json()["data"]["reference_price"] is None
 
@@ -59,15 +59,15 @@ async def test_update_sku_after_soft_delete_404s(client, product_operator_header
 
 
 @pytest.mark.asyncio
-async def test_admin_cannot_create_sku(client, superadmin_headers):
-    r = await client.post("/api/v1/skus", headers=superadmin_headers, json={
+async def test_readonly_cannot_create_sku(client, product_readonly_headers):
+    r = await client.post("/api/v1/skus", headers=product_readonly_headers, json={
         "spu_id": 1, "unit": "piece", "name_i18n": {"zh": "x"}, "spec_items": []})
     assert r.status_code == 403
 
 
 @pytest.mark.asyncio
 async def test_search_cost_redaction_and_pagination(client, product_operator_headers,
-                                                     superadmin_headers, db_session):
+                                                     product_readonly_headers, db_session):
     h = product_operator_headers
     await _seed_category(db_session, "10")
     spu = (await client.post("/api/v1/spus", headers=h,
@@ -85,7 +85,7 @@ async def test_search_cost_redaction_and_pagination(client, product_operator_hea
     row_op = next(x for x in body_op["items"] if x["name_i18n"]["zh"] == "阀门XYZ-A")
     assert row_op["reference_price"] in ("9.99", 9.99)
 
-    r_admin = await client.get("/api/v1/skus?q=阀门XYZ", headers=superadmin_headers)
+    r_admin = await client.get("/api/v1/skus?q=阀门XYZ", headers=product_readonly_headers)
     assert r_admin.status_code == 200
     row_admin = next(x for x in r_admin.json()["data"]["items"]
                       if x["name_i18n"]["zh"] == "阀门XYZ-A")

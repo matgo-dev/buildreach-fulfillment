@@ -12,8 +12,8 @@ async def test_units_list_requires_read(client):
 
 
 @pytest.mark.asyncio
-async def test_units_list_ok_and_shape(client, superadmin_headers):
-    r = await client.get("/api/v1/units", headers=superadmin_headers)
+async def test_units_list_ok_and_shape(client, product_readonly_headers):
+    r = await client.get("/api/v1/units", headers=product_readonly_headers)
     assert r.status_code == 200, r.text
     items = r.json()["data"]["items"]
     assert isinstance(items, list) and len(items) > 0
@@ -23,11 +23,11 @@ async def test_units_list_ok_and_shape(client, superadmin_headers):
 
 
 @pytest.mark.asyncio
-async def test_units_list_excludes_inactive(client, superadmin_headers, db_session):
+async def test_units_list_excludes_inactive(client, product_readonly_headers, db_session):
     db_session.add(Unit(code="deprecated_unit", label_i18n={"zh": "废弃单位"},
                         sort_order=999, is_active=False))
     await db_session.commit()
-    r = await client.get("/api/v1/units", headers=superadmin_headers)
+    r = await client.get("/api/v1/units", headers=product_readonly_headers)
     codes = {i["code"] for i in r.json()["data"]["items"]}
     assert "deprecated_unit" not in codes
 
