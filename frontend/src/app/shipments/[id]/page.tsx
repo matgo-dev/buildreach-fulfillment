@@ -32,7 +32,7 @@ import {
   type ShipmentDetail,
   type ShipmentOut,
   type ShipmentOutboundSummary,
-  type ShipmentSaveBody,
+  type ShipmentUpdateBody,
 } from "@/lib/shipment";
 import {
   SHIPMENT_STATUS_META,
@@ -126,26 +126,22 @@ export default function ShipmentDetailPage() {
     const s = detail.shipment;
     const v = await form.validateFields().catch(() => null);
     if (!v) return;
+    // 稀疏 PATCH:只提交当前状态可编辑字段(其余后端不动),携乐观锁基线。表单本就只渲染
+    // 可编辑字段,故直接按 isFieldEditable 收集即可,无需回填不可改字段。
     const ed = (f: ShipmentField) => isFieldEditable(s.status, f);
-    const txt = (f: keyof ShipmentSaveBody & ShipmentField, raw: string | undefined) =>
-      ed(f) ? raw?.trim() || null : ((s[f as keyof ShipmentOut] as string | null) ?? null);
-    const dt = (f: "etd" | "eta", d: dayjs.Dayjs | null | undefined) =>
-      ed(f) ? (d ? d.format("YYYY-MM-DD") : null) : s[f];
-    const body: ShipmentSaveBody = {
-      container_no: txt("container_no", v.container_no),
-      container_type: ed("container_type") ? v.container_type || null : s.container_type,
-      seal_no: txt("seal_no", v.seal_no),
-      booking_no: txt("booking_no", v.booking_no),
-      vessel_name: txt("vessel_name", v.vessel_name),
-      voyage_no: txt("voyage_no", v.voyage_no),
-      bl_no: txt("bl_no", v.bl_no),
-      port_of_loading: txt("port_of_loading", v.port_of_loading),
-      port_of_discharge: txt("port_of_discharge", v.port_of_discharge),
-      etd: dt("etd", v.etd),
-      eta: dt("eta", v.eta),
-      note: txt("note", v.note),
-      expected_updated_at: s.updated_at,
-    };
+    const patch: Record<string, string | null> = {};
+    const TXT: ShipmentField[] = [
+      "container_no", "seal_no", "booking_no", "vessel_name", "voyage_no",
+      "bl_no", "port_of_loading", "port_of_discharge", "note",
+    ];
+    for (const f of TXT) {
+      if (ed(f)) patch[f] = (v[f] as string | undefined)?.trim() || null;
+    }
+    if (ed("container_type")) patch.container_type = (v.container_type as string) || null;
+    for (const f of ["etd", "eta"] as const) {
+      if (ed(f)) patch[f] = v[f] ? (v[f] as dayjs.Dayjs).format("YYYY-MM-DD") : null;
+    }
+    const body: ShipmentUpdateBody = { ...patch, expected_updated_at: s.updated_at };
     setBusy(true);
     try {
       await shipmentApi.update(id, body);

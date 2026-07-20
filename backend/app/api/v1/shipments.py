@@ -76,7 +76,9 @@ async def get_shipment(shipment_id: int, _current: CurrentUser = _READ,
 async def update_shipment(shipment_id: int, body: ShipmentUpdateIn, request: Request,
                           current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
     ship = await shipment_service.save_order(
-        db, shipment_id=shipment_id, fields=body.model_dump(exclude={"expected_updated_at"}),
+        db, shipment_id=shipment_id,
+        # 稀疏 PATCH:仅下发客户端显式提交的字段(exclude_unset),未传字段不参与门禁/覆盖。
+        fields=body.model_dump(exclude_unset=True, exclude={"expected_updated_at"}),
         expected_updated_at=body.expected_updated_at, actor_user_id=current.id,
         actor_user_email=current.email, request=request)
     return success(await _detail_payload(db, ship))

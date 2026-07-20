@@ -43,8 +43,9 @@ class ShipmentCreateIn(_ShipmentWriteBase):
 
 
 class ShipmentUpdateIn(_ShipmentWriteBase):
-    """改柜(全量覆盖):按 §D6 状态 × 字段门禁(diff 式,违规 42005)+ 乐观锁基线。"""
-    expected_updated_at: datetime | None = None
+    """改柜(稀疏 PATCH):仅传入字段参与门禁 + 覆盖(未传字段不动)。
+    乐观锁基线**必填**(对齐入库/出库/报价/采购先例:不许有的有有的没有);漏传 → 422。"""
+    expected_updated_at: datetime
 
 
 class ShipmentLoadIn(BaseModel):

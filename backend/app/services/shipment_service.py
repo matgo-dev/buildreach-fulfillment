@@ -98,18 +98,21 @@ async def create_order(db: AsyncSession, *, fields: dict, actor_user_id, actor_u
 async def save_order(db: AsyncSession, *, shipment_id, fields: dict, expected_updated_at,
                      actor_user_id, actor_user_email,
                      request: Request | None = None) -> ShipmentOrder:
-    """改柜(全量覆盖 + 乐观锁 + diff 式字段门禁)。
+    """改柜(稀疏 PATCH + 乐观锁 + diff 式字段门禁)。
     stale 提交 → 42006(编辑冲突);提交值≠库中值 且 字段∉当前状态可编辑集 → 42005
-    (biz_data 带被拒字段名);值未变的字段即使不可编辑也放行(对全量 payload 稳健)。"""
+    (biz_data 带被拒字段名);值未变的字段即使不可编辑也放行。
+    **仅处理客户端显式提交的字段**(fields = exclude_unset 结果):未传字段既不 diff
+    也不覆盖——局部 PATCH 不会误清空其它字段、不会拿未传字段的 None 误报 42005。"""
     ship = await get_order_for_update(db, shipment_id)
     assert_no_edit_conflict(ship, expected_updated_at, ShipmentEditConflictError)
     editable = SHIPMENT_EDITABLE_FIELDS_BY_STATUS[ship.status]
-    forbidden = [name for name in _SAVE_FIELDS
-                 if fields.get(name) != getattr(ship, name) and name not in editable]
+    provided = [name for name in _SAVE_FIELDS if name in fields]
+    forbidden = [name for name in provided
+                 if fields[name] != getattr(ship, name) and name not in editable]
     if forbidden:
         raise ShipmentFieldNotEditableError(data={"fields": forbidden})
-    for name in _SAVE_FIELDS:
-        setattr(ship, name, fields.get(name))
+    for name in provided:
+        setattr(ship, name, fields[name])
     await db.flush()
     await write_audit(db, resource_type=AuditResourceType.SHIPMENT_ORDER,
                       action=AuditAction.UPDATE, user_id=actor_user_id,

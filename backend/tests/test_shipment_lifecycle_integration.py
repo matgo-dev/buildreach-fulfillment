@@ -168,7 +168,8 @@ async def test_field_gate_open_allows_all(client, logistics_headers):
         "container_no": "AAAU1111111", "container_type": "40HQ", "seal_no": "S1",
         "vessel_name": "EVER GIVEN", "voyage_no": "V001", "booking_no": "BK1",
         "bl_no": "BL1", "port_of_loading": "Shanghai", "port_of_discharge": "Mombasa",
-        "etd": "2026-08-01", "eta": "2026-09-01"})
+        "etd": "2026-08-01", "eta": "2026-09-01",
+        "expected_updated_at": ship["updated_at"]})
     assert r.status_code == 200, r.text
     b = r.json()["data"]["shipment"]
     assert b["vessel_name"] == "EVER GIVEN" and b["etd"] == "2026-08-01"
@@ -223,7 +224,8 @@ async def test_field_gate_diff_unchanged_value_passes(
     sid = d["shipment"]["id"]
     # 建柜时带柜号,装柜后回显整对象(柜号原值 + 改船名)。
     await client.patch(f"/api/v1/shipments/{sid}", headers=logistics_headers,
-                       json={"container_no": "KEEP0001111", "container_type": "40HQ"})
+                       json={"container_no": "KEEP0001111", "container_type": "40HQ",
+                             "expected_updated_at": d["shipment"]["updated_at"]})
     load = await client.post(f"/api/v1/shipments/{sid}/load", headers=logistics_headers, json={})
     upd = load.json()["data"]["shipment"]["updated_at"]
     # 全量 payload 回显不可改字段的原值 + 改可改字段 → 放行(值未变不拒)。
@@ -305,10 +307,57 @@ async def test_rbac_sales_read_only_403_on_shipment_actions(
         r = await client.post(f"/api/v1/shipments/{sid}/{path}", headers=sales_headers, json={})
         assert r.status_code == 403, (path, r.text)
     patch = await client.patch(f"/api/v1/shipments/{sid}", headers=sales_headers,
-                               json={"vessel_name": "X"})
+                               json={"vessel_name": "X",
+                                     "expected_updated_at": d["shipment"]["updated_at"]})
     assert patch.status_code == 403
     # SALES 读可达。
     assert (await client.get(f"/api/v1/shipments/{sid}", headers=sales_headers)).status_code == 200
     # LOGISTICS 可写(装柜确认)。
     assert (await client.post(f"/api/v1/shipments/{sid}/load", headers=logistics_headers,
                               json={})).status_code == 200
+
+
+# ---------- 稀疏 PATCH:未传字段不动、乐观锁必填(API 级入口,前端全量 payload 覆盖不到) ----------
+
+
+async def test_partial_patch_preserves_untouched_fields(client, logistics_headers):
+    """局部 PATCH 只改传入字段,未传字段保持原值(不被 None 覆盖清空)。"""
+    ship = await create_shipment(client, logistics_headers,
+                                 container_no="AAAU1111111", vessel_name="EVER GIVEN",
+                                 booking_no="BK1")
+    r = await client.patch(f"/api/v1/shipments/{ship['id']}", headers=logistics_headers,
+                           json={"vessel_name": "MSC", "expected_updated_at": ship["updated_at"]})
+    assert r.status_code == 200, r.text
+    b = r.json()["data"]["shipment"]
+    assert b["vessel_name"] == "MSC"          # 改了
+    assert b["container_no"] == "AAAU1111111"  # 未传 → 保持,不被清空
+    assert b["booking_no"] == "BK1"            # 未传 → 保持
+
+
+async def test_partial_patch_on_loaded_ignores_untouched_locked_field(
+        client, db_session, sales_headers, purchaser_headers, logistics_headers):
+    """LOADED 柜已有 container_no 时,局部 PATCH 只改船务字段 → 不误报 42005
+    (未传的锁定字段 container_no 不参与 diff)。"""
+    d = await make_loadable_shipment(client, db_session, sales_headers, purchaser_headers,
+                                     logistics_headers)
+    sid = d["shipment"]["id"]
+    # OPEN 期先落一个 container_no。
+    await client.patch(f"/api/v1/shipments/{sid}", headers=logistics_headers,
+                       json={"container_no": "BMOU2222222",
+                             "expected_updated_at": d["shipment"]["updated_at"]})
+    load = await client.post(f"/api/v1/shipments/{sid}/load", headers=logistics_headers, json={})
+    upd = load.json()["data"]["shipment"]["updated_at"]
+    # 仅改船务字段(不带 container_no)→ 应 200,不因锁定的 container_no 误报 42005。
+    r = await client.patch(f"/api/v1/shipments/{sid}", headers=logistics_headers,
+                           json={"vessel_name": "COSCO", "expected_updated_at": upd})
+    assert r.status_code == 200, r.text
+    b = r.json()["data"]["shipment"]
+    assert b["vessel_name"] == "COSCO" and b["container_no"] == "BMOU2222222"
+
+
+async def test_patch_missing_expected_updated_at_422(client, logistics_headers):
+    """乐观锁基线必填(对齐入库/出库/PO):漏传 expected_updated_at → 422,不退回无锁覆盖。"""
+    ship = await create_shipment(client, logistics_headers)
+    r = await client.patch(f"/api/v1/shipments/{ship['id']}", headers=logistics_headers,
+                           json={"vessel_name": "X"})
+    assert r.status_code == 422, r.text

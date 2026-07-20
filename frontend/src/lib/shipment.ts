@@ -65,9 +65,7 @@ export interface ShipmentDetail {
 }
 
 /**
- * 建 / 改柜入参(POST 与 PATCH 同体,对齐后端 _ShipmentWriteBase 全量覆盖式)。
- * atd 不在此——由离港确认动作驱动,不走整单保存。
- * PATCH 侧按状态 × 字段门禁(diff 式,违规 42005),携 expected_updated_at 乐观锁。
+ * 建柜入参(POST)。船务字段建柜即录(可选);atd 由离港确认动作驱动,不走整单保存。
  */
 export interface ShipmentSaveBody {
   container_no?: string | null;
@@ -82,8 +80,15 @@ export interface ShipmentSaveBody {
   port_of_discharge?: string | null;
   etd?: string | null;
   eta?: string | null;
-  /** 乐观锁基线 = 打开编辑时的 shipment.updated_at(对齐出库/入库/PO);冲突 → 42006。 */
-  expected_updated_at?: string | null;
+}
+
+/**
+ * 改柜入参(PATCH,稀疏):仅传入字段参与门禁 + 覆盖(未传字段不动)。
+ * `expected_updated_at` **必填**(对齐出库/入库/PO 乐观锁,漏传后端 422);冲突 → 42006。
+ */
+export interface ShipmentUpdateBody extends ShipmentSaveBody {
+  /** 乐观锁基线 = 打开编辑时的 shipment.updated_at。 */
+  expected_updated_at: string;
 }
 
 /** 装柜确认入参:可补录封条/柜号(封号贴封条时才知道)。 */
@@ -118,7 +123,7 @@ export const shipmentApi = {
     api.get<Page<ShipmentListItem>>(`/api/v1/shipments${qs(p as Record<string, unknown>)}`),
   get: (id: number) => api.get<ShipmentDetail>(`/api/v1/shipments/${id}`),
   create: (b: ShipmentSaveBody) => api.post<ShipmentDetail>("/api/v1/shipments", b),
-  update: (id: number, b: ShipmentSaveBody) =>
+  update: (id: number, b: ShipmentUpdateBody) =>
     api.patch<ShipmentDetail>(`/api/v1/shipments/${id}`, b),
   /** 装柜确认 OPEN→LOADED(守卫:非空柜且全 ISSUED,否则 42003/42004)。 */
   load: (id: number, b: ShipmentLoadBody) =>
