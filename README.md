@@ -282,11 +282,12 @@
   - **里程碑枚举(model 常量单一源头,不建 lookup 表)**:入表 `event_type` 仅 `TRANSSHIPMENT`/`ARRIVED`;`DEPARTED`(已离港)
     是**派生态**,读柜 `atd` 不入表(离港单一源头在柜头)。更细节点等接 API 往常量 + 前端镜像加,改一行、无迁移。
   - **当前物流状态 = 纯派生(零冗余列,同库存 B 方案)**:柜 `≠DEPARTED`→null(列表显「—」);`DEPARTED` 无活动事件→已离港;
-    有活动事件→取 `event_at` 最新(tie-break `event_at DESC, id DESC`)。列表派生列 `DISTINCT ON (shipment_id)` 单条批量走复合索引,
-    **无 N+1**;派生列 P0 仅展示、不做筛选项。
+    有活动事件→**活动到港=终态优先**,否则取 `event_at` 最新(tie-break `event_at DESC, id DESC`)。列表派生列
+    `DISTINCT ON (shipment_id)` 单条批量走复合索引,**无 N+1**;列表支持 `logistics_status` 派生筛选(见端点条)。
   - **状态守卫 + 锁序(TOCTOU 闭合)**:录/改/删事件前置柜 `DEPARTED`(否则 `42008`),一律先锁柜头 `FOR UPDATE` 再校验,
     与 `undepart` 串行化;**撤离港守卫**:柜下存在活动事件 → 拒 `42007`(先软删事件再撤离港)。`event_at ≥ atd` service 校验(早于离港日拒 400)。
-    到港唯一 service 主动查(`42009`,`no_autoflush` 防提前 flush 撞偏唯一)。
+    到港唯一 service 主动查(`42009`,`no_autoflush` 防提前 flush 撞偏唯一)。**到港=时间线终点**(写入口守卫,拒 400):
+    非到港事件日不得晚于活动到港日、到港日不得早于既有事件最大日。
   - **RBAC**:**零新增权限点**,写守 `shipment:manage`、读守 `shipment:read`|`shipment:manage`(LOGISTICS 出库/发运/物流/报关同一操作者;
     ADMIN 不持 `shipment:manage`,无旁路)。事件表无红线字段,读不脱敏。审计加 `SHIPMENT_EVENT` 资源类型(复用 `CREATE`/`UPDATE`/`DELETE`)。
   - **端点**(发运柜子资源):`POST`/`PATCH`/`DELETE` `/shipments/{id}/logistics-events[/{event_id}]`(全守 `shipment:manage`,DELETE = 软删);

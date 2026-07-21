@@ -70,14 +70,40 @@ def _assert_event_at_ge_atd(event_at: date, atd: date | None) -> None:
         raise ValidationFailedError("物流事件日期不得早于离港日")
 
 
+async def _assert_arrived_is_terminal(db: AsyncSession, shipment_id: int, *, event_type: str,
+                                      event_at: date, exclude_id: int | None = None) -> None:
+    """到港=时间线终点(写入口守卫,拒 400):
+    - 录/改非到港事件:日期不得晚于该柜活动到港日(到港后不再有在途节点);
+    - 录/改到港事件:日期不得早于该柜其它活动事件的最大日期。
+    与派生口径「活动到港=终态」同一规则的写侧表达。no_autoflush 同 _has_active_arrived。"""
+    conds = [ShipmentEvent.shipment_id == shipment_id, ShipmentEvent.deleted_at.is_(None)]
+    if exclude_id is not None:
+        conds.append(ShipmentEvent.id != exclude_id)
+    if event_type == LogisticsMilestone.ARRIVED:
+        with db.no_autoflush:
+            max_other = (await db.execute(
+                select(func.max(ShipmentEvent.event_at)).where(*conds))).scalar_one()
+        if max_other is not None and event_at < max_other:
+            raise ValidationFailedError("到港日期不得早于已录的在途事件")
+    else:
+        with db.no_autoflush:
+            arrived_at = (await db.execute(
+                select(ShipmentEvent.event_at).where(
+                    *conds, ShipmentEvent.event_type == LogisticsMilestone.ARRIVED))
+            ).scalar_one_or_none()
+        if arrived_at is not None and event_at > arrived_at:
+            raise ValidationFailedError("事件日期不得晚于到港日")
+
+
 async def create_event(db: AsyncSession, *, shipment_id: int, event_type: str, event_at: date,
                        location: str | None, note: str | None, actor_user_id, actor_user_email,
                        request: Request | None = None) -> ShipmentEvent:
-    """录入里程碑。管线:锁柜头 → DEPARTED → event_at≥atd → 到港唯一 → 建。"""
+    """录入里程碑。管线:锁柜头 → DEPARTED → event_at≥atd → 到港唯一 → 到港终点 → 建。"""
     ship = await _lock_departed_shipment(db, shipment_id)
     _assert_event_at_ge_atd(event_at, ship.atd)
     if event_type == LogisticsMilestone.ARRIVED and await _has_active_arrived(db, shipment_id):
         raise ShipmentEventDuplicateArrivedError()
+    await _assert_arrived_is_terminal(db, shipment_id, event_type=event_type, event_at=event_at)
     ev = ShipmentEvent(shipment_id=shipment_id, event_type=event_type, event_at=event_at,
                        location=location, note=note, created_by=actor_user_id)
     db.add(ev)
@@ -95,7 +121,8 @@ async def update_event(db: AsyncSession, *, shipment_id: int, event_id: int, fie
                        actor_user_id, actor_user_email,
                        request: Request | None = None) -> ShipmentEvent:
     """纠错改事件(稀疏:仅传入字段覆盖)。管线:锁柜头 → DEPARTED → 取活动事件+归属 →
-    覆盖 → 到港唯一(排除自身)→ event_at≥atd。event_type/event_at 显式传 None 视为非法(NOT NULL)。"""
+    覆盖 → 到港唯一(排除自身)→ event_at≥atd → 到港终点(排除自身)。
+    event_type/event_at 显式传 None 视为非法(NOT NULL)。"""
     ship = await _lock_departed_shipment(db, shipment_id)
     ev = await _get_active_event(db, shipment_id, event_id)
     for name in ("event_type", "event_at", "location", "note"):
@@ -107,6 +134,8 @@ async def update_event(db: AsyncSession, *, shipment_id: int, event_id: int, fie
             db, shipment_id, exclude_id=ev.id):
         raise ShipmentEventDuplicateArrivedError()
     _assert_event_at_ge_atd(ev.event_at, ship.atd)
+    await _assert_arrived_is_terminal(db, shipment_id, event_type=ev.event_type,
+                                      event_at=ev.event_at, exclude_id=ev.id)
     await db.flush()
     await write_audit(db, resource_type=AuditResourceType.SHIPMENT_EVENT,
                       action=AuditAction.UPDATE, user_id=actor_user_id,
@@ -146,16 +175,29 @@ def derive_current_status(ship_status: str, latest_event_type: str | None) -> st
 
 
 def latest_event_select():
-    """每柜 event_at 最新活动事件 `(shipment_id, event_type)` 的 DISTINCT ON select —— **口径单一源头**。
+    """每柜「最新」活动事件 `(shipment_id, event_type)` 的 DISTINCT ON select —— **口径单一源头**。
     列表派生列(latest_event_types)/ 物流状态筛选(shipment_service.list_orders)全复用此构造,
-    不各写一份 DISTINCT ON。tie-break 写死 event_at DESC, id DESC(event_at 是 Date,同日靠 id 定序)。"""
+    不各写一份 DISTINCT ON。排序 = 活动到港终态优先,再 event_at DESC, id DESC(event_at 是
+    Date,同日靠 id 定序)。写侧守卫(_assert_arrived_is_terminal)保证到港日恒为最大,
+    终态优先仅在「同日并列」时生效,与 latest_type_of 同口径。"""
     return (
         select(ShipmentEvent.shipment_id, ShipmentEvent.event_type)
         .distinct(ShipmentEvent.shipment_id)
         .where(ShipmentEvent.deleted_at.is_(None))
-        .order_by(ShipmentEvent.shipment_id, ShipmentEvent.event_at.desc(),
-                  ShipmentEvent.id.desc())
+        .order_by(ShipmentEvent.shipment_id,
+                  (ShipmentEvent.event_type == LogisticsMilestone.ARRIVED).desc(),
+                  ShipmentEvent.event_at.desc(), ShipmentEvent.id.desc())
     )
+
+
+def latest_type_of(events: list[ShipmentEvent]) -> str | None:
+    """从某柜活动事件列表(list_events 正序)取派生口径的「最新」事件类型 —— 详情路径复用已取
+    的 events,免二次查询。规则与 latest_event_select 同口径:活动到港=终态(每柜至多一条),
+    否则末位 =(event_at, id)最大。"""
+    if not events:
+        return None
+    arrived = next((ev for ev in events if ev.event_type == LogisticsMilestone.ARRIVED), None)
+    return arrived.event_type if arrived is not None else events[-1].event_type
 
 
 async def latest_event_types(db: AsyncSession, shipment_ids: list[int]) -> dict[int, str]:

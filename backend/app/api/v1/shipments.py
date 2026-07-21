@@ -38,10 +38,10 @@ _MANAGE = Depends(require_permission(Permissions.SHIPMENT_MANAGE))
 async def _detail_payload(db, ship) -> dict:
     outbounds = await outbound_service.list_orders(db, shipment_id=ship.id, size=200)
     count = await shipment_service.outbound_count(db, ship.id)
-    # 物流轨迹(活动事件正序);当前物流状态纯派生自最新事件,不查冗余列。events 末位 =
-    # (event_at, id) 最大 = 派生口径的最新,复用不再另查 latest_event_types。
+    # 物流轨迹(活动事件正序);当前物流状态纯派生自最新事件,不查冗余列。latest_type_of 复用
+    # 已取的 events(活动到港=终态优先,与 latest_event_select 同口径),不再另查 latest_event_types。
     events = await logistics_event_service.list_events(db, ship.id)
-    latest_type = events[-1].event_type if events else None
+    latest_type = logistics_event_service.latest_type_of(events)
     return {
         "shipment": ShipmentOut.build(ship, {"outbound_count": count}),
         # 柜内出库单(组柜工作台);列=SO 号/柜/行数/件数/状态,无金额。

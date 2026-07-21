@@ -161,6 +161,56 @@ async def test_update_event_to_arrived_unique_42009(
     assert r.status_code == 409 and r.json()["code"] == 42009, r.text
 
 
+async def test_arrived_is_terminal_guards(
+        client, db_session, sales_headers, purchaser_headers, logistics_headers):
+    """到港=时间线终点(写入口守卫,均 400):录早于既有中转的到港 / 到港后录晚于到港日的中转 /
+    改中转日期到到港之后 / 改到港日期到既有中转之前。"""
+    sid = await _departed(client, db_session, sales_headers, purchaser_headers, logistics_headers)
+    cr = await _post_event(client, logistics_headers, sid, "TRANSSHIPMENT", "2026-07-22")
+    ts_id = cr.json()["data"]["logistics_events"][0]["id"]
+
+    # 录到港但日期早于既有中转 → 400。
+    early = await _post_event(client, logistics_headers, sid, "ARRIVED", "2026-07-20")
+    assert early.status_code == 400, early.text
+
+    ar = await _post_event(client, logistics_headers, sid, "ARRIVED", "2026-07-30")
+    assert ar.status_code == 200, ar.text
+    ar_id = [e for e in ar.json()["data"]["logistics_events"]
+             if e["event_type"] == "ARRIVED"][0]["id"]
+
+    # 到港后录晚于到港日的中转 → 400。
+    late = await _post_event(client, logistics_headers, sid, "TRANSSHIPMENT", "2026-07-31")
+    assert late.status_code == 400, late.text
+    # 改既有中转日期到到港之后 → 400(状态不可从到港倒退回中转)。
+    r = await client.patch(f"/api/v1/shipments/{sid}/logistics-events/{ts_id}",
+                           headers=logistics_headers, json={"event_at": "2026-08-01"})
+    assert r.status_code == 400, r.text
+    # 改到港日期到既有中转之前 → 400。
+    r2 = await client.patch(f"/api/v1/shipments/{sid}/logistics-events/{ar_id}",
+                            headers=logistics_headers, json={"event_at": "2026-07-21"})
+    assert r2.status_code == 400, r2.text
+
+
+async def test_same_day_transshipment_keeps_arrived_terminal(
+        client, db_session, sales_headers, purchaser_headers, logistics_headers):
+    """同日并列:到港后补录同日中转(≤到港日,放行),派生状态仍=到港(活动到港=终态优先,
+    详情 latest_type_of 与列表 latest_event_select 两条路径同口径)。"""
+    sid = await _departed(client, db_session, sales_headers, purchaser_headers, logistics_headers)
+    assert (await _post_event(client, logistics_headers, sid, "ARRIVED",
+                              "2026-07-30")).status_code == 200
+    same_day = await _post_event(client, logistics_headers, sid, "TRANSSHIPMENT", "2026-07-30")
+    assert same_day.status_code == 200, same_day.text
+    # 详情路径(python latest_type_of)。
+    assert same_day.json()["data"]["current_logistics_status"] == "ARRIVED"
+    # 列表路径(SQL latest_event_select)+ 筛选同口径。
+    lst = await client.get("/api/v1/shipments?size=100", headers=logistics_headers)
+    by_id = {it["id"]: it for it in lst.json()["data"]["items"]}
+    assert by_id[sid]["current_logistics_status"] == "ARRIVED"
+    flt = await client.get("/api/v1/shipments?size=100&logistics_status=ARRIVED",
+                           headers=logistics_headers)
+    assert sid in {it["id"] for it in flt.json()["data"]["items"]}
+
+
 async def test_update_event_at_before_atd_rejected(
         client, db_session, sales_headers, purchaser_headers, logistics_headers):
     """PATCH 改 event_at 早于离港日 atd → 400(update 路径改完字段后同受 ≥atd 校验)。"""

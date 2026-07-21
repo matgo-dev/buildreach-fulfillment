@@ -79,6 +79,18 @@ export function LogisticsTrackCard({
   const transships = events.filter((e) => e.event_type === "TRANSSHIPMENT");
   const arrived = events.find((e) => e.event_type === "ARRIVED") ?? null;
 
+  // 日期边界镜像后端守卫:≥ATD;到港=终点 —— 非到港事件不晚于到港日、到港不早于已录事件最大日。
+  const disabledDate = (d: dayjs.Dayjs) => {
+    if (atd && d.isBefore(dayjs(atd), "day")) return true;
+    if (edit.event_type === "ARRIVED") {
+      const maxOther = events
+        .filter((e) => e.id !== edit.id && e.event_type !== "ARRIVED")
+        .reduce<string | null>((m, e) => (m === null || e.event_at > m ? e.event_at : m), null);
+      return maxOther !== null && d.isBefore(dayjs(maxOther), "day");
+    }
+    return arrived !== null && arrived.id !== edit.id && d.isAfter(dayjs(arrived.event_at), "day");
+  };
+
   function openCreate() {
     setEdit({ ...EMPTY_EDIT, event_at: atd ? dayjs(atd) : dayjs() });
     setModalOpen(true);
@@ -244,12 +256,12 @@ export function LogisticsTrackCard({
               onChange={(v) => setEdit((s) => ({ ...s, event_type: v }))}
             />
           </Form.Item>
-          <Form.Item label="事件日期" required help="不早于实际离港日(ATD)">
+          <Form.Item label="事件日期" required help="不早于实际离港日(ATD);到港为终点,在途事件不晚于到港日">
             <DatePicker
               style={{ width: "100%" }}
               allowClear={false}
               value={edit.event_at}
-              disabledDate={atd ? (d) => d.isBefore(dayjs(atd), "day") : undefined}
+              disabledDate={disabledDate}
               onChange={(d) => setEdit((s) => ({ ...s, event_at: d }))}
             />
           </Form.Item>
