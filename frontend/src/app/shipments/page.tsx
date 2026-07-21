@@ -13,6 +13,13 @@ import { formatDateTime } from "@/lib/format";
 import { resolveBizError } from "@/lib/errorMessages";
 import { shipmentApi, type ShipmentListItem } from "@/lib/shipment";
 import { SHIPMENT_STATUS_META, CONTAINER_TYPE_OPTIONS } from "@/lib/shipmentStatus";
+import { LOGISTICS_DISPLAY_ORDER, LOGISTICS_MILESTONE_META } from "@/lib/logisticsMilestone";
+
+// 物流状态下拉筛选项(派生列;镜像展示骨架顺序,单一源头 LOGISTICS_MILESTONE_META)。
+const LOGISTICS_FILTER_OPTIONS = [
+  { label: "全部物流状态", value: "" },
+  ...LOGISTICS_DISPLAY_ORDER.map((m) => ({ label: LOGISTICS_MILESTONE_META[m].label, value: m })),
+];
 
 const STATUS_TABS = [
   { label: "全部", value: "" },
@@ -28,6 +35,7 @@ export default function ShipmentListPage() {
   const [form] = Form.useForm();
 
   const [status, setStatus] = useState("");
+  const [logisticsStatus, setLogisticsStatus] = useState("");
   const [keyword, setKeyword] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -37,10 +45,11 @@ export default function ShipmentListPage() {
       shipmentApi.list({
         status: status || undefined,
         keyword: keyword || undefined,
+        logistics_status: logisticsStatus || undefined,
         page,
         size,
       }),
-    [status, keyword],
+    [status, keyword, logisticsStatus],
   );
   const { rows, setPage, loading, loadError, load, pagination } = useListQuery<ShipmentListItem>(
     fetcher,
@@ -114,6 +123,14 @@ export default function ShipmentListPage() {
       ),
     },
     {
+      title: "物流状态",
+      dataIndex: "current_logistics_status",
+      width: 110,
+      // 纯派生:非 DEPARTED 柜为 null,显「—」;否则已离港/中转/到港徽标。
+      render: (v: ShipmentListItem["current_logistics_status"]) =>
+        v ? <StatusTag meta={LOGISTICS_MILESTONE_META} value={v} /> : "—",
+    },
+    {
       title: "柜内出库单",
       dataIndex: "outbound_count",
       width: 110,
@@ -137,6 +154,15 @@ export default function ShipmentListPage() {
             value={status}
             onChange={(v) => {
               setStatus(v as string);
+              setPage(1);
+            }}
+          />
+          <Select
+            value={logisticsStatus}
+            style={{ width: 150 }}
+            options={LOGISTICS_FILTER_OPTIONS}
+            onChange={(v) => {
+              setLogisticsStatus(v);
               setPage(1);
             }}
           />
@@ -166,7 +192,7 @@ export default function ShipmentListPage() {
           columns={columns}
           dataSource={rows}
           loading={loading}
-          scroll={{ x: 1190 }}
+          scroll={{ x: 1300 }}
           locale={{
             emptyText: (
               <Empty description="暂无发运柜">

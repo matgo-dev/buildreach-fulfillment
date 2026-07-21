@@ -22,7 +22,12 @@ from app.schemas.shipment import (
     ShipmentOut,
     ShipmentUpdateIn,
 )
-from app.services import outbound_service, shipment_service
+from app.schemas.shipment_event import (
+    ShipmentEventCreateIn,
+    ShipmentEventOut,
+    ShipmentEventUpdateIn,
+)
+from app.services import logistics_event_service, outbound_service, shipment_service
 
 router = APIRouter(prefix="/shipments", tags=["shipments"])
 
@@ -33,6 +38,10 @@ _MANAGE = Depends(require_permission(Permissions.SHIPMENT_MANAGE))
 async def _detail_payload(db, ship) -> dict:
     outbounds = await outbound_service.list_orders(db, shipment_id=ship.id, size=200)
     count = await shipment_service.outbound_count(db, ship.id)
+    # 物流轨迹(活动事件正序);当前物流状态纯派生自最新事件,不查冗余列。latest_type_of 复用
+    # 已取的 events(活动到港=终态优先,与 latest_event_select 同口径),不再另查 latest_event_types。
+    events = await logistics_event_service.list_events(db, ship.id)
+    latest_type = logistics_event_service.latest_type_of(events)
     return {
         "shipment": ShipmentOut.build(ship, {"outbound_count": count}),
         # 柜内出库单(组柜工作台);列=SO 号/柜/行数/件数/状态,无金额。
@@ -42,6 +51,10 @@ async def _detail_payload(db, ship) -> dict:
             "status": it["status"],
             "line_count": it["line_count"], "total_qty": it["total_qty"],
         } for it in outbounds[0]],
+        # 全流程时间线数据:已离港节点读柜 atd(在 shipment.atd),中转/到港读事件。
+        "logistics_events": [ShipmentEventOut.build(ev) for ev in events],
+        "current_logistics_status": logistics_event_service.derive_current_status(
+            ship.status, latest_type),
     }
 
 
@@ -56,10 +69,16 @@ async def create_shipment(body: ShipmentCreateIn, request: Request,
 
 @router.get("", summary="柜列表(筛选/分页)")
 async def list_shipments(page_params: PageParams = Depends(), status: str | None = None,
-                         keyword: str | None = None,
+                         keyword: str | None = None, logistics_status: str | None = None,
                          _current: CurrentUser = _READ, db: AsyncSession = Depends(get_db)):
     items, total = await shipment_service.list_orders(
-        db, status=status, keyword=keyword, page=page_params.page, size=page_params.size)
+        db, status=status, keyword=keyword, logistics_status=logistics_status,
+        page=page_params.page, size=page_params.size)
+    # 派生当前物流状态列(批量,单条走复合索引,无 N+1);非 DEPARTED 柜派生为 None(前端显「—」)。
+    latest = await logistics_event_service.latest_event_types(db, [it["id"] for it in items])
+    for it in items:
+        it["current_logistics_status"] = logistics_event_service.derive_current_status(
+            it["status"], latest.get(it["id"]))
     return success(Page(
         items=[ShipmentListItem.model_validate(it).model_dump() for it in items],
         total=total, page=page_params.page, size=page_params.size).model_dump())
@@ -127,4 +146,42 @@ async def cancel_shipment(shipment_id: int, request: Request,
     ship = await shipment_service.cancel_order(
         db, shipment_id=shipment_id, actor_user_id=current.id, actor_user_email=current.email,
         request=request)
+    return success(await _detail_payload(db, ship))
+
+
+# ---------- 物流轨迹事件(发运柜子资源;录/改/删前置柜 DEPARTED,锁柜头串行化)----------
+
+
+@router.post("/{shipment_id}/logistics-events", summary="录入物流里程碑(中转/到港)")
+async def create_logistics_event(shipment_id: int, body: ShipmentEventCreateIn, request: Request,
+                                 current: CurrentUser = _MANAGE,
+                                 db: AsyncSession = Depends(get_db)):
+    await logistics_event_service.create_event(
+        db, shipment_id=shipment_id, event_type=body.event_type, event_at=body.event_at,
+        location=body.location, note=body.note, actor_user_id=current.id,
+        actor_user_email=current.email, request=request)
+    ship = await shipment_service.get_order(db, shipment_id)
+    return success(await _detail_payload(db, ship))
+
+
+@router.patch("/{shipment_id}/logistics-events/{event_id}", summary="改物流事件(纠错)")
+async def update_logistics_event(shipment_id: int, event_id: int, body: ShipmentEventUpdateIn,
+                                 request: Request, current: CurrentUser = _MANAGE,
+                                 db: AsyncSession = Depends(get_db)):
+    await logistics_event_service.update_event(
+        db, shipment_id=shipment_id, event_id=event_id,
+        fields=body.model_dump(exclude_unset=True), actor_user_id=current.id,
+        actor_user_email=current.email, request=request)
+    ship = await shipment_service.get_order(db, shipment_id)
+    return success(await _detail_payload(db, ship))
+
+
+@router.delete("/{shipment_id}/logistics-events/{event_id}", summary="软删物流事件")
+async def delete_logistics_event(shipment_id: int, event_id: int, request: Request,
+                                 current: CurrentUser = _MANAGE,
+                                 db: AsyncSession = Depends(get_db)):
+    await logistics_event_service.delete_event(
+        db, shipment_id=shipment_id, event_id=event_id, actor_user_id=current.id,
+        actor_user_email=current.email, request=request)
+    ship = await shipment_service.get_order(db, shipment_id)
     return success(await _detail_payload(db, ship))

@@ -50,12 +50,14 @@ import {
 import { OUTBOUND_ORDER_STATUS_META } from "@/lib/outboundOrderStatus";
 import { OutboundSalesOrderPicker } from "@/components/outbound/OutboundSalesOrderPicker";
 import { OutboundOrderBuilder } from "@/components/outbound/OutboundOrderBuilder";
+import { LogisticsTrackCard } from "@/components/shipment/LogisticsTrackCard";
 
-// 编辑按钮文案随状态变(可编辑字段集不同):OPEN 全量柜信息 / LOADED 船务 / DEPARTED 离港后补录。
+// 编辑按钮文案随状态变(可编辑字段集不同,直接点出能改啥):OPEN 全量柜信息 /
+// LOADED 船务信息 / DEPARTED 仅提单号·ETA·备注可补(提单常离港后签发,故点名提单/ETA)。
 const EDIT_LABEL: Record<string, string> = {
   OPEN: "编辑柜信息",
-  LOADED: "编辑船务",
-  DEPARTED: "编辑补录",
+  LOADED: "编辑船务信息",
+  DEPARTED: "补录提单/ETA",
 };
 
 export default function ShipmentDetailPage() {
@@ -430,6 +432,19 @@ export default function ShipmentDetailPage() {
           <Timeline style={{ paddingTop: 8 }} items={timelineItems} />
         </Card>
       </div>
+
+      {/* 物流轨迹:柜离港后在途里程碑(中转/到港手动录入)。仅已发运柜显 —— 未离港无在途轨迹。 */}
+      {shipment.status === "DEPARTED" && (
+        <LogisticsTrackCard
+          shipmentId={id}
+          atd={shipment.atd}
+          blNo={shipment.bl_no}
+          containerNo={shipment.container_no}
+          events={detail.logistics_events}
+          currentStatus={detail.current_logistics_status}
+          onChanged={load}
+        />
+      )}
 
       <Card
         title="柜内出库单"
