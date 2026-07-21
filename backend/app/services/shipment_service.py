@@ -23,12 +23,14 @@ from app.core.exceptions import (
     ShipmentEditConflictError,
     ShipmentEmptyCannotLoadError,
     ShipmentFieldNotEditableError,
+    ShipmentHasActiveLogisticsEventError,
     ShipmentHasActiveOutboundError,
     ShipmentHasDraftOutboundError,
     ShipmentInvalidTransitionError,
 )
 from app.core.statemachine import assert_transition
 from app.db.models.outbound_order import OutboundOrder, OutboundOrderStatus
+from app.db.models.shipment_event import LogisticsMilestone, ShipmentEvent
 from app.db.models.shipment_order import (
     SHIPMENT_EDITABLE_FIELDS_BY_STATUS,
     SHIPMENT_ORDER_TRANSITIONS,
@@ -228,9 +230,17 @@ async def depart_order(db: AsyncSession, *, shipment_id, atd: date, actor_user_i
 
 async def undepart_order(db: AsyncSession, *, shipment_id, actor_user_id, actor_user_email,
                          request: Request | None = None) -> ShipmentOrder:
-    """撤离港(DEPARTED→LOADED,误点纠错)。清 atd;extra 记被清的 atd。"""
+    """撤离港(DEPARTED→LOADED,误点纠错)。清 atd;extra 记被清的 atd。
+    守卫:柜下存在活动物流事件(deleted_at IS NULL)→ 拒 42007(离港是物流轨迹起点,
+    撤离港清 atd,须先软删事件再撤)。锁柜头后查,与「录事件前置 DEPARTED」串行化(TOCTOU 闭合)。"""
     ship = await get_order_for_update(db, shipment_id)
     _assert_edge(ship, ShipmentOrderStatus.DEPARTED, ShipmentOrderStatus.LOADED)
+    active_events = (await db.execute(
+        select(func.count(ShipmentEvent.id)).where(
+            ShipmentEvent.shipment_id == shipment_id,
+            ShipmentEvent.deleted_at.is_(None)))).scalar_one()
+    if active_events > 0:
+        raise ShipmentHasActiveLogisticsEventError()
     cleared_atd = ship.atd
     ship.status = ShipmentOrderStatus.LOADED
     ship.atd = None
@@ -264,18 +274,34 @@ async def outbound_count(db: AsyncSession, shipment_id: int) -> int:
     return (await _outbound_counts(db, [shipment_id])).get(shipment_id, 0)
 
 
-async def list_orders(db: AsyncSession, *, status=None, keyword=None, page: int = 1,
-                      size: int = 20) -> tuple[list[dict], int]:
-    """柜列表:状态过滤 + 关键字(柜号 / 柜单号)+ 分页,created_at 降序。
-    投影柜内出库单数 + 船务概览列(船名/航次/ETD/ATD)。"""
+async def list_orders(db: AsyncSession, *, status=None, keyword=None, logistics_status=None,
+                      page: int = 1, size: int = 20) -> tuple[list[dict], int]:
+    """柜列表:状态过滤 + 物流状态过滤(派生)+ 关键字(柜号 / 柜单号)+ 分页,created_at 降序。
+    投影柜内出库单数 + 船务概览列(船名/航次/ETD/ATD)+ 当前物流状态派生列。"""
+    stmt = select(ShipmentOrder)
     conds = []
     if status:
         conds.append(ShipmentOrder.status == status)
     if keyword:
         like = f"%{keyword}%"
         conds.append(ShipmentOrder.no.ilike(like) | ShipmentOrder.container_no.ilike(like))
+    if logistics_status:
+        # 物流状态纯派生 → 按「每柜最新活动事件」LEFT JOIN 过滤。复用 logistics_event_service
+        # 的 latest_event_select()(DISTINCT ON 口径单一源头,不再手写第二份;函数内 import
+        # 破 service 互引循环)。发运柜有界小表(月十位数级),派生筛选走 (shipment_id, event_at)
+        # 索引、latest 每柜≤1 行不放大,非增长型性能雷(区别于大数据量的库存可发量派生)。
+        from app.services import logistics_event_service
+        latest = logistics_event_service.latest_event_select().subquery()
+        stmt = stmt.outerjoin(latest, latest.c.shipment_id == ShipmentOrder.id)
+        # 物流状态非空 ⟺ 柜 DEPARTED —— 此 WHERE 三分支与 derive_current_status 单行派生同口径
+        # (集合筛选 vs 单行,两种表达一处规则):已离港=DEPARTED 且无活动事件;中转/到港=最新事件为该类型。
+        conds.append(ShipmentOrder.status == ShipmentOrderStatus.DEPARTED)
+        if logistics_status == LogisticsMilestone.DEPARTED:
+            conds.append(latest.c.event_type.is_(None))
+        else:
+            conds.append(latest.c.event_type == logistics_status)
     rows, total = await paginate(
-        db, select(ShipmentOrder).where(*conds).order_by(ShipmentOrder.created_at.desc()),
+        db, stmt.where(*conds).order_by(ShipmentOrder.created_at.desc()),
         page=page, size=size)
     counts = await _outbound_counts(db, [s.id for s in rows])
     items = [{

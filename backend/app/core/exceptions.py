@@ -18,7 +18,8 @@
   17 | 入库/应付  | 417xx(含 41710 撤销入库穿仓守卫)
   18 | 销售单     | 418xx
   19 | 出库单     | 419xx(含 41910 撤销出库·柜已封柜/发运守卫)
-  20 | 柜/发运    | 420xx(42002 非法转移·单义;42003/42004 封柜守卫;42005 字段门禁;42006 编辑冲突)
+  20 | 柜/发运    | 420xx(42002 非法转移·单义;42003/42004 封柜守卫;42005 字段门禁;42006 编辑冲突;
+       |            |       42007 撤离港带活动事件;42008 非 DEPARTED 不可录事件;42009 重复到港;42010 事件越柜)
 
 兜底码:
   40000 = 通用客户端兜底(裸 HTTPException 降级)
@@ -587,6 +588,38 @@ class ShipmentEditConflictError(BusinessError):
 
     def __init__(self, message: str = "Shipment was modified by someone else"):
         super().__init__(status.HTTP_409_CONFLICT, 42006, message)
+
+
+# 物流轨迹事件(段 20 延用:发运柜子资源,不新开段)。见 db/models/shipment_event.py。
+# 42007 撤离港被拦(柜下有活动事件)/ 42008 非 DEPARTED 柜不可录改删 /
+# 42009 重复到港 / 42010 事件不属于该柜。
+class ShipmentHasActiveLogisticsEventError(BusinessError):
+    """撤离港被拦:柜下存在活动物流事件(deleted_at IS NULL)。离港是物流轨迹的起点,
+    撤离港会清 atd,须先软删该柜全部物流事件再撤。"""
+
+    def __init__(self, message: str = "Cannot undepart: shipment has active logistics events"):
+        super().__init__(status.HTTP_409_CONFLICT, 42007, message)
+
+
+class ShipmentNotDepartedError(BusinessError):
+    """录/改/删物流事件被拦:发运柜非 DEPARTED——物流轨迹从离港后接手,未离港无在途里程碑。"""
+
+    def __init__(self, message: str = "Cannot manage logistics events: shipment not departed"):
+        super().__init__(status.HTTP_409_CONFLICT, 42008, message)
+
+
+class ShipmentEventDuplicateArrivedError(BusinessError):
+    """重复到港:该柜已有一条活动 ARRIVED 事件(到港是终点,每柜至多一条)。"""
+
+    def __init__(self, message: str = "Shipment already has an active arrived event"):
+        super().__init__(status.HTTP_409_CONFLICT, 42009, message)
+
+
+class ShipmentEventNotOnShipmentError(BusinessError):
+    """物流事件不属于路径上的发运柜(镜像出库 41903:子资源越柜访问)。"""
+
+    def __init__(self, message: str = "Logistics event does not belong to this shipment"):
+        super().__init__(status.HTTP_400_BAD_REQUEST, 42010, message)
 
 
 def success(data: Any = None, message: str = "ok") -> dict:

@@ -271,6 +271,29 @@
     `PATCH`(门禁+乐观锁)、`load`/`unload`/`depart`/`undepart`/`cancel`(全守 `shipment:manage`)。
     错误码段 20 补 `42003`/`42004`/`42005`/`42006`(`42002` 保持单义=非法转移)+ 出库段 `41910`。迁移 `0028_shipment_shipping_fields`。
 
+- **物流(主流程第九步,分支 `feat/logistics-increment`)**:发运柜离港(`DEPARTED`)后,运营**手动逐条录入在途里程碑**
+  (中转/到港),系统按固定骨架 **已离港 → 中转 → 到港** 全流程时间线展示;「当前物流状态」**纯派生**不落冗余列。
+  范围 = 已离港 →(中转)→ 到港为止(提柜/送达/清关归买方,不跟)。P0 手动,未来接承运 API 灌更细节点走同一张表。
+  - **独立新表(迁移 `0029_shipment_events`)**:`shipment_events` 挂发运柜。`event_type`(里程碑 code,`LogisticsMilestone`
+    单一源头,DB 不 CHECK)+ `event_at`(Date,事件业务日)+ `location`/`note`(nullable)+ `deleted_at`(软删,行保留追溯)。
+    FK `shipment_id`/`created_by` 均 RESTRICT。复合索引 `(shipment_id, event_at)` 覆盖轨迹按序 + 派生取最新;**偏唯一**
+    `uq_shipevents_arrived = UNIQUE(shipment_id) WHERE event_type='ARRIVED' AND deleted_at IS NULL`(每柜至多一条活动到港,
+    镜像出库偏唯一;软删旧到港退出约束可重录)。无金额/数量列。
+  - **里程碑枚举(model 常量单一源头,不建 lookup 表)**:入表 `event_type` 仅 `TRANSSHIPMENT`/`ARRIVED`;`DEPARTED`(已离港)
+    是**派生态**,读柜 `atd` 不入表(离港单一源头在柜头)。更细节点等接 API 往常量 + 前端镜像加,改一行、无迁移。
+  - **当前物流状态 = 纯派生(零冗余列,同库存 B 方案)**:柜 `≠DEPARTED`→null(列表显「—」);`DEPARTED` 无活动事件→已离港;
+    有活动事件→取 `event_at` 最新(tie-break `event_at DESC, id DESC`)。列表派生列 `DISTINCT ON (shipment_id)` 单条批量走复合索引,
+    **无 N+1**;派生列 P0 仅展示、不做筛选项。
+  - **状态守卫 + 锁序(TOCTOU 闭合)**:录/改/删事件前置柜 `DEPARTED`(否则 `42008`),一律先锁柜头 `FOR UPDATE` 再校验,
+    与 `undepart` 串行化;**撤离港守卫**:柜下存在活动事件 → 拒 `42007`(先软删事件再撤离港)。`event_at ≥ atd` service 校验(早于离港日拒 400)。
+    到港唯一 service 主动查(`42009`,`no_autoflush` 防提前 flush 撞偏唯一)。
+  - **RBAC**:**零新增权限点**,写守 `shipment:manage`、读守 `shipment:read`|`shipment:manage`(LOGISTICS 出库/发运/物流/报关同一操作者;
+    ADMIN 不持 `shipment:manage`,无旁路)。事件表无红线字段,读不脱敏。审计加 `SHIPMENT_EVENT` 资源类型(复用 `CREATE`/`UPDATE`/`DELETE`)。
+  - **端点**(发运柜子资源):`POST`/`PATCH`/`DELETE` `/shipments/{id}/logistics-events[/{event_id}]`(全守 `shipment:manage`,DELETE = 软删);
+    柜详情内联轨迹 + 派生当前状态 + 追踪抬头(提单号/柜号,取自柜头单一源头)、柜列表加派生列 + `logistics_status`
+    派生筛选(复用 `latest_event_select` 单一源头;发运柜有界小表,派生 join 走索引,升级触发式物化不提前冗余)。
+    错误码段 20 补 `42007`–`42010`。迁移 `0029_shipment_events`。
+
 ## 本地开发
 
 本地开发**复用现有 brew PostgreSQL**(`@ :5433`),不用下面 `docker-compose.yml` 里的 `db` 服务

@@ -105,4 +105,6 @@ class ShipmentListItem(BaseModel):
     atd: date | None
     status: str
     outbound_count: int
+    # 当前物流状态派生列(非 DEPARTED 柜为 None,前端显「—」);值 = 已离港/中转/到港 code,展示走 i18n。
+    current_logistics_status: str | None
     created_at: datetime
