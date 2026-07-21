@@ -21,7 +21,7 @@ class LogisticsMilestone:
     TRANSSHIPMENT = "TRANSSHIPMENT"  # 中转:可选、可重复(入表)
     ARRIVED = "ARRIVED"              # 到港:终点、每柜至多一条活动事件(入表 + 偏唯一)
 
-    # 可录入事件类型值域(schema 层 Literal 据此校验;DB 不加 CHECK)。
+    # 可录入事件类型值域(schema 层 validator 引用此元组校验;DB 不加 CHECK)。
     EVENT_TYPES = (TRANSSHIPMENT, ARRIVED)
     # 全流程展示骨架顺序(含派生的已离港;前端时间线镜像此序)。
     DISPLAY_ORDER = (DEPARTED, TRANSSHIPMENT, ARRIVED)
@@ -48,7 +48,7 @@ class ShipmentEvent(Base, TimestampUpdateMixin, SoftDeleteMixin):
     shipment_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("shipment_orders.id", ondelete="RESTRICT"), nullable=False)
     # 里程碑 code(LogisticsMilestone.EVENT_TYPES 之一)。DB 不加 CHECK(受控值域框架:
-    # schema 层 Literal 校验入口即够);展示走 i18n。
+    # schema 层 validator 引用 EVENT_TYPES 校验入口即够);展示走 i18n。
     event_type: Mapped[str] = mapped_column(String(20), nullable=False)
     # 事件发生业务日(非录入时刻),与柜船期字段 etd/eta/atd 同粒度。service 校验 ≥ atd。
     event_at: Mapped[date] = mapped_column(Date, nullable=False)

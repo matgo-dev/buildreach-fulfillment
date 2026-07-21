@@ -3,7 +3,7 @@
 发运柜离港(DEPARTED)后,运营手动逐条录入在途里程碑(中转/到港)。独立全局表,挂发运柜:
 - shipment_id / created_by:FK RESTRICT(被引用行不可硬删);created_by 单列索引(FK 默认加)。
 - event_type:里程碑 code(LogisticsMilestone.EVENT_TYPES),DB 不加 CHECK(受控值域,schema 层
-  Literal 校验入口即够,更细节点接 API 时改常量无迁移)。
+  validator 引用 EVENT_TYPES 校验入口即够,更细节点接 API 时改常量无迁移)。
 - event_at:Date NOT NULL,事件业务日;location/note nullable;deleted_at 软删(SoftDeleteMixin,
   timezone=True)保留行供追溯。
 - 复合索引 (shipment_id, event_at):覆盖轨迹按序 + 派生当前状态取最新 + FK。

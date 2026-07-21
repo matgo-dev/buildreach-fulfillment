@@ -173,9 +173,3 @@ async def list_events(db: AsyncSession, shipment_id: int) -> list[ShipmentEvent]
         select(ShipmentEvent)
         .where(ShipmentEvent.shipment_id == shipment_id, ShipmentEvent.deleted_at.is_(None))
         .order_by(ShipmentEvent.event_at.asc(), ShipmentEvent.id.asc()))).scalars().all())
-
-
-async def current_status(db: AsyncSession, ship: ShipmentOrder) -> str | None:
-    """单柜当前物流状态(详情用)。复用批量派生口径,单柜不放大。"""
-    latest = (await latest_event_types(db, [ship.id])).get(ship.id)
-    return derive_current_status(ship.status, latest)

@@ -15,7 +15,7 @@ from app.db.models.shipment_event import LogisticsMilestone
 def _validate_event_type(v: str | None) -> str | None:
     # None(PATCH 未传或不改)放行;非 None 必在可录入值域(引用 model 单一源头)。
     if v is not None and v not in LogisticsMilestone.EVENT_TYPES:
-        raise ValueError(f"event_type 须是 {LogisticsMilestone.EVENT_TYPES} 之一")
+        raise ValueError(f"event_type must be one of {LogisticsMilestone.EVENT_TYPES}")
     return v
 
 

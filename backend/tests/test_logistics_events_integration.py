@@ -122,7 +122,7 @@ async def test_event_at_before_atd_rejected(
 
 async def test_invalid_event_type_422(
         client, db_session, sales_headers, purchaser_headers, logistics_headers):
-    """event_type 值域外(如派生态 DEPARTED / 乱值)→ 422(schema Literal 校验)。"""
+    """event_type 值域外(如派生态 DEPARTED / 乱值)→ 422(schema validator 引用 EVENT_TYPES 校验)。"""
     sid = await _departed(client, db_session, sales_headers, purchaser_headers, logistics_headers)
     for bad in ("DEPARTED", "LOADED", "FOO"):
         r = await _post_event(client, logistics_headers, sid, bad, "2026-07-22")
@@ -159,6 +159,29 @@ async def test_update_event_to_arrived_unique_42009(
     r = await client.patch(f"/api/v1/shipments/{sid}/logistics-events/{ts_id}",
                            headers=logistics_headers, json={"event_type": "ARRIVED"})
     assert r.status_code == 409 and r.json()["code"] == 42009, r.text
+
+
+async def test_update_event_at_before_atd_rejected(
+        client, db_session, sales_headers, purchaser_headers, logistics_headers):
+    """PATCH 改 event_at 早于离港日 atd → 400(update 路径改完字段后同受 ≥atd 校验)。"""
+    sid = await _departed(client, db_session, sales_headers, purchaser_headers, logistics_headers)
+    cr = await _post_event(client, logistics_headers, sid, "TRANSSHIPMENT", "2026-07-22")
+    eid = cr.json()["data"]["logistics_events"][0]["id"]
+    r = await client.patch(f"/api/v1/shipments/{sid}/logistics-events/{eid}",
+                           headers=logistics_headers, json={"event_at": "2026-07-10"})  # < ATD
+    assert r.status_code == 400, r.text
+
+
+async def test_update_event_null_required_fields_rejected(
+        client, db_session, sales_headers, purchaser_headers, logistics_headers):
+    """PATCH 显式置空 event_type / event_at → 400(NOT NULL 字段不可置空;区别于未传=不改)。"""
+    sid = await _departed(client, db_session, sales_headers, purchaser_headers, logistics_headers)
+    cr = await _post_event(client, logistics_headers, sid, "TRANSSHIPMENT", "2026-07-22")
+    eid = cr.json()["data"]["logistics_events"][0]["id"]
+    for body in ({"event_type": None}, {"event_at": None}):
+        r = await client.patch(f"/api/v1/shipments/{sid}/logistics-events/{eid}",
+                               headers=logistics_headers, json=body)
+        assert r.status_code == 400, (body, r.text)
 
 
 async def test_soft_delete_event_frees_arrived_unique(
@@ -292,3 +315,16 @@ async def test_rbac_sales_read_only(
     det = await client.get(f"/api/v1/shipments/{sid}", headers=sales_headers)
     assert det.status_code == 200
     assert det.json()["data"]["current_logistics_status"] == "TRANSSHIPMENT"
+
+
+async def test_rbac_admin_cannot_manage_logistics_events(client, superadmin_headers):
+    """ADMIN 纯系统域不持 shipment:manage:录/改/删物流事件 403(权限守卫先于业务,无需造柜)。"""
+    r = await client.post("/api/v1/shipments/1/logistics-events", headers=superadmin_headers,
+                          json={"event_type": "TRANSSHIPMENT", "event_at": "2026-07-22"})
+    assert r.status_code == 403, r.text
+    r2 = await client.patch("/api/v1/shipments/1/logistics-events/1",
+                            headers=superadmin_headers, json={"location": "X"})
+    assert r2.status_code == 403
+    r3 = await client.delete("/api/v1/shipments/1/logistics-events/1",
+                             headers=superadmin_headers)
+    assert r3.status_code == 403
