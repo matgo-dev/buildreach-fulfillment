@@ -4,7 +4,8 @@
 - 三层类型校验:扩展名白名单 + 声明 MIME + 内容嗅探(libmagic)允许族匹配;xlsx 再验 ZIP 结构。
 - 私有存储,不经公开静态挂载;file_key = 服务端 uuid 平键(不由用户名派生)。
 - 下载逐文件 scope:孤儿仅上传者本人在 TTL 内可下;已挂报关 → shipment:read。软删一律不可下。
-- 孤儿(未提交表单)TTL + 单用户配额挡增长,无定时清理任务。
+- 孤儿(未提交表单)TTL + 单用户配额(含本次上传)挡增长;过期孤儿在上传时惰性回收
+  (软删 + best-effort 删物理文件),不设定时清理任务。
 
 归属用直接 FK(customs_declaration_id),非多态 owner;报关场景不预览,故不引 Pillow /
 不生成缩略图 / 不做像素炸弹校验(从不 Image.open,恶意图片仅作不透明字节转发)。
@@ -128,17 +129,43 @@ def validate_file_type(ext: str, declared_mime: str, path: Path, head: bytes) ->
     return family["canonical"]
 
 
-# ── 孤儿配额 ────────────────────────────────────────────────────────────────
-async def _check_orphan_quota(db: AsyncSession, user_id: int) -> None:
-    """单用户活动孤儿:数量 ≤ QUOTA_COUNT 且合计字节 ≤ QUOTA_BYTES。走孤儿配额偏索引。
-    孤儿 = 全部归属 FK 皆 NULL(当前仅 customs_declaration_id 一列)。"""
+# ── 孤儿配额 + 惰性回收 ─────────────────────────────────────────────────────
+async def _reap_expired_orphans(db: AsyncSession, user_id: int) -> None:
+    """惰性回收本人**过期**孤儿(软删 + best-effort 删物理文件)。无定时任务的替代口:
+    上传时顺手清。过期孤儿不可下载/不可认领,留着只会永久占配额把人锁死(42103)、
+    物理文件无界堆积。行数有界(≤ 配额数),走孤儿配额偏索引。skip_locked:正被
+    sync_attachments 认领中的行跳过(认领会重校验 TTL,不会把过期的挂上)。
+    物理删失败或本事务回滚都只留下「活动行指缺失/残留文件」,过期孤儿本就不可达,
+    下次上传重扫自愈。"""
+    cutoff = _utcnow() - timedelta(hours=settings.ATTACHMENT_ORPHAN_TTL_HOURS)
+    rows = (await db.execute(select(Attachment).where(
+        Attachment.created_by == user_id,
+        Attachment.customs_declaration_id.is_(None),
+        Attachment.deleted_at.is_(None),
+        Attachment.created_at < cutoff).with_for_update(skip_locked=True))).scalars().all()
+    if not rows:
+        return
+    storage = get_attachment_storage()
+    now = datetime.now(timezone.utc)
+    for att in rows:
+        att.deleted_at = now
+        try:
+            await asyncio.to_thread(storage.delete, att.file_key)
+        except Exception:
+            logger.error("过期孤儿物理文件删除失败: file_key=%s", att.file_key)
+
+
+async def _check_orphan_quota(db: AsyncSession, user_id: int, incoming_bytes: int) -> None:
+    """单用户活动孤儿(含本次上传):数量 ≤ QUOTA_COUNT 且合计字节 ≤ QUOTA_BYTES。
+    走孤儿配额偏索引。孤儿 = 全部归属 FK 皆 NULL(当前仅 customs_declaration_id 一列)。
+    字节配额按「已有 + 本次」判,否则 99MB 存量还能再传一整个 50MB 突破上限。"""
     count, total = (await db.execute(
         select(func.count(), func.coalesce(func.sum(Attachment.size_bytes), 0))
         .where(Attachment.created_by == user_id,
                Attachment.customs_declaration_id.is_(None),
                Attachment.deleted_at.is_(None)))).one()
-    if count >= settings.ATTACHMENT_ORPHAN_QUOTA_COUNT \
-            or total >= settings.ATTACHMENT_ORPHAN_QUOTA_BYTES:
+    if count + 1 > settings.ATTACHMENT_ORPHAN_QUOTA_COUNT \
+            or total + incoming_bytes > settings.ATTACHMENT_ORPHAN_QUOTA_BYTES:
         raise AttachmentOrphanQuotaError()
 
 
@@ -164,7 +191,8 @@ async def upload_attachment(db: AsyncSession, *, user_id: int, filename: str,
     try:
         canonical = await asyncio.to_thread(
             validate_file_type, ext, declared_content_type, temp.path, temp.head)
-        await _check_orphan_quota(db, user_id)
+        await _reap_expired_orphans(db, user_id)
+        await _check_orphan_quota(db, user_id, temp.size)
         with open(temp.path, "rb") as src:
             await asyncio.to_thread(storage.save, file_key, src)
         att = Attachment(file_key=file_key, original_filename=original_filename,

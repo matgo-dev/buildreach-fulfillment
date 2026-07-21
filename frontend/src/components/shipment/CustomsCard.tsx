@@ -40,6 +40,7 @@ import { CUSTOMS_STATUS_META } from "@/lib/customsStatus";
 import {
   ALLOWED_EXTS,
   MAX_ATTACHMENTS,
+  deleteAttachment,
   downloadAttachment,
   formatFileSize,
   uploadAttachment,
@@ -167,6 +168,9 @@ export function CustomsCard({
   const [busy, setBusy] = useState(false);
   // Modal 内暂存附件(录入=空;编辑=回填 declaration.attachments 副本,提交时全量替换)。
   const [editAttachments, setEditAttachments] = useState<AttachmentPublic[]>([]);
+  // 本次 Modal 会话内新上传的孤儿 id:移除/取消时须回删(deleteAttachment),
+  // 否则每次「传了又反悔」都留一个孤儿吃配额;提交成功即转正(清集不删)。
+  const [stagedNewIds, setStagedNewIds] = useState<Set<number>>(new Set());
 
   const canManage = useAuthStore((s) => s.hasPermission(Permissions.SHIPMENT_MANAGE));
   // 放行日不早于申报日(镜像后端守卫)。
@@ -180,6 +184,7 @@ export function CustomsCard({
     form.resetFields();
     form.setFieldsValue({ declared_at: dayjs() });
     setEditAttachments([]);
+    setStagedNewIds(new Set());
     setModalOpen(true);
   }
 
@@ -194,7 +199,17 @@ export function CustomsCard({
       note: declaration.note ?? undefined,
     });
     setEditAttachments([...declaration.attachments]);
+    setStagedNewIds(new Set());
     setModalOpen(true);
+  }
+
+  // 取消/关闭 Modal:回删本会话新上传、仍暂存中的孤儿(best-effort,不阻塞关窗)。
+  function closeModalDiscard() {
+    stagedNewIds.forEach((id) => {
+      deleteAttachment(id).catch(() => {});
+    });
+    setStagedNewIds(new Set());
+    setModalOpen(false);
   }
 
   async function onSubmit() {
@@ -222,10 +237,12 @@ export function CustomsCard({
         });
         message.success("已更新报关");
       }
+      setStagedNewIds(new Set()); // 提交成功:暂存孤儿已转正(挂上报关),不再回删
       setModalOpen(false);
       onChanged();
     } catch (e) {
       // 42012 柜状态不可报关 / 42013 已有记录 / 42015 冲突 / 421xx 附件(errorMessages 映射中文)。
+      // 提交失败 Modal 不关,暂存集保留,后续取消时统一回删。
       message.error(resolveBizError(e, "保存失败"));
     } finally {
       setBusy(false);
@@ -341,7 +358,7 @@ export function CustomsCard({
         open={modalOpen}
         okText="保存"
         confirmLoading={busy}
-        onCancel={() => setModalOpen(false)}
+        onCancel={closeModalDiscard}
         onOk={onSubmit}
         width={560}
         destroyOnClose
@@ -378,8 +395,22 @@ export function CustomsCard({
               attachments={editAttachments}
               editable
               busy={busy}
-              onAdd={(a) => setEditAttachments((s) => [...s, a])}
-              onRemove={(id) => setEditAttachments((s) => s.filter((x) => x.id !== id))}
+              onAdd={(a) => {
+                setEditAttachments((s) => [...s, a]);
+                setStagedNewIds((s) => new Set(s).add(a.id));
+              }}
+              onRemove={(id) => {
+                setEditAttachments((s) => s.filter((x) => x.id !== id));
+                // 本会话新传的 → 真删孤儿;原有已挂的 → 仅移出暂存(提交时全量替换软删)。
+                if (stagedNewIds.has(id)) {
+                  deleteAttachment(id).catch(() => {});
+                  setStagedNewIds((s) => {
+                    const next = new Set(s);
+                    next.delete(id);
+                    return next;
+                  });
+                }
+              }}
             />
           </Form.Item>
         </Form>

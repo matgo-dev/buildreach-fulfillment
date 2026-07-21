@@ -72,6 +72,41 @@ async def test_orphan_quota_42103(client, logistics_headers, monkeypatch):
     assert third.status_code == 422 and third.json()["code"] == 42103, third.text
 
 
+async def test_orphan_byte_quota_counts_incoming_42103(client, logistics_headers, monkeypatch):
+    """字节配额按「已有 + 本次」判:存量未超但加上本次会超 → 42103(不再能末笔突破上限)。"""
+    monkeypatch.setattr(settings, "ATTACHMENT_ORPHAN_QUOTA_BYTES", len(_PDF) + 5)
+    assert (await _upload(client, logistics_headers, "a.pdf", _PDF, "application/pdf")).status_code == 200
+    second = await _upload(client, logistics_headers, "b.pdf", _PDF, "application/pdf")
+    assert second.status_code == 422 and second.json()["code"] == 42103, second.text
+
+
+async def test_expired_orphan_reaped_on_upload(client, db_session, logistics_headers, monkeypatch):
+    """过期孤儿惰性回收:占满配额的孤儿过期后,下次上传顺手软删回收 → 配额解锁,
+    过期件下载 42104(不再出现「遗留孤儿永久锁死 42103」)。"""
+    from datetime import timedelta as _td
+
+    from sqlalchemy import update
+
+    from app.db.base import _utcnow
+    from app.db.models.attachment import Attachment
+
+    monkeypatch.setattr(settings, "ATTACHMENT_ORPHAN_QUOTA_COUNT", 1)
+    old = await _upload(client, logistics_headers, "old.pdf", _PDF, "application/pdf")
+    old_id = old.json()["data"]["id"]
+    # 配额已满(1/1)→ 再传被拦。
+    blocked = await _upload(client, logistics_headers, "new.pdf", _PDF, "application/pdf")
+    assert blocked.status_code == 422 and blocked.json()["code"] == 42103, blocked.text
+    # 把存量孤儿拨到 TTL 之外。
+    await db_session.execute(update(Attachment).where(Attachment.id == old_id).values(
+        created_at=_utcnow() - _td(hours=settings.ATTACHMENT_ORPHAN_TTL_HOURS + 1)))
+    await db_session.commit()
+    # 过期后上传:先回收再查配额 → 通过;过期件被软删,下载 42104。
+    ok = await _upload(client, logistics_headers, "new.pdf", _PDF, "application/pdf")
+    assert ok.status_code == 200, ok.text
+    gone = await client.get(f"/api/v1/attachments/{old_id}/download", headers=logistics_headers)
+    assert gone.status_code == 404 and gone.json()["code"] == 42104, gone.text
+
+
 # ---------- 下载 scope ----------
 
 
