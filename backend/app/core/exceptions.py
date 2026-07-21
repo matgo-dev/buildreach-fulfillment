@@ -20,7 +20,8 @@
   19 | 出库单     | 419xx(含 41910 撤销出库·柜已封柜/发运守卫)
   20 | 柜/发运    | 420xx(42002 非法转移·单义;42003/42004 封柜守卫;42005 字段门禁;42006 编辑冲突;
        |            |       42007 撤离港带活动事件;42008 非 DEPARTED 不可录事件;42009 重复到港;42010 事件越柜;
-       |            |       42011 撤封柜带活动报关;42012 柜态不可报关;42013 重复活动报关;42014 报关越柜;42015 报关编辑冲突)
+       |            |       42011 撤封柜带活动报关;42012 柜态不可报关;42013 重复活动报关;42014 报关越柜;42015 报关编辑冲突;
+       |            |       42016 报关单号已被占用)
   21 | 附件       | 421xx(42101 类型不允许;42102 超大;42103 孤儿配额;42104 不可用;42105 数量超上限)
 
 兜底码:
@@ -625,7 +626,8 @@ class ShipmentEventNotOnShipmentError(BusinessError):
 
 
 # 报关记录(段 20 延用:发运柜子资源,回填结果,不新开段)。见 db/models/customs_declaration.py。
-# 42011 撤封柜带活动报关 / 42012 柜态不可报关 / 42013 重复活动报关 / 42014 报关越柜 / 42015 编辑冲突。
+# 42011 撤封柜带活动报关 / 42012 柜态不可报关 / 42013 重复活动报关 / 42014 报关越柜 / 42015 编辑冲突 /
+# 42016 报关单号已被占用。
 class ShipmentHasActiveCustomsError(BusinessError):
     """撤封柜(LOADED→OPEN)被拦:柜下存在活动报关记录。柜内容变了申报即失效,
     须先删报关再撤封柜(同 42007 撤离港被活动物流事件拦的范式)。"""
@@ -661,6 +663,14 @@ class CustomsEditConflictError(BusinessError):
 
     def __init__(self, message: str = "Customs declaration was modified by someone else"):
         super().__init__(status.HTTP_409_CONFLICT, 42015, message)
+
+
+class CustomsDeclarationNoTakenError(BusinessError):
+    """报关单号已被另一条活动报关记录占用(全局活动期唯一,跨柜同号即录错;
+    偏唯一 uq_customs_active_declno 兜底并发)。纠错口 = 软删占用记录或改单号。"""
+
+    def __init__(self, message: str = "Declaration number already used by another declaration"):
+        super().__init__(status.HTTP_409_CONFLICT, 42016, message)
 
 
 # ── 附件域(段 21;单据扫描件基建。见 db/models/attachment.py)──────────────

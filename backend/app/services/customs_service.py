@@ -12,12 +12,14 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
 from app.audit.constants import AuditAction, AuditResourceType
 from app.audit.logger import write_audit
 from app.core.exceptions import (
+    CustomsDeclarationNoTakenError,
     CustomsDuplicateActiveError,
     CustomsEditConflictError,
     CustomsNotOnShipmentError,
@@ -70,6 +72,30 @@ async def get_active(db: AsyncSession, shipment_id: int) -> CustomsDeclaration |
         CustomsDeclaration.deleted_at.is_(None)))).scalar_one_or_none()
 
 
+async def _assert_declno_free(db: AsyncSession, declaration_no: str,
+                              exclude_id: int | None = None) -> None:
+    """报关单号活动期全局唯一预检(友好 42016;跨柜不被柜头锁串行化,DB 偏唯一
+    uq_customs_active_declno 兜底并发漏网,commit 处按约束名映射同码)。"""
+    stmt = select(CustomsDeclaration.id).where(
+        CustomsDeclaration.declaration_no == declaration_no,
+        CustomsDeclaration.deleted_at.is_(None))
+    if exclude_id is not None:
+        stmt = stmt.where(CustomsDeclaration.id != exclude_id)
+    if (await db.execute(stmt)).scalar_one_or_none() is not None:
+        raise CustomsDeclarationNoTakenError()
+
+
+async def _commit_mapping_declno_conflict(db: AsyncSession) -> None:
+    """commit;偏唯一 uq_customs_active_declno 违约(并发绕过预检)→ 回滚映射 42016。"""
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        if "uq_customs_active_declno" in str(exc.orig):
+            raise CustomsDeclarationNoTakenError() from exc
+        raise
+
+
 async def _lock_declarable_shipment(db: AsyncSession, shipment_id: int) -> ShipmentOrder:
     """锁柜头(FOR UPDATE)+ 校验柜态 ∈ {LOADED, DEPARTED}。录/改/删的统一前置。"""
     ship = await shipment_service.get_order_for_update(db, shipment_id)
@@ -94,10 +120,12 @@ async def _get_active_decl(db: AsyncSession, shipment_id: int,
 async def create(db: AsyncSession, *, shipment_id: int, fields: dict,
                  attachment_ids: list[int], actor_user_id, actor_user_email,
                  request: Request | None = None) -> CustomsDeclaration:
-    """录入报关。管线:锁柜头 → 柜态 → 无活动记录(42013)→ 建 → 关联附件 → 审计。"""
+    """录入报关。管线:锁柜头 → 柜态 → 无活动记录(42013)→ 单号唯一(42016)→ 建 →
+    关联附件 → 审计。"""
     await _lock_declarable_shipment(db, shipment_id)
     if await get_active(db, shipment_id) is not None:
         raise CustomsDuplicateActiveError()
+    await _assert_declno_free(db, fields["declaration_no"])
     _assert_released_ge_declared(fields.get("declared_at"), fields.get("released_at"))
     decl = CustomsDeclaration(
         shipment_order_id=shipment_id, created_by=actor_user_id,
@@ -111,7 +139,7 @@ async def create(db: AsyncSession, *, shipment_id: int, fields: dict,
                       action=AuditAction.CREATE, user_id=actor_user_id,
                       user_email=actor_user_email, resource_id=decl.id, request=request,
                       extra={"shipment_id": shipment_id}, commit=False)
-    await db.commit()
+    await _commit_mapping_declno_conflict(db)
     await db.refresh(decl)
     return decl
 
@@ -121,11 +149,15 @@ async def update(db: AsyncSession, *, shipment_id: int, decl_id: int, fields: di
                  actor_user_id, actor_user_email,
                  request: Request | None = None) -> CustomsDeclaration:
     """改报关(稀疏 PATCH + 乐观锁 + 回填放行 + 全量替换附件)。
-    管线:锁柜头 → 柜态 → 取活动记录+归属 → 乐观锁 → 覆盖字段 → 同步附件 → 显式 bump updated_at。
+    管线:锁柜头 → 柜态 → 取活动记录+归属 → 乐观锁 → 换单号唯一(42016)→ 覆盖字段 →
+    同步附件 → 显式 bump updated_at。
     declaration_no/declared_at 显式传 None 视为非法(NOT NULL)。attachment_ids=None 不动附件。"""
     await _lock_declarable_shipment(db, shipment_id)
     decl = await _get_active_decl(db, shipment_id, decl_id)
     assert_no_edit_conflict(decl, expected_updated_at, CustomsEditConflictError)
+    new_no = fields.get("declaration_no")
+    if new_no is not None and new_no != decl.declaration_no:
+        await _assert_declno_free(db, new_no, exclude_id=decl.id)
     for name in _EDITABLE_FIELDS:
         if name in fields:
             if name in _NON_NULLABLE and fields[name] is None:
@@ -147,7 +179,7 @@ async def update(db: AsyncSession, *, shipment_id: int, decl_id: int, fields: di
                       action=AuditAction.UPDATE, user_id=actor_user_id,
                       user_email=actor_user_email, resource_id=decl.id, request=request,
                       extra=extra, commit=False)
-    await db.commit()
+    await _commit_mapping_declno_conflict(db)
     await db.refresh(decl)
     return decl
 

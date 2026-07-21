@@ -58,7 +58,7 @@ async def test_upload_ext_not_allowed_42101(client, logistics_headers):
 
 async def test_upload_too_large_42102(client, logistics_headers, monkeypatch):
     """超大小上限 → 42102(monkeypatch 小上限,避免真传 50MB)。"""
-    monkeypatch.setattr(attachment_service, "_MAX", 10)
+    monkeypatch.setattr(settings, "ATTACHMENT_MAX_SIZE_BYTES", 10)
     r = await _upload(client, logistics_headers, "big.pdf", _PDF, "application/pdf")
     assert r.status_code == 413 and r.json()["code"] == 42102, r.text
 
@@ -179,6 +179,19 @@ async def test_attachment_count_limit_42105(
                           json={"declaration_no": "CN5", "declared_at": "2026-07-19",
                                 "attachment_ids": [a1, a2]})
     assert r.status_code == 422 and r.json()["code"] == 42105, r.text
+
+
+# ---------- Content-Disposition(文件名安全编码)----------
+
+
+async def test_content_disposition_strips_quotes_and_crlf():
+    """quoted-string 恒合法:双引号/CRLF/控制字符全清洗;中文名走 filename*(RFC 5987)。"""
+    cd = attachment_service.content_disposition('a"b\r\nc.pdf')
+    assert "\r" not in cd and "\n" not in cd
+    # 双引号被清洗:quoted-string 内不残留 `"`(逐字符替换 `"`/`\r`/`\n` → `_`)。
+    assert cd.startswith('attachment; filename="a_b__c.pdf"')
+    cd_cn = attachment_service.content_disposition("报关单.pdf")
+    assert "filename*=UTF-8''%E6%8A%A5%E5%85%B3%E5%8D%95.pdf" in cd_cn
 
 
 # ---------- RBAC ----------

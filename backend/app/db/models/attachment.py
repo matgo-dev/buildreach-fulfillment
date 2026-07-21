@@ -27,6 +27,8 @@ class Attachment(Base, TimestampUpdateMixin, SoftDeleteMixin):
         Index("ix_attachments_orphan_quota", "created_by",
               postgresql_where=text(
                   "customs_declaration_id IS NULL AND deleted_at IS NULL")),
+        # 显式命名与迁移 0031 一致(index=True 默认名会带 _id 尾,漂移会让 autogenerate 报虚假 diff)。
+        Index("ix_attachments_customs_declaration", "customs_declaration_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -41,7 +43,7 @@ class Attachment(Base, TimestampUpdateMixin, SoftDeleteMixin):
     # 归属报关记录(NULL = 孤儿)。RESTRICT:有附件的报关记录不可硬删穿透(级联软删走 service)。
     customs_declaration_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("customs_declarations.id", ondelete="RESTRICT"),
-        nullable=True, index=True)
+        nullable=True)
     # 上传者 = 创建者(不另设 uploaded_by,单一源头);FK RESTRICT + 单列索引。
     created_by: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)

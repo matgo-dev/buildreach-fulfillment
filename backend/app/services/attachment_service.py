@@ -17,7 +17,6 @@ import re
 import uuid
 import zipfile
 from datetime import datetime, timedelta, timezone
-from io import BytesIO
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO
 from urllib.parse import quote as url_quote
@@ -44,8 +43,6 @@ from app.services.upload_pipeline import stream_binary_to_temp
 logger = logging.getLogger(__name__)
 
 # ── 允许族(单一源头:扩展名 / 声明 MIME / 嗅探 MIME 同落一处)────────────────
-_MAX = settings.ATTACHMENT_MAX_SIZE_BYTES
-
 ALLOWED_FAMILIES: dict[str, dict] = {
     "image/jpeg": {"mimes": {"image/jpeg"}, "ext": {".jpg", ".jpeg"},
                    "canonical": "image/jpeg"},
@@ -83,7 +80,8 @@ ALLOWED_EXTENSIONS = set(_EXT_TO_FAMILY.keys())
 
 
 # ── 文件名安全编码(RFC 5987)───────────────────────────────────────────────
-_UNSAFE_CHARS = re.compile(r"[\r\n\x00-\x1f/\\]")
+# 含 `"`:文件名进 Content-Disposition 的 quoted-string,双引号不清会产出畸形头。
+_UNSAFE_CHARS = re.compile(r"[\r\n\x00-\x1f/\\\"]")
 
 
 def _sanitize_filename(name: str) -> str:
@@ -156,7 +154,8 @@ async def upload_attachment(db: AsyncSession, *, user_id: int, filename: str,
         raise AttachmentTypeNotAllowedError()
 
     try:
-        temp = await stream_binary_to_temp(file_stream, max_size=_MAX, suffix=ext)
+        temp = await stream_binary_to_temp(
+            file_stream, max_size=settings.ATTACHMENT_MAX_SIZE_BYTES, suffix=ext)
     except ValueError:
         raise AttachmentTooLargeError()
 
@@ -211,8 +210,10 @@ async def get_downloadable(db: AsyncSession, current: CurrentUser,
 
 # ── 删孤儿(误传纠错;仅上传者本人,仅孤儿)──────────────────────────────────
 async def delete_orphan(db: AsyncSession, *, user_id: int, attachment_id: int) -> None:
+    # 行锁:与 sync_attachments 的并发认领互斥(防「删的同时被挂上报关」两边都成功)。
     att = (await db.execute(select(Attachment).where(
-        Attachment.id == attachment_id, Attachment.deleted_at.is_(None)))).scalar_one_or_none()
+        Attachment.id == attachment_id, Attachment.deleted_at.is_(None))
+        .with_for_update())).scalar_one_or_none()
     if att is None or att.customs_declaration_id is not None or att.created_by != user_id:
         raise AttachmentUnavailableError()
     att.deleted_at = datetime.now(timezone.utc)
@@ -234,10 +235,14 @@ async def sync_attachments(db: AsyncSession, *, user_id: int, declaration_id: in
     ttl = timedelta(hours=settings.ATTACHMENT_ORPHAN_TTL_HOURS)
     id_set = set(attachment_ids)
 
-    for att_id in attachment_ids:
+    for att_id in sorted(id_set):
+        # 行锁认领:校验(孤儿/本人/TTL)与改指 customs_declaration_id 之间不留窗口,
+        # 防同一孤儿被并发挂到两条报关记录(不同柜 → 柜头锁不互斥)后一方静默改指。
+        # 锁序:柜头(调用方已持)→ 附件行按 id 升序(并发重叠集不死锁),附件恒为叶子锁。
+        # 上限 ≤10,逐行锁有界。
         att = (await db.execute(select(Attachment).where(
             Attachment.id == att_id,
-            Attachment.deleted_at.is_(None)))).scalar_one_or_none()
+            Attachment.deleted_at.is_(None)).with_for_update())).scalar_one_or_none()
         if att is None:
             raise AttachmentUnavailableError()
         if att.customs_declaration_id == declaration_id:

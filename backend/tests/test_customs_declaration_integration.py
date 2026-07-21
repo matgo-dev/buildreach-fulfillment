@@ -114,6 +114,46 @@ async def test_duplicate_active_customs_42013(
     assert dup.status_code == 409 and dup.json()["code"] == 42013, dup.text
 
 
+async def test_declno_taken_across_shipments_42016(
+        client, db_session, sales_headers, purchaser_headers, logistics_headers):
+    """报关单号活动期全局唯一:另一柜录同号 → 42016;PATCH 换成已占用单号 → 42016;
+    改回自己当前单号(未变)不拦;占用记录软删后单号可复用。"""
+    ctx = await setup_available_stock(client, db_session, sales_headers, purchaser_headers,
+                                      so_qty=20, received=20)
+    so_id, so_line_id = ctx["sales_order_id"], ctx["so_lines"][0]["id"]
+    sid_a = await _loaded_from_stock(client, logistics_headers, so_id=so_id, so_line_id=so_line_id)
+    sid_b = await _loaded_from_stock(client, logistics_headers, so_id=so_id, so_line_id=so_line_id)
+    cr_a = await _post_customs(client, logistics_headers, sid_a, declaration_no="CN2026DUP01")
+    assert cr_a.status_code == 200, cr_a.text
+    # 跨柜同号录入 → 42016(柜头锁不串行化跨柜,预检 + 偏唯一兜底)。
+    dup = await _post_customs(client, logistics_headers, sid_b, declaration_no="CN2026DUP01")
+    assert dup.status_code == 409 and dup.json()["code"] == 42016, dup.text
+    # B 柜录别的单号,再 PATCH 换成 A 柜占用的单号 → 42016。
+    cr_b = await _post_customs(client, logistics_headers, sid_b, declaration_no="CN2026DUP02")
+    decl_b = cr_b.json()["data"]["customs_declaration"]
+    patch = await client.patch(f"/api/v1/shipments/{sid_b}/customs-declarations/{decl_b['id']}",
+                               headers=logistics_headers,
+                               json={"declaration_no": "CN2026DUP01",
+                                     "expected_updated_at": decl_b["updated_at"]})
+    assert patch.status_code == 409 and patch.json()["code"] == 42016, patch.text
+    # PATCH 传自己当前单号(未变)不拦。
+    same = await client.patch(f"/api/v1/shipments/{sid_b}/customs-declarations/{decl_b['id']}",
+                              headers=logistics_headers,
+                              json={"declaration_no": "CN2026DUP02", "note": "ok",
+                                    "expected_updated_at": decl_b["updated_at"]})
+    assert same.status_code == 200, same.text
+    # 软删 A 柜记录 → 单号退出偏唯一,B 柜可换用。
+    decl_a_id = cr_a.json()["data"]["customs_declaration"]["id"]
+    await client.delete(f"/api/v1/shipments/{sid_a}/customs-declarations/{decl_a_id}",
+                        headers=logistics_headers)
+    freed = await client.patch(
+        f"/api/v1/shipments/{sid_b}/customs-declarations/{decl_b['id']}",
+        headers=logistics_headers,
+        json={"declaration_no": "CN2026DUP01",
+              "expected_updated_at": same.json()["data"]["customs_declaration"]["updated_at"]})
+    assert freed.status_code == 200, freed.text
+
+
 async def test_released_before_declared_rejected(
         client, db_session, sales_headers, purchaser_headers, logistics_headers):
     """放行日期早于申报日期 → DB CHECK 拒(500 级约束,或 service 校验)。"""
