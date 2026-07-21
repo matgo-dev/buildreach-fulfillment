@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
-    auth, categories, customers, inbound_orders, inventory, outbound_orders,
+    attachments, auth, categories, customers, inbound_orders, inventory, outbound_orders,
     payables, purchase_orders, quotations, receivables, roles, sales_orders,
     shipments, skus, spus, suppliers, units, uploads, users,
 )
@@ -26,3 +26,4 @@ api_router.include_router(receivables.router)
 api_router.include_router(users.router)
 api_router.include_router(roles.router)
 api_router.include_router(uploads.router)
+api_router.include_router(attachments.router)

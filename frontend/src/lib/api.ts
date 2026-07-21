@@ -60,6 +60,24 @@ export function refreshAccessToken(): Promise<string | null> {
   return refreshPromise;
 }
 
+/**
+ * 非 JSON 通道的鉴权 fetch(FormData 上传 / blob 下载用;JSON 一律走 api.*)。
+ * 与 request 同口径:注入 Bearer,401 时单飞刷新后重试一次,刷新失败清态转登录。
+ * body 须可重放(FormData/File/Blob 均可;不要传一次性流)。
+ */
+export async function authFetch(input: string, init: RequestInit = {}, retried = false): Promise<Response> {
+  const token = useAuthStore.getState().accessToken;
+  const headers = new Headers(init.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const res = await fetch(input, { ...init, headers, credentials: "include" });
+  if (res.status === 401 && !retried) {
+    const fresh = await refreshAccessToken();
+    if (fresh) return authFetch(input, init, true);
+    useAuthStore.getState().clear();
+  }
+  return res;
+}
+
 async function request<T>(path: string, options: RequestOptions = {}, retried = false): Promise<T> {
   const { noAuth, body, headers, ...rest } = options;
   const base = getApiBase();

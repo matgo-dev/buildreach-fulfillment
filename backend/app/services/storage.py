@@ -9,7 +9,7 @@ import logging
 import os
 import shutil
 from io import BytesIO
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import BinaryIO, Protocol, runtime_checkable
 
 import boto3
@@ -18,6 +18,36 @@ from botocore.config import Config as _BotoConfig
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+class StorageKeyError(ValueError):
+    """file_key 未通过安全校验(空 / 绝对路径 / `..` 穿越 / 反斜杠 / 控制字符)。
+    落到最强层:本地盘 key→路径解析前**显式拒绝**,不静默截断成 basename(截断会把
+    `img/x` 悄悄打平、把穿越悄悄吞掉,是「掩盖而非拒绝」)。"""
+
+
+def validate_file_key(key: str) -> str:
+    """校验 file_key 为安全的相对存储键并返回。允许内部 `/` 作为子目录段(商品图用
+    `img/<uuid>`),但拒绝一切穿越向量。附件服务生成的是不透明 uuid 平键(无 `/`),
+    此校验对其恒通过;对外部/历史来源的 key 提供纵深防御。
+
+    拒绝:空串、`\\`(反斜杠)、控制字符/空字节、绝对路径、任何 `.`/`..` 段、
+    解析后逃逸出相对根的键。"""
+    if not key or not isinstance(key, str):
+        raise StorageKeyError("empty file_key")
+    if "\\" in key or any(ord(c) < 0x20 for c in key):
+        raise StorageKeyError(f"illegal characters in file_key: {key!r}")
+    pure = PurePosixPath(key)
+    if pure.is_absolute():
+        raise StorageKeyError(f"absolute file_key not allowed: {key!r}")
+    parts = pure.parts
+    if not parts or any(p in ("", ".", "..") for p in parts):
+        raise StorageKeyError(f"path traversal in file_key: {key!r}")
+    # 要求规范形式:拒绝 `./a`、`a/./b`、`a//b`、`trailing/` 等非规范键(虽解析安全,但存进
+    # DB 的 key 必须无歧义、与解析路径一一对应),防「同一文件多种键表达」。
+    if str(pure) != key:
+        raise StorageKeyError(f"non-canonical file_key: {key!r}")
+    return key
 
 
 @runtime_checkable
@@ -61,12 +91,18 @@ class LocalDiskStorage:
         self._base.mkdir(parents=True, exist_ok=True)
 
     def _path(self, file_key: str) -> Path:
-        # 防路径穿越:只取文件名部分
-        safe_name = Path(file_key).name
-        return self._base / safe_name
+        # 显式拒绝穿越(见 validate_file_key),不静默截断成 basename。合法子目录段(如
+        # 商品图 img/<uuid>)保留;附件是不透明 uuid 平键。解析后再兜一层「必在 base 内」。
+        safe_key = validate_file_key(file_key)
+        target = (self._base / safe_key).resolve()
+        base = self._base.resolve()
+        if base != target and base not in target.parents:
+            raise StorageKeyError(f"file_key escapes storage root: {file_key!r}")
+        return target
 
     def save(self, file_key: str, stream: BinaryIO) -> None:
         target = self._path(file_key)
+        target.parent.mkdir(parents=True, exist_ok=True)
         tmp = target.with_suffix(target.suffix + ".tmp")
         try:
             with open(tmp, "wb") as f:

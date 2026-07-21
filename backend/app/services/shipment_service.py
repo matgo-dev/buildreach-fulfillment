@@ -23,6 +23,7 @@ from app.core.exceptions import (
     ShipmentEditConflictError,
     ShipmentEmptyCannotLoadError,
     ShipmentFieldNotEditableError,
+    ShipmentHasActiveCustomsError,
     ShipmentHasActiveLogisticsEventError,
     ShipmentHasActiveOutboundError,
     ShipmentHasDraftOutboundError,
@@ -30,6 +31,7 @@ from app.core.exceptions import (
 )
 from app.core.statemachine import assert_transition
 from app.db.models.outbound_order import OutboundOrder, OutboundOrderStatus
+from app.db.models.customs_declaration import CustomsDeclaration
 from app.db.models.shipment_event import LogisticsMilestone, ShipmentEvent
 from app.db.models.shipment_order import (
     SHIPMENT_EDITABLE_FIELDS_BY_STATUS,
@@ -194,9 +196,17 @@ async def load_order(db: AsyncSession, *, shipment_id, expected_updated_at,
 
 async def unload_order(db: AsyncSession, *, shipment_id, actor_user_id, actor_user_email,
                        request: Request | None = None) -> ShipmentOrder:
-    """撤封柜(LOADED→OPEN,纠错口)。清 loaded_at;柜内出库单随之解冻(可撤/可改)。"""
+    """撤封柜(LOADED→OPEN,纠错口)。清 loaded_at;柜内出库单随之解冻(可撤/可改)。
+    守卫:柜下存在活动报关记录 → 拒 42011(柜内容变了申报即失效,须先删报关再撤封柜;
+    同 42007 撤离港被活动物流事件拦的范式)。锁柜头后查,与「录报关前置柜态」串行化。"""
     ship = await get_order_for_update(db, shipment_id)
     _assert_edge(ship, ShipmentOrderStatus.LOADED, ShipmentOrderStatus.OPEN)
+    active_customs = (await db.execute(
+        select(func.count(CustomsDeclaration.id)).where(
+            CustomsDeclaration.shipment_order_id == shipment_id,
+            CustomsDeclaration.deleted_at.is_(None)))).scalar_one()
+    if active_customs > 0:
+        raise ShipmentHasActiveCustomsError()
     ship.status = ShipmentOrderStatus.OPEN
     ship.loaded_at = None
     await db.flush()
@@ -275,9 +285,10 @@ async def outbound_count(db: AsyncSession, shipment_id: int) -> int:
 
 
 async def list_orders(db: AsyncSession, *, status=None, keyword=None, logistics_status=None,
-                      page: int = 1, size: int = 20) -> tuple[list[dict], int]:
-    """柜列表:状态过滤 + 物流状态过滤(派生)+ 关键字(柜号 / 柜单号)+ 分页,created_at 降序。
-    投影柜内出库单数 + 船务概览列(船名/航次/ETD/ATD)+ 当前物流状态派生列。"""
+                      customs_status=None, page: int = 1, size: int = 20
+                      ) -> tuple[list[dict], int]:
+    """柜列表:状态过滤 + 物流状态过滤(派生)+ 报关状态过滤(派生)+ 关键字(柜号 / 柜单号)+
+    分页,created_at 降序。投影柜内出库单数 + 船务概览列 + 当前物流状态 + 报关状态派生列。"""
     stmt = select(ShipmentOrder)
     conds = []
     if status:
@@ -285,6 +296,24 @@ async def list_orders(db: AsyncSession, *, status=None, keyword=None, logistics_
     if keyword:
         like = f"%{keyword}%"
         conds.append(ShipmentOrder.no.ilike(like) | ShipmentOrder.container_no.ilike(like))
+    if customs_status:
+        # 报关状态纯派生 → LEFT JOIN 活动报关记录(偏唯一保证每柜至多一行,无放大)。
+        # NONE=柜 LOADED/DEPARTED 且无活动报关;DECLARED=有活动且未回填放行;RELEASED=已回填。
+        from app.db.models.customs_declaration import CustomsDeclaration, CustomsStatus
+        active_cd = (
+            select(CustomsDeclaration.shipment_order_id.label("sid"),
+                   CustomsDeclaration.released_at.label("released_at"))
+            .where(CustomsDeclaration.deleted_at.is_(None)).subquery())
+        stmt = stmt.outerjoin(active_cd, active_cd.c.sid == ShipmentOrder.id)
+        if customs_status == CustomsStatus.NONE:
+            conds.append(ShipmentOrder.status.in_(
+                [ShipmentOrderStatus.LOADED, ShipmentOrderStatus.DEPARTED]))
+            conds.append(active_cd.c.sid.is_(None))
+        elif customs_status == CustomsStatus.DECLARED:
+            conds.append(active_cd.c.sid.isnot(None))
+            conds.append(active_cd.c.released_at.is_(None))
+        elif customs_status == CustomsStatus.RELEASED:
+            conds.append(active_cd.c.released_at.isnot(None))
     if logistics_status:
         # 物流状态纯派生 → 按「每柜最新活动事件」LEFT JOIN 过滤。复用 logistics_event_service
         # 的 latest_event_select()(DISTINCT ON 口径单一源头,不再手写第二份;函数内 import

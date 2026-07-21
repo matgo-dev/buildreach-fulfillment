@@ -76,6 +76,13 @@ class Settings(BaseSettings):
     S3_PUBLIC_BASE_URL: str = ""   # 公开资产基址(留空则不支持 public_url)
     IMAGE_PATH_PREFIX: str = "/static"  # LocalDiskStorage.public_url() 前缀(本期未挂载,预留)
 
+    # 单据附件(报关扫描件等,中转上传;非商品图)。
+    ATTACHMENT_MAX_SIZE_BYTES: int = 50 * 1024 * 1024   # 单文件上限 50MB(后端最后防线)
+    ATTACHMENT_ORPHAN_TTL_HOURS: int = 72               # 孤儿(未提交表单)可关联/下载时效
+    ATTACHMENT_ORPHAN_QUOTA_COUNT: int = 20             # 单用户活动孤儿数量上限
+    ATTACHMENT_ORPHAN_QUOTA_BYTES: int = 100 * 1024 * 1024  # 单用户活动孤儿字节上限 100MB
+    ATTACHMENT_MAX_PER_OWNER: int = 10                  # 单报关记录关联附件数上限
+
     @computed_field  # type: ignore[misc]
     @property
     def CORS_ORIGINS(self) -> List[str]:

@@ -14,6 +14,7 @@ import { resolveBizError } from "@/lib/errorMessages";
 import { shipmentApi, type ShipmentListItem } from "@/lib/shipment";
 import { SHIPMENT_STATUS_META, CONTAINER_TYPE_OPTIONS } from "@/lib/shipmentStatus";
 import { LOGISTICS_DISPLAY_ORDER, LOGISTICS_MILESTONE_META } from "@/lib/logisticsMilestone";
+import { CUSTOMS_FILTER_OPTIONS, CUSTOMS_STATUS_META } from "@/lib/customsStatus";
 
 // 物流状态下拉筛选项(派生列;镜像展示骨架顺序,单一源头 LOGISTICS_MILESTONE_META)。
 const LOGISTICS_FILTER_OPTIONS = [
@@ -36,6 +37,7 @@ export default function ShipmentListPage() {
 
   const [status, setStatus] = useState("");
   const [logisticsStatus, setLogisticsStatus] = useState("");
+  const [customsStatus, setCustomsStatus] = useState("");
   const [keyword, setKeyword] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -46,10 +48,11 @@ export default function ShipmentListPage() {
         status: status || undefined,
         keyword: keyword || undefined,
         logistics_status: logisticsStatus || undefined,
+        customs_status: customsStatus || undefined,
         page,
         size,
       }),
-    [status, keyword, logisticsStatus],
+    [status, keyword, logisticsStatus, customsStatus],
   );
   const { rows, setPage, loading, loadError, load, pagination } = useListQuery<ShipmentListItem>(
     fetcher,
@@ -131,6 +134,14 @@ export default function ShipmentListPage() {
         v ? <StatusTag meta={LOGISTICS_MILESTONE_META} value={v} /> : "—",
     },
     {
+      title: "报关",
+      dataIndex: "customs_status",
+      width: 100,
+      // 纯派生:OPEN/CANCELLED 柜为 null,显「—」;否则未报关/已申报/已放行徽标。
+      render: (v: ShipmentListItem["customs_status"]) =>
+        v ? <StatusTag meta={CUSTOMS_STATUS_META} value={v} /> : "—",
+    },
+    {
       title: "柜内出库单",
       dataIndex: "outbound_count",
       width: 110,
@@ -166,6 +177,15 @@ export default function ShipmentListPage() {
               setPage(1);
             }}
           />
+          <Select
+            value={customsStatus}
+            style={{ width: 150 }}
+            options={CUSTOMS_FILTER_OPTIONS}
+            onChange={(v) => {
+              setCustomsStatus(v);
+              setPage(1);
+            }}
+          />
           <Input.Search
             allowClear
             placeholder="发运柜号 / 柜号"
@@ -192,7 +212,7 @@ export default function ShipmentListPage() {
           columns={columns}
           dataSource={rows}
           loading={loading}
-          scroll={{ x: 1300 }}
+          scroll={{ x: 1400 }}
           locale={{
             emptyText: (
               <Empty description="暂无发运柜">

@@ -23,6 +23,7 @@ class AuditResourceType(str, Enum):
     OUTBOUND_ORDER = "outbound_order"
     SHIPMENT_ORDER = "shipment_order"
     SHIPMENT_EVENT = "shipment_event"
+    CUSTOMS_DECLARATION = "customs_declaration"
 
 
 class AuditAction(str, Enum):

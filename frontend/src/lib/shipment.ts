@@ -6,6 +6,35 @@ import type { OutboundOrderStatus } from "./outboundOrder";
 
 export type ShipmentStatus = "OPEN" | "LOADED" | "DEPARTED" | "CANCELLED";
 
+// 报关派生状态(镜像 backend CustomsStatus)。柜 OPEN/CANCELLED → null(不适用);
+// LOADED/DEPARTED → NONE(未报关)/DECLARED(已申报)/RELEASED(已放行)。
+export type CustomsStatus = "NONE" | "DECLARED" | "RELEASED";
+
+/** 附件公开视图(报关单/放行扫描件)。无红线字段;download_url 走后端鉴权流式下载。 */
+export interface AttachmentPublic {
+  id: number;
+  original_filename: string;
+  content_type: string;
+  size_bytes: number;
+  download_url: string;
+}
+
+/** 报关记录(发运柜子资源)。录入即「已申报」,回填放行日 → 「已放行」。 */
+export interface CustomsDeclarationOut {
+  id: number;
+  shipment_order_id: number;
+  declaration_no: string;
+  declared_at: string;
+  released_at: string | null;
+  declarant: string | null;
+  customs_office: string | null;
+  note: string | null;
+  status: CustomsStatus;
+  attachments: AttachmentPublic[];
+  created_at: string;
+  updated_at: string;
+}
+
 // 物流里程碑(镜像 backend LogisticsMilestone;已离港 DEPARTED 是派生态,不入事件表)。
 export type LogisticsMilestone = "DEPARTED" | "TRANSSHIPMENT" | "ARRIVED";
 // 可录入事件类型(EVENT_TYPES:中转/到港);已离港不可录。
@@ -51,6 +80,8 @@ export interface ShipmentListItem {
   outbound_count: number;
   /** 当前物流状态(纯派生):非 DEPARTED 柜为 null(显「—」);否则已离港/中转/到港。 */
   current_logistics_status: LogisticsMilestone | null;
+  /** 报关状态(纯派生):OPEN/CANCELLED 柜为 null(显「—」);否则未报关/已申报/已放行。 */
+  customs_status: CustomsStatus | null;
   created_at: string;
 }
 
@@ -83,6 +114,10 @@ export interface ShipmentDetail {
   logistics_events: ShipmentEventOut[];
   /** 当前物流状态(纯派生);非 DEPARTED 柜为 null。 */
   current_logistics_status: LogisticsMilestone | null;
+  /** 活动报关记录(至多一条);无则 null。 */
+  customs_declaration: CustomsDeclarationOut | null;
+  /** 报关状态(纯派生):OPEN/CANCELLED 柜为 null;否则未报关/已申报/已放行。 */
+  customs_status: CustomsStatus | null;
 }
 
 /** 录入物流里程碑入参。event_at 为事件业务日(后端另校验 ≥ 柜 atd)。 */
@@ -142,6 +177,35 @@ export interface ShipmentDepartBody {
   atd: string;
 }
 
+/** 录入报关入参(POST)。录入即「已申报」;放行日可后续回填。attachment_ids = 暂存孤儿附件。 */
+export interface CustomsCreateBody {
+  declaration_no: string;
+  declared_at: string;
+  released_at?: string | null;
+  declarant?: string | null;
+  customs_office?: string | null;
+  note?: string | null;
+  /** 暂存附件 id 列表(先经 /attachments 直传得孤儿 id)。 */
+  attachment_ids?: number[];
+}
+
+/**
+ * 改报关入参(PATCH,稀疏)。`expected_updated_at` **必填**(= 打开编辑时 decl.updated_at);
+ * `attachment_ids` 传了 = 全量替换,不传 = 不动附件。
+ */
+export interface CustomsUpdateBody {
+  declaration_no?: string;
+  declared_at?: string;
+  released_at?: string | null;
+  declarant?: string | null;
+  customs_office?: string | null;
+  note?: string | null;
+  /** 乐观锁基线 = 打开编辑时的 decl.updated_at。 */
+  expected_updated_at: string;
+  /** 传了 = 全量替换附件(未列出的后端软删);不传 = 附件不动。 */
+  attachment_ids?: number[];
+}
+
 function qs(p: Record<string, unknown>): string {
   const q = new URLSearchParams();
   Object.entries(p).forEach(([k, v]) => {
@@ -156,6 +220,8 @@ export interface ShipmentListFilters {
   keyword?: string;
   /** 当前物流状态(派生)筛选:DEPARTED(已离港)/TRANSSHIPMENT(中转)/ARRIVED(到港)。 */
   logistics_status?: string;
+  /** 报关状态(派生)筛选:NONE(未报关)/DECLARED(已申报)/RELEASED(已放行)。 */
+  customs_status?: string;
   page?: number;
   size?: number;
 }
@@ -188,4 +254,14 @@ export const shipmentApi = {
   /** 软删事件。 */
   deleteEvent: (id: number, eventId: number) =>
     api.del<ShipmentDetail>(`/api/v1/shipments/${id}/logistics-events/${eventId}`),
+  // ---- 报关(发运柜子资源;柜 LOADED/DEPARTED 才可录,至多一条活动记录)----
+  /** 录入报关(录入即已申报)。守卫:柜状态 42012 / 已有记录 42013。 */
+  createCustoms: (id: number, b: CustomsCreateBody) =>
+    api.post<ShipmentDetail>(`/api/v1/shipments/${id}/customs-declarations`, b),
+  /** 改报关(编辑/回填放行日)。必带 expected_updated_at;冲突 42015。 */
+  updateCustoms: (id: number, declId: number, b: CustomsUpdateBody) =>
+    api.patch<ShipmentDetail>(`/api/v1/shipments/${id}/customs-declarations/${declId}`, b),
+  /** 软删报关(纠错重录;级联软删附件)。 */
+  deleteCustoms: (id: number, declId: number) =>
+    api.del<ShipmentDetail>(`/api/v1/shipments/${id}/customs-declarations/${declId}`),
 };

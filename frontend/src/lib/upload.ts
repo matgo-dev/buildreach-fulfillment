@@ -1,6 +1,5 @@
-import { api } from "./api";
+import { api, authFetch } from "./api";
 import { getApiBase } from "./env";
-import { useAuthStore } from "@/stores/authStore";
 
 interface CreateUploadOut {
   key: string;
@@ -24,18 +23,12 @@ export async function uploadImage(file: File): Promise<string> {
 
   const isAbsolute = /^https?:\/\//i.test(res.upload_url);
   const url = isAbsolute ? res.upload_url : `${getApiBase()}${res.upload_url}`;
-  const headers: Record<string, string> = { "Content-Type": file.type };
-  if (!isAbsolute) {
-    const token = useAuthStore.getState().accessToken;
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-  }
+  const init = { method: res.method || "PUT", headers: { "Content-Type": file.type }, body: file };
 
-  const put = await fetch(url, {
-    method: res.method || "PUT",
-    headers,
-    body: file,
-    credentials: isAbsolute ? "omit" : "include",
-  });
+  // OSS presigned 直传:不带 Authorization/凭据;本地 PUT:走 authFetch(Bearer + 401 刷新重试)。
+  const put = isAbsolute
+    ? await fetch(url, { ...init, credentials: "omit" })
+    : await authFetch(url, init);
   if (!put.ok) throw new Error(`图片上传失败 (${put.status})`);
   return res.key;
 }

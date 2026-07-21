@@ -330,8 +330,16 @@ uvicorn app.main:app --reload --port 8000
 对象存储默认 `STORAGE_BACKEND=local`(写入 `backend/private_uploads/attachments`),不需要额外起
 MinIO。要在本地验证 S3/MinIO 路径,单独起一个 MinIO 容器并把 `STORAGE_BACKEND` 切成 `s3`
 (见 `.env.example` 里注释的 `S3_*` 项)即可,不需要整套 `docker compose up`。商品图(`main_image`/
-`images`/`sku.image`)与附件共用同一套 `Storage`(`local` 落同一目录,`s3` 即生产 S3 兼容云对象存储),没有
-独立的新环境变量。
+`images`/`sku.image`)与单据附件共用同一套 `Storage`(`local` 落同一目录,`s3` 即生产 S3 兼容云对象存储)。
+
+**单据附件**(报关增量引入):报关单/放行扫描件等走**后端中转上传**(非直传),端点
+`POST /api/v1/attachments`(守 `shipment:manage`)+ `GET /api/v1/attachments/{id}/download`(逐文件
+鉴权,强制下载)。上传做三层类型校验(扩展名 + 声明 MIME + libmagic 嗅探),需系统 `libmagic`
+(Debian/Ubuntu `apt-get install libmagic1`,macOS `brew install libmagic`;`python-magic` 装不上它)。
+可调环境变量(均有默认值,见 `.env.example`):`ATTACHMENT_MAX_SIZE_BYTES`(默认 50MB)、
+`ATTACHMENT_ORPHAN_TTL_HOURS`(72h,未提交表单的孤儿附件可关联/下载时效)、
+`ATTACHMENT_ORPHAN_QUOTA_COUNT`/`ATTACHMENT_ORPHAN_QUOTA_BYTES`(单用户孤儿配额 20 个 / 100MB)、
+`ATTACHMENT_MAX_PER_OWNER`(单报关记录附件数上限 10)。
 
 ### 3. 前端
 
