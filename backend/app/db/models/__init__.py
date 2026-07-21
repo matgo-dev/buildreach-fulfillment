@@ -23,6 +23,8 @@ from app.db.models.shipment_order import ShipmentOrder  # noqa: F401
 from app.db.models.shipment_event import ShipmentEvent  # noqa: F401
 from app.db.models.outbound_order import OutboundOrder, OutboundOrderLine  # noqa: F401
 from app.db.models.receivable import Receivable  # noqa: F401
+from app.db.models.customs_declaration import CustomsDeclaration  # noqa: F401
+from app.db.models.attachment import Attachment  # noqa: F401
 
 __all__ = [
     "User", "Role", "RoleCode", "Permission",

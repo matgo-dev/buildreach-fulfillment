@@ -51,6 +51,7 @@ import { OUTBOUND_ORDER_STATUS_META } from "@/lib/outboundOrderStatus";
 import { OutboundSalesOrderPicker } from "@/components/outbound/OutboundSalesOrderPicker";
 import { OutboundOrderBuilder } from "@/components/outbound/OutboundOrderBuilder";
 import { LogisticsTrackCard } from "@/components/shipment/LogisticsTrackCard";
+import { CustomsCard } from "@/components/shipment/CustomsCard";
 
 // 编辑按钮文案随状态变(可编辑字段集不同,直接点出能改啥):OPEN 全量柜信息 /
 // LOADED 船务信息 / DEPARTED 仅提单号·ETA·备注可补(提单常离港后签发,故点名提单/ETA)。
@@ -432,6 +433,18 @@ export default function ShipmentDetailPage() {
           <Timeline style={{ paddingTop: 8 }} items={timelineItems} />
         </Card>
       </div>
+
+      {/* 报关:封柜/离港后子资源。业务时序=封柜→报关→离港→物流,故报关卡在物流轨迹卡之前。
+          仅 customs_status!==null(LOADED/DEPARTED 柜)挂本卡;OPEN/CANCELLED 柜不适用。 */}
+      {detail.customs_status !== null && (
+        <CustomsCard
+          shipmentId={id}
+          shipmentStatus={shipment.status}
+          customsStatus={detail.customs_status}
+          declaration={detail.customs_declaration}
+          onChanged={load}
+        />
+      )}
 
       {/* 物流轨迹:柜离港后在途里程碑(中转/到港手动录入)。仅已发运柜显 —— 未离港无在途轨迹。 */}
       {shipment.status === "DEPARTED" && (

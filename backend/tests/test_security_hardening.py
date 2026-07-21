@@ -231,7 +231,9 @@ async def test_security_headers_present(client):
 
 
 @pytest.mark.asyncio
-async def test_attachments_endpoint_removed(client):
+async def test_attachments_endpoint_requires_auth(client):
+    """附件上传端点(报关增量引入)对匿名请求不可达:无 token → 401(守 shipment:manage,
+    绝无匿名上传路径)。曾在安全加固期作为「无消费者的空端点」被移除,现为真实受控功能。"""
     files = {"file": ("x.txt", b"hi", "text/plain")}
     r = await client.post("/api/v1/attachments", files=files)
-    assert r.status_code == 404
+    assert r.status_code == 401, r.text

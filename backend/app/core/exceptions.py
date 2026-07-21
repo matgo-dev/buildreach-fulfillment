@@ -19,7 +19,9 @@
   18 | 销售单     | 418xx
   19 | 出库单     | 419xx(含 41910 撤销出库·柜已封柜/发运守卫)
   20 | 柜/发运    | 420xx(42002 非法转移·单义;42003/42004 封柜守卫;42005 字段门禁;42006 编辑冲突;
-       |            |       42007 撤离港带活动事件;42008 非 DEPARTED 不可录事件;42009 重复到港;42010 事件越柜)
+       |            |       42007 撤离港带活动事件;42008 非 DEPARTED 不可录事件;42009 重复到港;42010 事件越柜;
+       |            |       42011 撤封柜带活动报关;42012 柜态不可报关;42013 重复活动报关;42014 报关越柜;42015 报关编辑冲突)
+  21 | 附件       | 421xx(42101 类型不允许;42102 超大;42103 孤儿配额;42104 不可用;42105 数量超上限)
 
 兜底码:
   40000 = 通用客户端兜底(裸 HTTPException 降级)
@@ -620,6 +622,82 @@ class ShipmentEventNotOnShipmentError(BusinessError):
 
     def __init__(self, message: str = "Logistics event does not belong to this shipment"):
         super().__init__(status.HTTP_400_BAD_REQUEST, 42010, message)
+
+
+# 报关记录(段 20 延用:发运柜子资源,回填结果,不新开段)。见 db/models/customs_declaration.py。
+# 42011 撤封柜带活动报关 / 42012 柜态不可报关 / 42013 重复活动报关 / 42014 报关越柜 / 42015 编辑冲突。
+class ShipmentHasActiveCustomsError(BusinessError):
+    """撤封柜(LOADED→OPEN)被拦:柜下存在活动报关记录。柜内容变了申报即失效,
+    须先删报关再撤封柜(同 42007 撤离港被活动物流事件拦的范式)。"""
+
+    def __init__(self, message: str = "Cannot unload: shipment has an active customs declaration"):
+        super().__init__(status.HTTP_409_CONFLICT, 42011, message)
+
+
+class CustomsShipmentNotDeclarableError(BusinessError):
+    """录/改/删报关被拦:柜状态非 LOADED/DEPARTED(报关发生在封柜后、到货前)。"""
+
+    def __init__(self, message: str = "Cannot manage customs: shipment not loaded or departed"):
+        super().__init__(status.HTTP_409_CONFLICT, 42012, message)
+
+
+class CustomsDuplicateActiveError(BusinessError):
+    """该柜已有一条活动报关记录(整柜一次报关,偏唯一;纠错请软删重录)。"""
+
+    def __init__(self, message: str = "Shipment already has an active customs declaration"):
+        super().__init__(status.HTTP_409_CONFLICT, 42013, message)
+
+
+class CustomsNotOnShipmentError(BusinessError):
+    """报关记录不属于路径上的发运柜(仅跨柜语义;不存在/已删走 404)。镜像 42010。"""
+
+    def __init__(self, message: str = "Customs declaration does not belong to this shipment"):
+        super().__init__(status.HTTP_400_BAD_REQUEST, 42014, message)
+
+
+class CustomsEditConflictError(BusinessError):
+    """乐观锁:expected_updated_at 与库中不一致(报关记录被他人改后 stale 提交)。
+    镜像 42006:前端据此提示「已被他人修改,请刷新」。"""
+
+    def __init__(self, message: str = "Customs declaration was modified by someone else"):
+        super().__init__(status.HTTP_409_CONFLICT, 42015, message)
+
+
+# ── 附件域(段 21;单据扫描件基建。见 db/models/attachment.py)──────────────
+class AttachmentTypeNotAllowedError(BusinessError):
+    """42101 — 附件类型不允许(不落允许族:扩展名/声明 MIME/嗅探 MIME 任一不匹配)。"""
+
+    def __init__(self, message: str = "Attachment type not allowed"):
+        super().__init__(422, 42101, message)
+
+
+class AttachmentTooLargeError(BusinessError):
+    """42102 — 附件超大小上限。"""
+
+    def __init__(self, message: str = "Attachment too large"):
+        super().__init__(413, 42102, message)
+
+
+class AttachmentOrphanQuotaError(BusinessError):
+    """42103 — 孤儿附件配额超限(单用户活动孤儿数量/字节双限)。"""
+
+    def __init__(self, message: str = "Orphan attachment quota exceeded"):
+        super().__init__(422, 42103, message)
+
+
+class AttachmentUnavailableError(BusinessError):
+    """42104 — 附件不可用(不存在 / 已删 / 已归属他单 / 非本人孤儿 / 已过 TTL)。
+    统一码不暴露存在性(下载 scope 拒绝、关联校验拒绝、查无一律走此)。"""
+
+    def __init__(self, message: str = "Attachment unavailable"):
+        super().__init__(status.HTTP_404_NOT_FOUND, 42104, message)
+
+
+class AttachmentTooManyError(BusinessError):
+    """42105 — 单报关记录关联附件数超上限(10)。"""
+
+    def __init__(self, message: str = "Too many attachments, maximum 10 allowed"):
+        super().__init__(422, 42105, message)
 
 
 def success(data: Any = None, message: str = "ok") -> dict:

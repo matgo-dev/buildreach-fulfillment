@@ -55,10 +55,24 @@ const OUTBOUND_ERROR_MESSAGES: Record<number, string> = {
   41710: "库存已被出库消费,请先撤销出库再撤销入库",
 };
 
+// 报关域(段 420xx 尾)+ 附件域(段 421xx)。未列出的沿用后端 message。
+const CUSTOMS_ERROR_MESSAGES: Record<number, string> = {
+  42011: "撤封柜前请先删除报关记录",
+  42012: "当前柜状态不可报关",
+  42013: "该柜已有报关记录",
+  42015: "报关已被他人修改,请刷新后重试",
+  42101: "文件类型不允许",
+  42102: "文件超过大小上限",
+  42103: "暂存附件过多,请先提交或删除",
+  42104: "附件不可用",
+  42105: "附件数量超过上限",
+};
+
 const BIZ_ERROR_MESSAGES: Record<number, string> = {
   ...PURCHASE_ERROR_MESSAGES,
   ...INBOUND_ERROR_MESSAGES,
   ...OUTBOUND_ERROR_MESSAGES,
+  ...CUSTOMS_ERROR_MESSAGES,
 };
 
 /** 统一错误提示入口:ApiError 且 code 已注册 → 注册文案;其它 Error → e.message;非 Error → fallback。 */
