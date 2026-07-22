@@ -29,6 +29,7 @@ from app.db.models.receipt import Receipt  # noqa: F401
 from app.db.models.payment import Payment  # noqa: F401
 from app.db.models.receipt_allocation import ReceiptAllocation  # noqa: F401
 from app.db.models.payment_allocation import PaymentAllocation  # noqa: F401
+from app.db.models.refresh_token_family import RefreshTokenFamily  # noqa: F401
 from app.db.models.refresh_token import RefreshToken  # noqa: F401
 
 __all__ = [
@@ -40,5 +41,6 @@ __all__ = [
     "InboundOrder", "InboundOrderLine", "Payable",
     "ShipmentOrder", "ShipmentEvent", "OutboundOrder", "OutboundOrderLine", "Receivable",
     "CustomsDeclaration", "Attachment",
-    "Receipt", "Payment", "ReceiptAllocation", "PaymentAllocation", "RefreshToken",
+    "Receipt", "Payment", "ReceiptAllocation", "PaymentAllocation",
+    "RefreshTokenFamily", "RefreshToken",
 ]

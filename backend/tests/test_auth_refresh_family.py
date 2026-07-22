@@ -11,8 +11,9 @@ import pytest
 from sqlalchemy import select
 
 from app.core.config import settings
-from app.core.security import create_refresh_token
+from app.core.security import create_refresh_token, hash_jti
 from app.db.models.refresh_token import RefreshToken
+from app.db.models.refresh_token_family import RefreshTokenFamily
 from app.services.rate_limit import login_rate_limiter
 from app.services.user_service import create_internal_user
 
@@ -57,9 +58,10 @@ async def _rows_for(db_session, user_id: int) -> list[RefreshToken]:
 
 
 async def _revoked_values(db_session, user_id: int) -> list:
-    """列级取 revoked_at 值(不经 ORM identity map,反映另一 session 已提交的最新状态)。"""
+    """列级取该用户各**家族**的 revoked_at(族级承载行 = 撤销单一源头;不经 identity map,
+    反映另一 session 已提交的最新状态)。"""
     res = await db_session.execute(
-        select(RefreshToken.revoked_at).where(RefreshToken.user_id == user_id))
+        select(RefreshTokenFamily.revoked_at).where(RefreshTokenFamily.user_id == user_id))
     return [r[0] for r in res.all()]
 
 
@@ -76,7 +78,9 @@ async def test_login_records_active_family_row(client, db_session):
     row = rows[0]
     assert row.family_id and len(row.family_id) == 32
     assert row.jti_hash and len(row.jti_hash) == 64
-    assert row.used_at is None and row.revoked_at is None
+    assert row.used_at is None
+    # 族级承载行存在且活动(撤销状态落在族行,不在成员行上)
+    assert (await _revoked_values(db_session, user.id)) == [None]
 
 
 # ─── 轮换:父标 used、同族派生子 ────────────────────────────────
@@ -98,7 +102,8 @@ async def test_refresh_consumes_parent_and_mints_child_in_family(client, db_sess
     assert used[0].family_id == fresh[0].family_id
     # 父指向后继
     assert used[0].replaced_by_jti_hash == fresh[0].jti_hash
-    assert fresh[0].revoked_at is None
+    # 轮换不撤族:族仍活动
+    assert (await _revoked_values(db_session, user.id)) == [None]
 
 
 # ─── 窗外重放 → 撤整族 ──────────────────────────────────────────
@@ -129,8 +134,9 @@ async def test_replay_outside_grace_revokes_whole_family(client, db_session):
     # 整族被撤:连合法的后继 token 也失效
     rn = await _refresh_with(client, new_cookie)
     assert rn.status_code == 401
+    # 族级承载行被撤(单一源头);该族两个成员共此一条撤销事实
     revoked = await _revoked_values(db_session, user.id)
-    assert len(revoked) == 2 and all(v is not None for v in revoked)
+    assert len(revoked) == 1 and revoked[0] is not None
 
 
 # ─── 窗内重放 → 容忍,不撤族 ────────────────────────────────────
@@ -297,3 +303,35 @@ async def test_login_cleanup_is_global_and_spares_live_rows(client, db_session):
     b_left = await _rows_for(db_session, user_b.id)
     assert len(a_left) == 1 and a_left[0].expires_at > now  # 过期行没了,活行还在
     assert len(b_left) == 1
+
+
+# ─── P1:撤族必须覆盖「撤族后才出生的族成员」(幻影行逃逸回归) ────
+
+@pytest.mark.asyncio
+async def test_revoke_covers_member_born_after_revoke(client, db_session):
+    """撤族(logout/重放)必须让『撤族后才出现在族里的成员』也失效。
+
+    真实场景:撤族与一个并发正常 refresh 同时发生,refresh 刚 INSERT 的新子 token
+    是撤族 set-based 写快照外的幻影行,漏撤 → 逃逸续命,击穿「整族全撤」。
+    这里手动 INSERT 一枚「撤族后出生的活成员」精确复现该逃逸。
+    """
+    user = await _mk_user(db_session, "famphantom@fulfillment.local")
+    r1 = await _login(client, user.email)
+    assert r1.status_code == 200
+    family_id = (await _rows_for(db_session, user.id))[0].family_id
+
+    # 服务端撤本会话族(client jar 里带着登录下发的 refresh cookie)
+    r2 = await client.post("/api/v1/auth/logout")
+    assert r2.status_code == 200
+
+    # 模拟「撤族瞬间并发派生」的逃逸子行:同族、全新、活着
+    now = datetime.now(timezone.utc)
+    token, jti = create_refresh_token(user.id, user.email, user.token_version)
+    db_session.add(RefreshToken(
+        user_id=user.id, family_id=family_id, jti_hash=hash_jti(jti),
+        issued_at=now, expires_at=now + timedelta(days=7)))
+    await db_session.commit()
+
+    # 族已撤 → 这个逃逸成员也必须续不了命
+    rr = await _refresh_with(client, token)
+    assert rr.status_code == 401

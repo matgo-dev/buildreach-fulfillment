@@ -14,8 +14,10 @@ _SHA256_HEX_LEN = 64
 class RefreshToken(Base):
     """Refresh token 家族账本 —— 服务端记账,支撑轮换作废 + 重放检测 + 单会话吊销。
 
-    一次登录开一个 family(token 家族);refresh 轮换在同族内派生后继并把父行标 `used_at`。
-    重放(已 used 的父 token 在宽限窗外再现)→ 撤整族;logout → 撤本族。
+    一次登录开一个 family(见 [RefreshTokenFamily]);refresh 轮换在同族内派生后继并把父行标
+    `used_at`。**「族已撤」不是成员行的事实**——撤销状态落在 `refresh_token_families.revoked_at`
+    这一族级承载行上,成员存活统一读 `family.revoked_at`(错题集 A8:组级不变量 ≠ 成员级锁,
+    成员行不带 revoked_at,杜绝「撤族漏扫并发派生的幻影行」)。
     与 `users.token_version` 分工:tv = 改密/封号的全局总闸(一刀切所有会话);
     family = 单会话精确掐断,两层各管各、非二选一。
 
@@ -23,21 +25,19 @@ class RefreshToken(Base):
     无红线字段(无成本/供应商/售价)。
 
     过期行惰性清理:登录成功路径执行 set-based `DELETE WHERE expires_at <= now`
-    (auth_service.login,走 expires_at 索引,全表谓词);used/revoked 行到期后同样
-    落入该谓词。稳态表大小 ≈ 7 天滚动窗内的签发量,有界。
+    (auth_service.login,走 expires_at 索引,全表谓词);used 行到期后同样落入该谓词。
+    成员清空后的空族随后一并清理。稳态表大小 ≈ 7 天滚动窗内的签发量,有界。
 
     `issued_at` 即本行创建时刻(不再叠 created_at);`user_id` 即创建人=持有人
-    (不叠 created_by,归属唯一);行状态由 used_at/revoked_at 显式列表达,无 updated_at。
+    (不叠 created_by,归属唯一);行状态由 used_at 显式列表达,无 updated_at。
     """
     __tablename__ = "refresh_tokens"
     __table_args__ = (
         CheckConstraint("expires_at > issued_at",
                         name="ck_refresh_tokens_expiry_after_issue"),
-        # 时序:消费/撤销时刻不得早于签发(DB 兜底,脏行会喂错宽限窗计算)。
+        # 时序:消费时刻不得早于签发(DB 兜底,脏行会喂错宽限窗计算)。
         CheckConstraint("used_at IS NULL OR used_at >= issued_at",
                         name="ck_refresh_tokens_used_after_issue"),
-        CheckConstraint("revoked_at IS NULL OR revoked_at >= issued_at",
-                        name="ck_refresh_tokens_revoked_after_issue"),
         # 轮换恒同时写 used_at + replaced_by;配对 CHECK 挡住「标 used 漏写后继」半态脏行。
         CheckConstraint("(used_at IS NULL) = (replaced_by_jti_hash IS NULL)",
                         name="ck_refresh_tokens_used_replaced_paired"),
@@ -47,8 +47,12 @@ class RefreshToken(Base):
     # 持有人。RESTRICT:有 token 记录的用户不可硬删(先撤 token / 走注销)。FK 铁律全量索引。
     user_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
-    # 一次登录一个家族 id(uuid4 hex,32);family 维度撤销(登出/重放)的查询列 → 索引。
-    family_id: Mapped[str] = mapped_column(String(_UUID4_HEX_LEN), nullable=False, index=True)
+    # 所属家族(组级承载行)。FK RESTRICT:族行不可先于成员删(惰性清理先删成员后删空族)。
+    # 撤族/清理的查询列 + FK 铁律 → 索引。
+    family_id: Mapped[str] = mapped_column(
+        String(_UUID4_HEX_LEN),
+        ForeignKey("refresh_token_families.id", ondelete="RESTRICT"),
+        nullable=False, index=True)
     # 本 refresh token jti 的 sha256 十六进制(64)。refresh 查库的主路径;唯一(索引即唯一约束)。
     jti_hash: Mapped[str] = mapped_column(String(_SHA256_HEX_LEN), nullable=False, unique=True)
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -58,12 +62,10 @@ class RefreshToken(Base):
     # 轮换消费时刻(父行被换掉的时点);宽限窗从此刻起算、不因窗内重放而延后。NULL = 未用。
     used_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True)
-    # 家族被撤时刻(重放检测 / 登出 / 吊销)。NULL = 活动。
-    revoked_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True)
-    # 轮换出的后继 jti_hash(链路追溯)。NULL = 未轮换。自引用 FK 保证不指向不存在的行;
-    # 惰性清理按 expires_at 先删父后删子,SET NULL 实际不会触发,仅作完整性兜底。
+    # 轮换出的后继 jti_hash(链路追溯)。NULL = 未轮换。自引用 FK 保证不指向不存在的行。
+    # index:FK 铁律,且有既有消费者——惰性清理 DELETE 时 PG 按 ON DELETE SET NULL 对每个
+    # 被删行反查引用者,无索引即逐行 seq scan(增长型性能雷)。
     replaced_by_jti_hash: Mapped[str | None] = mapped_column(
         String(_SHA256_HEX_LEN),
         ForeignKey("refresh_tokens.jti_hash", ondelete="SET NULL"),
-        nullable=True)
+        nullable=True, index=True)
