@@ -8,14 +8,16 @@
 
 # ============= deps =============
 FROM node:20.18-slim AS deps
-RUN corepack enable
+# 直接 npm 装 pnpm(不走 corepack:node20.18 自带 corepack 签名密钥过期,拉 pnpm 会 keyid 校验失败)
+RUN npm install -g pnpm@9.15.0
 WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
 # ============= builder =============
 FROM node:20.18-slim AS builder
-RUN corepack enable
+# 直接 npm 装 pnpm(不走 corepack:node20.18 自带 corepack 签名密钥过期,拉 pnpm 会 keyid 校验失败)
+RUN npm install -g pnpm@9.15.0
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -30,7 +32,8 @@ ENV NODE_ENV=production \
     PORT=3000 \
     HOSTNAME=0.0.0.0
 WORKDIR /app
-RUN useradd -m -u 1000 nextjs
+# UID 1001:node:slim 基础镜像默认 node 用户已占 1000,复用会 useradd exit 4
+RUN useradd -m -u 1001 nextjs
 # standalone 自包含产物:server.js + 运行所需最小 node_modules
 COPY --from=builder --chown=nextjs:nextjs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nextjs /app/.next/static ./.next/static
