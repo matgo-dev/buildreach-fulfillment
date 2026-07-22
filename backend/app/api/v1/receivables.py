@@ -35,3 +35,9 @@ async def list_receivables(page_params: PageParams = Depends(), customer_id: int
     return success(Page(
         items=[ReceivableListItem.build(it) for it in items],
         total=total, page=page_params.page, size=page_params.size).model_dump())
+
+
+@router.get("/{receivable_id}", summary="应收款详情(嵌活动核销记录:哪笔收款冲了多少)")
+async def get_receivable(receivable_id: int, _current: CurrentUser = _READ,
+                         db: AsyncSession = Depends(get_db)):
+    return success(await receivable_service.get_detail(db, receivable_id))

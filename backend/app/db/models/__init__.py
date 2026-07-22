@@ -25,6 +25,10 @@ from app.db.models.outbound_order import OutboundOrder, OutboundOrderLine  # noq
 from app.db.models.receivable import Receivable  # noqa: F401
 from app.db.models.customs_declaration import CustomsDeclaration  # noqa: F401
 from app.db.models.attachment import Attachment  # noqa: F401
+from app.db.models.receipt import Receipt  # noqa: F401
+from app.db.models.payment import Payment  # noqa: F401
+from app.db.models.receipt_allocation import ReceiptAllocation  # noqa: F401
+from app.db.models.payment_allocation import PaymentAllocation  # noqa: F401
 
 __all__ = [
     "User", "Role", "RoleCode", "Permission",
@@ -34,4 +38,6 @@ __all__ = [
     "Supplier", "PurchaseOrder", "PurchaseOrderLine",
     "InboundOrder", "InboundOrderLine", "Payable",
     "ShipmentOrder", "ShipmentEvent", "OutboundOrder", "OutboundOrderLine", "Receivable",
+    "CustomsDeclaration", "Attachment",
+    "Receipt", "Payment", "ReceiptAllocation", "PaymentAllocation",
 ]

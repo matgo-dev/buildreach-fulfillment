@@ -23,6 +23,9 @@
        |            |       42011 撤封柜带活动报关;42012 柜态不可报关;42013 重复活动报关;42014 报关越柜;42015 报关编辑冲突;
        |            |       42016 报关单号已被占用)
   21 | 附件       | 421xx(42101 类型不允许;42102 超大;42103 孤儿配额;42104 不可用;42105 数量超上限)
+  22 | 财务       | 422xx(核销引擎:42201 核销超收付款未分配;42202 核销超账余额;42203 跨币种;
+       |            |       42204 客户/供应商不匹配;42205 反核销记录不存在/已反核销;42206 账已作废不可核销;
+       |            |       42207 认领非 UNCLAIMED;42208 已有活动核销不可作废;42209 收付款单已作废不可操作)
 
 兜底码:
   40000 = 通用客户端兜底(裸 HTTPException 降级)
@@ -708,6 +711,73 @@ class AttachmentTooManyError(BusinessError):
 
     def __init__(self, message: str = "Too many attachments, maximum 10 allowed"):
         super().__init__(422, 42105, message)
+
+
+# ---------- 财务(核销引擎,模块段 22)----------
+
+
+class AllocationExceedsSourceError(BusinessError):
+    """42201 — 核销金额超收款/付款单未分配余额。"""
+
+    def __init__(self, message: str = "Allocation exceeds source unallocated balance"):
+        super().__init__(status.HTTP_409_CONFLICT, 42201, message)
+
+
+class AllocationExceedsAccountError(BusinessError):
+    """42202 — 核销金额超应收/应付款余额。"""
+
+    def __init__(self, message: str = "Allocation exceeds account balance"):
+        super().__init__(status.HTTP_409_CONFLICT, 42202, message)
+
+
+class AllocationCurrencyMismatchError(BusinessError):
+    """42203 — 跨币种核销(收付币种 ≠ 账币种)。"""
+
+    def __init__(self, message: str = "Currency mismatch between receipt/payment and account"):
+        super().__init__(status.HTTP_409_CONFLICT, 42203, message)
+
+
+class AllocationCounterpartyMismatchError(BusinessError):
+    """42204 — 客户/供应商不匹配(收款客户 ≠ 应收客户,付款供应商 ≠ 应付供应商)。"""
+
+    def __init__(self, message: str = "Counterparty mismatch"):
+        super().__init__(status.HTTP_409_CONFLICT, 42204, message)
+
+
+class AllocationReverseNotFoundError(BusinessError):
+    """42205 — 反核销:核销记录不存在 / 已反核销(幂等)。"""
+
+    def __init__(self, message: str = "Allocation not found or already reversed"):
+        super().__init__(status.HTTP_404_NOT_FOUND, 42205, message)
+
+
+class AccountVoidedCannotAllocateError(BusinessError):
+    """42206 — 账已作废(voided_at 非空),不可核销。"""
+
+    def __init__(self, message: str = "Account is voided, cannot allocate"):
+        super().__init__(status.HTTP_409_CONFLICT, 42206, message)
+
+
+class ReceiptNotUnclaimedError(BusinessError):
+    """42207 — 认领 / 人工核销前置:收款单非 UNCLAIMED(已认领不可重认领)或
+    未认领单不可人工核销(customer_id 为空)。"""
+
+    def __init__(self, message: str = "Receipt is not in UNCLAIMED state"):
+        super().__init__(status.HTTP_409_CONFLICT, 42207, message)
+
+
+class SourceHasActiveAllocationsError(BusinessError):
+    """42208 — 收款/付款单已有活动核销,不可作废(先反核销)。"""
+
+    def __init__(self, message: str = "Receipt/Payment has active allocations, reverse first"):
+        super().__init__(status.HTTP_409_CONFLICT, 42208, message)
+
+
+class SourceVoidedError(BusinessError):
+    """42209 — 收款/付款单已作废,不可认领/核销。"""
+
+    def __init__(self, message: str = "Receipt/Payment is voided"):
+        super().__init__(status.HTTP_409_CONFLICT, 42209, message)
 
 
 def success(data: Any = None, message: str = "ok") -> dict:

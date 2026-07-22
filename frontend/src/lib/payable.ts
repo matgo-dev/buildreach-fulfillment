@@ -38,6 +38,36 @@ export interface PayableListItem {
   status: PayableStatus;
   due_at: string | null;
   created_at: string;
+  /** 该供应商名下有未分配付款余额(可一键用余额核销此账)。 */
+  counterparty_has_unallocated: boolean;
+}
+
+/** 应付详情内活动核销记录行:哪笔付款、冲了多少、何时。 */
+export interface PayableAllocationRow {
+  id: number;
+  payment_id: number;
+  payment_no: string;
+  amount: number;
+  alloc_type: "AUTO" | "MANUAL";
+  created_at: string;
+}
+
+/** 应付详情(账头 + 活动核销记录),GET /payables/{id}。🔴红线。 */
+export interface PayableDetail {
+  id: number;
+  inbound_order_id: number;
+  inbound_order_no: string;
+  purchase_order_id: number;
+  supplier_id: number;
+  supplier_display: string | null;
+  currency: string;
+  amount_original: number;
+  amount_allocated: number;
+  balance: number;
+  status: PayableStatus;
+  due_at: string | null;
+  created_at: string;
+  allocations: PayableAllocationRow[];
 }
 
 /** 派生状态徽标映射。 */
@@ -75,4 +105,5 @@ export interface PayableListFilters {
 export const payableApi = {
   list: (p: PayableListFilters) =>
     api.get<Page<PayableListItem>>(`/api/v1/payables${qs(p as Record<string, unknown>)}`),
+  get: (id: number) => api.get<PayableDetail>(`/api/v1/payables/${id}`),
 };

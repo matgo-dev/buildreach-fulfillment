@@ -22,6 +22,36 @@ export interface ReceivableListItem {
   status: ReceivableStatus;
   due_at: string | null;
   created_at: string;
+  /** 该客户名下有未分配收款余额(可一键用余额核销此账)。 */
+  counterparty_has_unallocated: boolean;
+}
+
+/** 应收详情内活动核销记录行:哪笔收款、冲了多少、何时。 */
+export interface ReceivableAllocationRow {
+  id: number;
+  receipt_id: number;
+  receipt_no: string;
+  amount: number;
+  alloc_type: "AUTO" | "MANUAL";
+  created_at: string;
+}
+
+/** 应收详情(账头 + 活动核销记录),GET /receivables/{id}。 */
+export interface ReceivableDetail {
+  id: number;
+  outbound_order_id: number;
+  outbound_order_no: string;
+  sales_order_id: number;
+  customer_id: number;
+  customer_display: string | null;
+  currency: string;
+  amount_original: number;
+  amount_allocated: number;
+  balance: number;
+  status: ReceivableStatus;
+  due_at: string | null;
+  created_at: string;
+  allocations: ReceivableAllocationRow[];
 }
 
 /** 派生状态徽标映射(沿用应付三色:warning / processing / success)。 */
@@ -54,4 +84,5 @@ export interface ReceivableListFilters {
 export const receivableApi = {
   list: (p: ReceivableListFilters) =>
     api.get<Page<ReceivableListItem>>(`/api/v1/receivables${qs(p as Record<string, unknown>)}`),
+  get: (id: number) => api.get<ReceivableDetail>(`/api/v1/receivables/${id}`),
 };

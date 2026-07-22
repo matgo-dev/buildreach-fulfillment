@@ -27,7 +27,8 @@ async def test_sync_seeds_admin_and_catalog_operator_roles_and_base_perms():
             await sync_rbac(db)
             roles = {r.code for r in (await db.execute(select(Role))).scalars()}
             perms = {p.code for p in (await db.execute(select(Permission))).scalars()}
-        assert roles == {"ADMIN", "PRODUCT_OPERATOR", "SALES", "PURCHASER", "LOGISTICS"}
+        assert roles == {"ADMIN", "PRODUCT_OPERATOR", "SALES", "PURCHASER", "LOGISTICS",
+                         "FINANCE"}
         assert "auth:login" in perms
         assert "user:manage" in perms
         # 未实现域不应有权限泄漏(rfq 询价尚未做);product:* 已是商品域实权限,不在此列。
@@ -41,6 +42,8 @@ async def test_sync_seeds_admin_and_catalog_operator_roles_and_base_perms():
         # 出库增量(主流程第6步)权限点已同步。
         assert {"outbound:read", "outbound:manage", "shipment:read", "shipment:manage",
                 "receivable:read"} <= perms
+        # 财务增量(主流程第11步)权限点已同步。
+        assert {"receipt:read", "receipt:manage", "payment:read", "payment:manage"} <= perms
     finally:
         # 本测试对共享 fulfillment_test 做了 drop_all/create_all,会冲掉 session 级 fixture
         # 种下的引导管理员(sync_rbac 只建角色/权限,不建 admin 用户)。恢复基线:重跑
@@ -101,6 +104,28 @@ def test_purchaser_role_permissions():
     assert Permissions.QUOTE_MANAGE not in perms
     assert Permissions.CUSTOMER_MANAGE not in perms
     assert Permissions.USER_MANAGE not in perms
+
+
+def test_finance_role_permissions():
+    perms = ROLE_PERMISSIONS["FINANCE"]
+    # 收付款登记/核销 + 读账层(核销需读应收应付)。
+    assert {Permissions.RECEIPT_READ, Permissions.RECEIPT_MANAGE, Permissions.PAYMENT_READ,
+            Permissions.PAYMENT_MANAGE, Permissions.RECEIVABLE_READ,
+            Permissions.PAYABLE_READ} <= set(perms)
+    # 财务不碰录单域写(报价/销售/采购/出库)、不碰主数据写、不碰系统域(职责分离)。
+    assert Permissions.QUOTE_MANAGE not in perms
+    assert Permissions.SALES_MANAGE not in perms
+    assert Permissions.PURCHASE_MANAGE not in perms
+    assert Permissions.OUTBOUND_MANAGE not in perms
+    assert Permissions.CUSTOMER_MANAGE not in perms
+    assert Permissions.USER_MANAGE not in perms
+
+
+def test_admin_no_finance_permissions():
+    # ADMIN 纯系统域:收付款/核销权限一律不授(既有格局不动)。
+    perms = ROLE_PERMISSIONS["ADMIN"]
+    assert Permissions.RECEIPT_MANAGE not in perms
+    assert Permissions.PAYMENT_MANAGE not in perms
 
 
 def test_logistics_role_permissions():

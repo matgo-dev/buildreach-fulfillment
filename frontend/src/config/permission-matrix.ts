@@ -57,6 +57,14 @@ export const Permissions = {
   SHIPMENT_MANAGE: "shipment:manage",
   // 红线域:应收款整域只对持 receivable:read 者下发(后端整块门控,非字段级)。
   RECEIVABLE_READ: "receivable:read",
+
+  // ----- 财务:收款单(客户售价侧,非红线,同 receivable:read 域)/ 付款单(红线域)-----
+  // 收款:登记/认领/核销/反核销。核销记录内应收额按 D9 门控(无 receivable:read 脱敏为 null)。
+  RECEIPT_READ: "receipt:read",
+  RECEIPT_MANAGE: "receipt:manage",
+  // 红线域:付款关联供应商 + 采购付款金额,整端点只对持 payment:read 者下发(后端脱敏)。
+  PAYMENT_READ: "payment:read",
+  PAYMENT_MANAGE: "payment:manage",
 } as const;
 
 export type PermissionCode = (typeof Permissions)[keyof typeof Permissions];

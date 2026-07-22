@@ -327,11 +327,16 @@ async def confirm_order(db: AsyncSession, *, order_id, actor_user_id, actor_user
     return order
 
 
-async def _get_active_receivable(db: AsyncSession, outbound_order_id: int) -> Receivable | None:
-    return (await db.execute(
-        select(Receivable).where(
-            Receivable.outbound_order_id == outbound_order_id,
-            Receivable.voided_at.is_(None)))).scalar_one_or_none()
+async def _get_active_receivable(db: AsyncSession, outbound_order_id: int, *,
+                                 for_update: bool = False) -> Receivable | None:
+    """取该出库单的活动应收。撤账路径须传 for_update=True 锁账行(D2):核销引擎锁的是
+    receipt+receivable,与撤账原本锁集不相交(TOCTOU 大开:撤账读到 allocated=0 → 核销提交 →
+    撤账照 void → 作废账挂活动核销)。锁下重判 amount_allocated>0,与核销串行化。"""
+    stmt = select(Receivable).where(
+        Receivable.outbound_order_id == outbound_order_id, Receivable.voided_at.is_(None))
+    if for_update:
+        stmt = stmt.with_for_update()
+    return (await db.execute(stmt)).scalar_one_or_none()
 
 
 async def revert_order(db: AsyncSession, *, order_id, void_reason: str | None, actor_user_id,
@@ -353,7 +358,8 @@ async def revert_order(db: AsyncSession, *, order_id, void_reason: str | None, a
         .with_for_update())).scalar_one()
     if ship.status != ShipmentOrderStatus.OPEN:
         raise OutboundShipmentLoadedCannotRevertError()
-    receivable = await _get_active_receivable(db, order.id)
+    # D2:锁账行(FOR UPDATE)后重判核销——与核销引擎串行化,闭合 TOCTOU。
+    receivable = await _get_active_receivable(db, order.id, for_update=True)
     if receivable is not None and Decimal(str(receivable.amount_allocated)) > 0:
         raise ReceivableAllocatedCannotRevertError()
     if receivable is not None:
