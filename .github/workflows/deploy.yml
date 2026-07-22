@@ -28,8 +28,18 @@ jobs:
           fetch-depth: 0
       - name: 检查破坏性迁移
         run: |
-          if git log -1 --pretty=%B | grep -q '\[allow-destructive-migration\]'; then
-            echo "已授权破坏性迁移,跳过检查"; exit 0
+          git fetch origin main --quiet 2>/dev/null || true
+          # 扫描范围 = 本分支相对 main 的分叉点;在 main 上(merge-base==HEAD)回落 HEAD~1,
+          # 兜住 squash 合并进来的那一整个提交(而非只看最后一条 commit)。
+          BASE=$(git merge-base origin/main HEAD 2>/dev/null || echo "")
+          if [ -z "$BASE" ] || [ "$BASE" = "$(git rev-parse HEAD)" ]; then
+            BASE=$(git rev-parse HEAD~1 2>/dev/null || echo "")
+          fi
+          export BASE_SHA="$BASE"
+          echo "迁移扫描范围: ${BASE_SHA:-<root>}..HEAD"
+          # 授权标记也只在被扫描范围内认(而非仅最后一条 commit message)
+          if [ -n "$BASE_SHA" ] && git log "$BASE_SHA..HEAD" --pretty=%B | grep -q '\[allow-destructive-migration\]'; then
+            echo "范围内已授权破坏性迁移,跳过检查"; exit 0
           fi
           bash deploy/check-migration-safety.sh
 
@@ -163,8 +173,6 @@ jobs:
     steps:
       - name: SSH 部署
         uses: appleboy/ssh-action@v1.0.3
-        env:
-          REF: ${{ github.ref_name }}
         with:
           host: ${{ secrets.OVH_HOST }}
           username: ${{ secrets.OVH_USER }}
@@ -172,12 +180,12 @@ jobs:
           port: 22
           command_timeout: 15m
           script_stop: true
-          envs: REF
           script: |
             cd /opt/fulfillment
-            git fetch origin
-            git reset --hard "origin/$REF"
-            DEPLOY_REF="origin/$REF" \
+            # 精确切到触发 workflow 的 commit —— 分支/tag 均可(tag 无 origin/<tag> 分支,不能 reset origin/$REF)
+            git fetch origin --tags --force
+            git reset --hard ${{ github.sha }}
+            DEPLOY_REF="${{ github.sha }}" \
             IMAGE_TAG=${{ needs.build.outputs.image_tag }} \
             GHCR_TOKEN=${{ secrets.GHCR_TOKEN }} \
             DEPLOY_API_BASE_URL=${{ secrets.OVH_PUBLIC_ORIGIN }} \

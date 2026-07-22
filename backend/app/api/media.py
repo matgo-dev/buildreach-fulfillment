@@ -1,10 +1,12 @@
-"""商品图公开读取 /media/{key} —— **仅 STORAGE_BACKEND=local 提供**。
+"""商品图读取 /media/{key} —— local 直读本地盘,s3 由后端代理对象存储(含私有桶)。
 
-DESIGN §8:商品图非红线,展示 URL 由存储层 `build_url` 给出;local 后端返回 `/media/{key}`。
-生产走对象存储公读桶(S3/OSS),`<img>` 直连桶,不经本服务(本端点返回 404)。
+商品图非红线。默认路径:前端 `<img src="{API_BASE}/media/{key}">` → 本端点用存储层
+`open(key)` 取流回吐,后端是 local(本地盘)还是 s3(MinIO / OVH Object Storage 私有桶)都通,
+不需要公读桶。若将来接了公读 CDN,可让前端置 IMAGE_BACKEND=s3 直连桶、绕过本服务。
 
-本地开发下前端 `<img src>` 无法携带 Bearer,故此端点**不加鉴权**;安全边界靠:
-① 仅 local 后端启用(生产不可达);② key 形状白名单(与 uploads 生成端一致,防路径穿越)。
+前端 `<img src>` 无法携带 Bearer,故此端点**不加鉴权**;安全边界靠:
+① key 形状白名单 `img/<uuid32>_<name>`(与 uploads 生成端一致,防路径穿越);
+② 该形状**只匹配商品图**,附件是不透明平键(无 `img/` 前缀)不被匹配,故附件不经本端点。
 """
 from __future__ import annotations
 
@@ -14,7 +16,6 @@ import re
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from app.core.config import settings
 from app.services.storage import get_attachment_storage
 
 router = APIRouter(prefix="/media", tags=["media"])
@@ -26,8 +27,6 @@ _CHUNK = 64 * 1024
 
 @router.get("/{key:path}", summary="读商品图(仅 local 后端;生产走公读桶)")
 async def read_media(key: str):
-    if settings.STORAGE_BACKEND != "local":
-        raise HTTPException(status_code=404, detail="对象存储走公读桶,不经本端点")
     if not _KEY_RE.fullmatch(key):
         raise HTTPException(status_code=400, detail="非法 key")
 
