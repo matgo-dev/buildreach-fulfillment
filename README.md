@@ -298,7 +298,7 @@
 ## 本地开发
 
 本地开发**复用现有 brew PostgreSQL**(`@ :5433`),不用容器编排里的 `db` 服务
-——`db` / `minio` 只在 `docker-compose.override.yml`(初期容器部署)里,供部署用。
+——`db` / `minio` 只在 `docker-compose*.yml`(整机 build / 部署)里,供部署用。
 
 ### 1. 建库(一次性)
 
@@ -458,51 +458,34 @@ access 过期后前端 401 时经 `POST /api/v1/auth/refresh` 单飞续期(并�
   (纯 HTTP 阶段两者都无效/被浏览器忽略,保持 false)。
 - `ENABLE_API_DOCS` 生产保持 false;`SUPER_ADMIN_INITIAL_PASSWORD` 部署前改强口令。
 
-## 容器部署(初期阿里云 ECS / 生产 OVH)
+## 容器部署(CI/CD:ECS Staging / OVH Production)
 
-应用编排(`docker-compose.yml`)只含 **backend + frontend**。三样「应用之外」的资源分层承载,
-应用不感知背后是容器还是托管——**两个环境只有 `.env` 不同,compose 文件完全一致**:
+**CI 构建镜像 → 推 ACR(阿里云,给 ECS)/ GHCR(给 OVH)→ SSH 到服务器跑 `deploy/deploy.sh`**
+(拉镜像 → 起容器 → 健康检查 → 失败自动回滚)。反向代理 + TLS 由宿主 **1Panel(OpenResty)** 承载,
+应用端口只绑 `127.0.0.1`。**完整手册见 [`deploy/README-deploy.md`](deploy/README-deploy.md)。**
 
-| 资源 | 初期(阿里云 ECS) | 生产(OVH) | 应用怎么切 |
-|---|---|---|---|
-| 库 | `db` 容器(override) | OVH 托管 PG | 只改 `.env` 的 `DATABASE_URL` |
-| 对象存储 | `minio` 容器(override) | OVH Object Storage | 只改 `.env` 的 `S3_*` |
-| 反向代理 + TLS | 宿主 1Panel(OpenResty) | 宿主 1Panel(OpenResty) | 应用不碰(端口只绑 `127.0.0.1`) |
+| | ECS(Staging) | OVH(Production) |
+|---|---|---|
+| 触发 | Actions → Build & Deploy,非 `release-v*` 分支 | 同上,`release-v*` 分支/tag |
+| 镜像源 | 阿里云 ACR(国内快) | GHCR |
+| 对外 | IP + http | 域名 + https(1Panel 签证书) |
 
-`docker-compose.override.yml` 装 `db` + `minio` + 一次性建桶,**docker compose 默认自动合并**它;
-生产用 `-f docker-compose.yml` 显式排除。
+前端 `API_BASE_URL` **运行时注入**(`frontend/entrypoint.sh` 生成 `public/__env.js` → `window.__ENV`,
+`layout` 里 `<Script src="/__env.js">` 加载)——**同一镜像跑 ECS 与 OVH**,地址启动时给。
 
-### 初期(阿里云 ECS,库/对象存储用容器)
+### 编排文件
 
-```bash
-cp .env.example .env
-# 用 .env 里【初期】标注的值:DATABASE_URL→db:5432、S3_*→minio;改强口令 + JWT_SECRET_KEY;
-# API_BASE_URL / CORS_ORIGINS 填 http://<ECS公网IP>
-docker compose up -d --build        # 自动含 override,连带起 db + minio + 建桶
-```
+- `docker-compose.production.yml` —— 部署用(**拉镜像**),`deploy.sh` 调用。含 `db` + `minio` + backend + frontend。
+- `docker-compose.yml` —— 本地整机 **build** 测试用(`cp .env.example .env && docker compose up -d --build`),不参与部署。
+- `.github/workflows/deploy.yml` —— `check-migration`(破坏性迁移闸门)→ `build`(推 ACR+GHCR)→ `deploy-ecs` / `deploy-ovh`。
 
-backend 容器启动即等库就绪→`alembic upgrade head`→幂等 seed 管理员→启动(见 `backend/docker-entrypoint.sh`);
-`minio-init` 幂等建好 bucket(`fulfillment-attachments`)。应用端口只绑 `127.0.0.1`(后端 `8001` / 前端 `3001`),
-对外靠宿主 **1Panel 建反向代理**:`/api` → `127.0.0.1:8001`,其余 → `127.0.0.1:3001`;初期走 IP + http,不签证书。
+### 库 / 对象存储:当前容器,OVH 上线前切托管
 
-### 生产(OVH,库=托管 PG、对象存储=OVH Object Storage)
+与前台一致,库(`db`)+ 对象存储(`minio`)当前是**容器**,`deploy.sh` 每次部署前 `pg_dump` 备份。
+**OVH 上线、灌真实财务数据前**切 OVH Managed PG / Object Storage —— 步骤见
+[`deploy/README-deploy.md`](deploy/README-deploy.md) 第四节。
 
-```bash
-cp .env.example .env
-# 用 .env 里【生产】标注的值:DATABASE_URL→OVH 托管 PG、S3_*→OVH Object Storage;
-# API_BASE_URL / CORS_ORIGINS 填 https://<域名>;REFRESH_COOKIE_SECURE / ENABLE_HSTS 改 true
-docker compose -f docker-compose.yml up -d --build   # 只起应用,不带 override
-```
-
-反向代理 + TLS 同样在 1Panel(证书走前台一样的签发流程)。库 / 对象存储是 OVH 托管,compose 不含它们。
-
-### 迁移(初期 → 生产)= 换 `.env` + 去掉 override
-
-1. `pg_dump` 初期库 → 灌 OVH 托管 PG;`mc mirror` 初期 MinIO bucket → OVH Object Storage;
-2. `.env` 三处指向改 OVH(`DATABASE_URL` / `S3_*` / `API_BASE_URL`+`CORS_ORIGINS` 换域名,cookie/HSTS 开 true);
-3. 用生产命令(带 `-f docker-compose.yml`)起。**应用镜像、compose、业务代码零改**——库是 PG→PG 平迁,存储是 S3→S3 换 endpoint。
-
-单独验证某个镜像可构建:
+### 本地验证镜像可构建
 
 ```bash
 docker compose build backend    # 或 frontend
