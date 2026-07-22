@@ -1,6 +1,8 @@
 """密码哈希 + JWT 编解码。"""
 from __future__ import annotations
 
+import hashlib
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
@@ -58,17 +60,33 @@ def create_access_token(user_id: int, email: str, token_version: int = 0) -> tup
     return token, expires_in
 
 
-def create_refresh_token(user_id: int, email: str, token_version: int = 0) -> str:
+def create_refresh_token(user_id: int, email: str, token_version: int = 0) -> tuple[str, str]:
+    """签发 refresh token,返回 (token, jti)。
+
+    jti = 本 token 的随机唯一 id,服务端只存其哈希(hash_jti)入 refresh_tokens 账本用于
+    轮换作废 / 重放检测;调用方拿 jti 记账。
+    """
+    jti = uuid.uuid4().hex
     exp = _now_utc() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     payload = {
         "sub": str(user_id),
         "email": email,
         "type": "refresh",
         "tv": token_version,
+        "jti": jti,
         "iat": int(_now_utc().timestamp()),
         "exp": int(exp.timestamp()),
     }
-    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+    token = jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+    return token, jti
+
+
+def hash_jti(jti: str) -> str:
+    """refresh token jti 的 sha256 十六进制。存哈希不存原文:库泄漏 ≠ token 泄漏。
+
+    jti 为高熵 uuid4,无需加盐。
+    """
+    return hashlib.sha256(jti.encode()).hexdigest()
 
 
 def decode_token(token: str, expected_type: Literal["access", "refresh"] = "access") -> dict[str, Any]:
