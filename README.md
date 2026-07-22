@@ -463,7 +463,9 @@ access 过期后前端 401 时经 `POST /api/v1/auth/refresh` 单飞续期(并�
 cookie,被复制走的 cookie 也续不了命)+ 清 cookie(幂等,带有效 access token 时写 LOGOUT 审计)。
 
 **两层吊销**:`users.token_version`(改密/管理员重置即 +1)= 全局总闸,一刀切该用户所有会话;
-`refresh_tokens` 家族 = 单会话精确掐断。二者各管各、非二选一。迁移 `0032_refresh_tokens`。
+`refresh_tokens` 家族 = 单会话精确掐断。二者各管各、非二选一。迁移 `0033_refresh_tokens`。
+过期账本行由**登录成功路径惰性清理**(set-based `DELETE WHERE expires_at <= now`,走索引;
+无定时任务),稳态表大小 ≈ 7 天滚动窗内签发量。
 
 **登录防爆破(两道)**:
 

@@ -241,3 +241,59 @@ async def test_change_password_issues_usable_family(client, db_session):
     # 改密后下发的 refresh token 有对应家族行,可正常轮换(非「有 token 无行 → 401」)
     rr = await _refresh_with(client, new_cookie)
     assert rr.status_code == 200
+
+
+# ─── 登录惰性清理过期行 ─────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_login_purges_expired_rows_including_chain(client, db_session):
+    """过期的父子链(父 used+replaced_by 指向子)在下次登录时一条 DELETE 同批删净。
+
+    同批删也验证自引用 FK / 配对 CHECK 不被 SET NULL 半路触发。
+    """
+    user = await _mk_user(db_session, "famclean@fulfillment.local")
+    await _login(client, user.email)
+    r2 = await client.post("/api/v1/auth/refresh")
+    assert r2.status_code == 200
+
+    # 把父子两行整体挪到过去:已过期(expires_at < now)且满足全部时序 CHECK
+    now = datetime.now(timezone.utc)
+    for row in await _rows_for(db_session, user.id):
+        row.issued_at = now - timedelta(days=9)
+        if row.used_at is not None:
+            row.used_at = now - timedelta(days=9)
+        row.expires_at = now - timedelta(days=2)
+    await db_session.commit()
+
+    r3 = await _login(client, user.email)
+    assert r3.status_code == 200
+
+    rows = await _rows_for(db_session, user.id)
+    # 只剩本次登录新签的一行,旧父子链已被清理
+    assert len(rows) == 1
+    assert rows[0].expires_at > now and rows[0].used_at is None
+
+
+@pytest.mark.asyncio
+async def test_login_cleanup_is_global_and_spares_live_rows(client, db_session):
+    """清理是全表谓词(任一登录清所有人的过期行),且不动未过期的活行。"""
+    user_a = await _mk_user(db_session, "famcleana@fulfillment.local")
+    user_b = await _mk_user(db_session, "famcleanb@fulfillment.local")
+
+    # user_a 两个会话:一个过期、一个存活
+    await _login(client, user_a.email)
+    await _login(client, user_a.email)
+    now = datetime.now(timezone.utc)
+    a_rows = await _rows_for(db_session, user_a.id)
+    a_rows[0].issued_at = now - timedelta(days=9)
+    a_rows[0].expires_at = now - timedelta(days=2)
+    await db_session.commit()
+
+    # user_b 登录 → 触发全局清理
+    rb = await _login(client, user_b.email)
+    assert rb.status_code == 200
+
+    a_left = await _rows_for(db_session, user_a.id)
+    b_left = await _rows_for(db_session, user_b.id)
+    assert len(a_left) == 1 and a_left[0].expires_at > now  # 过期行没了,活行还在
+    assert len(b_left) == 1

@@ -20,7 +20,11 @@ class RefreshToken(Base):
     family = 单会话精确掐断,两层各管各、非二选一。
 
     安全:只存 jti 的 sha256 十六进制,不存 token 原文(库泄漏 ≠ token 泄漏)。
-    无红线字段(无成本/供应商/售价)。过期行惰性清理(有界小表,~几千行)。
+    无红线字段(无成本/供应商/售价)。
+
+    过期行惰性清理:登录成功路径执行 set-based `DELETE WHERE expires_at <= now`
+    (auth_service.login,走 expires_at 索引,全表谓词);used/revoked 行到期后同样
+    落入该谓词。稳态表大小 ≈ 7 天滚动窗内的签发量,有界。
 
     `issued_at` 即本行创建时刻(不再叠 created_at);`user_id` 即创建人=持有人
     (不叠 created_by,归属唯一);行状态由 used_at/revoked_at 显式列表达,无 updated_at。
@@ -48,7 +52,7 @@ class RefreshToken(Base):
     # 本 refresh token jti 的 sha256 十六进制(64)。refresh 查库的主路径;唯一(索引即唯一约束)。
     jti_hash: Mapped[str] = mapped_column(String(_SHA256_HEX_LEN), nullable=False, unique=True)
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    # 惰性清理谓词(DELETE WHERE expires_at < now)走索引。
+    # 惰性清理谓词(DELETE WHERE expires_at <= now,登录路径触发)走索引。
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, index=True)
     # 轮换消费时刻(父行被换掉的时点);宽限窗从此刻起算、不因窗内重放而延后。NULL = 未用。

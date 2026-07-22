@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from jose import JWTError
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
@@ -240,6 +240,10 @@ async def login(
     user.failed_login_attempts = 0
     user.locked_until = None
     access_token, expires_in = create_access_token(user.id, user.email, user.token_version)
+    # 惰性清理:过期账本行在登录这条低频路径顺手删(set-based 全表谓词,走 expires_at 索引,
+    # 任一登录清所有人的过期行)。used/revoked 行 7 天后同样落入此谓词,一个谓词覆盖所有归宿;
+    # 父行必先于子行过期(先签发先到期),同批删不触发自引用 SET NULL。无调度基建,不上定时任务。
+    await db.execute(delete(RefreshToken).where(RefreshToken.expires_at <= _utcnow()))
     # 新登录开一个 token 家族;row 随下方 LOGIN_SUCCESS 审计一并落库(commit=True)。
     refresh_token, _ = await _issue_refresh_in_family(db, user, uuid.uuid4().hex)
     await write_audit(
