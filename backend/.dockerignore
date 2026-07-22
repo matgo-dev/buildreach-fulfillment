@@ -1,0 +1,24 @@
+# 构建镜像时排除,缩小上下文 + 防止本地密钥/产物进镜像层
+# 关键安全项:.env / .venv / private_uploads 绝不进镜像
+.env
+.env.*
+!.env.example
+.venv
+venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+# 本地上传件(私有),不进镜像;容器内由 entrypoint 现建空目录
+private_uploads
+uploads
+.git
+.gitignore
+Dockerfile
+.dockerignore
+.DS_Store
+tests
+htmlcov
+.coverage
+*.md

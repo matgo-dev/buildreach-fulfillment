@@ -141,9 +141,11 @@ font-family: ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Microsoft 
 - **模型**（规范化独立表 `product_images`，存 object key，非 URL）：SPU 图与 SKU 图同表，靠 `sku_id` 区分层级（`sku_id IS NULL` = SPU 级）。每行 `image_type ∈ {MAIN, GALLERY, DETAIL}`（DB CHECK 兜底）。**封面 = 该 SPU 唯一一行 `MAIN`（`sku_id IS NULL`）**，≤1 由部分唯一索引硬保证。**身份键 = `image_key`**，写接口按 key 声明期望图集、后端 reconcile 按 key 对账到期望态。
 - **张数上限**（后端 schema 校验）：SPU 级 主图组（`MAIN`+`GALLERY`）≤6（且恰 1 张 `MAIN`）/ 详情（`DETAIL`）≤12；SKU 级图 ≤6，一律记 `GALLERY`（无 `MAIN`/`DETAIL` 语义）。
 - **回退**：SKU 无自有图时用 **SPU 封面**（封面取 `MAIN`，无则 `GALLERY` 最小 `sort_order`）。
-- **尺寸靠存储层实时处理**（OSS `?x-oss-process=image/resize,w_80`列表 / `w_400`详情），不自生成缩略图、不存多份。
+- **不做 URL 传参实时改尺寸**：标准 S3 兼容对象存储（MinIO / OVH Object Storage）无此能力（原阿里云私有 `x-oss-process` 已移除，换厂商即失效）。`imageUrl(key, w)` 的 `w` 保留形参但忽略；真需缩略走上传时预生成或独立图片服务（imgproxy），不在 URL 拼厂商私有参数。
 - **列表缩略图默认关**（密度优先），主图放详情/抽屉。
-- **存储抽象**：统一 `Storage` 协议（`build_url`/`public_url`/`create_upload`/`save`/`open`/`delete`/`exists`），工厂 `get_attachment_storage()` 按 `STORAGE_BACKEND` 选实现——`local`→`LocalDiskStorage`（默认）/ `s3`→`S3Storage`（本地 MinIO・生产 S3 兼容云对象存储），业务零改动。**本地预览走 `GET /media/{key}`（仅 `STORAGE_BACKEND=local` 启用；生产 `<img>` 直连公读桶、不经本端点）**。
+- **存储抽象**：统一 `Storage` 协议（`build_url`/`public_url`/`create_upload`/`save`/`open`/`delete`/`exists`），工厂 `get_attachment_storage()` 按 `STORAGE_BACKEND` 选实现——`local`→`LocalDiskStorage`（默认）/ `s3`→`S3Storage`（本地 MinIO・生产 S3 兼容云对象存储，如 OVH Object Storage），业务零改动。
+- **商品图展示 = 后端代理（方案 A，默认）**：`<img src="{API_BASE}/media/{key}">` → `GET /media/{key}` 用存储层 `open(key)` 取流回吐，后端是 `local`（本地盘）还是 `s3`（**私有** MinIO / OVH 对象存储）都通，**不需要公读桶**。附件是不透明平键（无 `img/` 前缀）不匹配白名单，不经本端点。
+- **为什么 A（后端代理）而非 B（公读桶直连）** —— 本质区别 = **后端在不在图片传输路径上**：A 桶私有、后端在路径上（可控、可鉴权/脱敏、可日志）；B 桶公开、浏览器直连桶、后端不碰。**B 是给「大流量对外站把图片流量卸载到 CDN/桶」用的**；本平台是内部系统——流量小（后端扛得动）、图片想私有、无卸载压力，故按最小可行选 **A**。**B 未删死，是留好的配置开关**：将来若真需卸载，把桶设公开读 + 前端置 `IMAGE_BACKEND=s3` + `IMAGE_PUBLIC_BASE=<桶址>` 即切直连（`image.ts` 两条路都在），代码零改。
 
 ---
 

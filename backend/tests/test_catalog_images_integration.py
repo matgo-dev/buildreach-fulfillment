@@ -158,9 +158,19 @@ async def test_media_get_rejects_bad_key_shape(client):
 
 
 @pytest.mark.asyncio
-async def test_media_get_returns_404_when_backend_not_local(client, monkeypatch):
-    """安全边界:非 local 后端(生产走公读桶)时 /media 一律 404,本端点不可达。"""
-    from app.core.config import settings
-    monkeypatch.setattr(settings, "STORAGE_BACKEND", "s3")
+async def test_media_get_serves_via_object_storage_backend(client, monkeypatch):
+    """s3 后端下 /media 由后端代理对象存储(私有桶也可读),不再一律 404。"""
+    from io import BytesIO
+    import app.api.media as media_mod
+
+    class _FakeStorage:
+        def exists(self, key: str) -> bool:
+            return True
+
+        def open(self, key: str):
+            return BytesIO(b"S3BYTES")
+
+    monkeypatch.setattr(media_mod, "get_attachment_storage", lambda: _FakeStorage())
     r = await client.get("/media/img/00000000000000000000000000000000_x.png")
-    assert r.status_code == 404
+    assert r.status_code == 200, r.text
+    assert r.content == b"S3BYTES"
