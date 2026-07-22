@@ -50,10 +50,10 @@ def test_s3_build_url_no_size():
     assert s.build_url("img/a.jpg") == "https://cdn.example.com/img/a.jpg"
 
 
-def test_s3_build_url_with_size_appends_oss_resize_process():
+def test_s3_build_url_ignores_size_returns_original():
+    # 标准 S3 兼容存储(MinIO / OVH Object Storage)无 URL 传参改尺寸能力,size 被忽略返回原图。
     s = _s3_storage()
-    assert (s.build_url("img/a.jpg", size=80)
-            == "https://cdn.example.com/img/a.jpg?x-oss-process=image/resize,w_80")
+    assert s.build_url("img/a.jpg", size=80) == "https://cdn.example.com/img/a.jpg"
 
 
 def test_s3_create_upload_returns_presigned_put_url():

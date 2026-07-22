@@ -297,8 +297,8 @@
 
 ## 本地开发
 
-本地开发**复用现有 brew PostgreSQL**(`@ :5433`),不用下面 `docker-compose.yml` 里的 `db` 服务
-——`docker-compose.yml` 的 `db` 只供整机部署/演示用。
+本地开发**复用现有 brew PostgreSQL**(`@ :5433`),不用容器编排里的 `db` 服务
+——`db` / `minio` 只在 `docker-compose.override.yml`(初期容器部署)里,供部署用。
 
 ### 1. 建库(一次性)
 
@@ -458,34 +458,59 @@ access 过期后前端 401 时经 `POST /api/v1/auth/refresh` 单飞续期(并�
   (纯 HTTP 阶段两者都无效/被浏览器忽略,保持 false)。
 - `ENABLE_API_DOCS` 生产保持 false;`SUPER_ADMIN_INITIAL_PASSWORD` 部署前改强口令。
 
-## 容器部署(整机部署/演示)
+## 容器部署(初期阿里云 ECS / 生产 OVH)
+
+应用编排(`docker-compose.yml`)只含 **backend + frontend**。三样「应用之外」的资源分层承载,
+应用不感知背后是容器还是托管——**两个环境只有 `.env` 不同,compose 文件完全一致**:
+
+| 资源 | 初期(阿里云 ECS) | 生产(OVH) | 应用怎么切 |
+|---|---|---|---|
+| 库 | `db` 容器(override) | OVH 托管 PG | 只改 `.env` 的 `DATABASE_URL` |
+| 对象存储 | `minio` 容器(override) | OVH Object Storage | 只改 `.env` 的 `S3_*` |
+| 反向代理 + TLS | 宿主 1Panel(OpenResty) | 宿主 1Panel(OpenResty) | 应用不碰(端口只绑 `127.0.0.1`) |
+
+`docker-compose.override.yml` 装 `db` + `minio` + 一次性建桶,**docker compose 默认自动合并**它;
+生产用 `-f docker-compose.yml` 显式排除。
+
+### 初期(阿里云 ECS,库/对象存储用容器)
 
 ```bash
-cp .env.example .env   # 改 JWT_SECRET_KEY / POSTGRES_PASSWORD / SUPER_ADMIN_* 等敏感项
-docker compose --env-file .env up -d --build db minio backend
+cp .env.example .env
+# 用 .env 里【初期】标注的值:DATABASE_URL→db:5432、S3_*→minio;改强口令 + JWT_SECRET_KEY;
+# API_BASE_URL / CORS_ORIGINS 填 http://<ECS公网IP>
+docker compose up -d --build        # 自动含 override,连带起 db + minio + 建桶
 ```
 
-起 `db`(独立于本地开发用的 brew PG)+ `minio`(演示对象存储)+ `backend`(容器内自动等库就绪→
-`alembic upgrade head`→启动,见 `backend/docker-entrypoint.sh`)。`minio` 里业务用的 bucket
-(`fulfillment-attachments`)由 `minio-init` 一次性服务自动建好(幂等,随 `backend` 一起触发,不需要
-单独跑);生产走云对象存储时 bucket 由运维预先建好,没有对应的一次性服务。
+backend 容器启动即等库就绪→`alembic upgrade head`→幂等 seed 管理员→启动(见 `backend/docker-entrypoint.sh`);
+`minio-init` 幂等建好 bucket(`fulfillment-attachments`)。应用端口只绑 `127.0.0.1`(后端 `8001` / 前端 `3001`),
+对外靠宿主 **1Panel 建反向代理**:`/api` → `127.0.0.1:8001`,其余 → `127.0.0.1:3001`;初期走 IP + http,不签证书。
 
-`frontend` 服务在 `docker-compose.yml` 里已占位,但**还没有 `frontend/Dockerfile`**(T7 只搭了本地
-`pnpm dev` 开发壳,未做生产构建镜像)——补齐 Dockerfile 前,`docker compose up` 不带 service 名的全量
-启动会在 frontend 这一步失败;跑 `db minio backend` 三件套即可验证后端全链路,前端仍用 `pnpm dev`
-起本地开发模式连它。
-
-单独验证后端镜像可构建:
+### 生产(OVH,库=托管 PG、对象存储=OVH Object Storage)
 
 ```bash
-docker compose build backend
+cp .env.example .env
+# 用 .env 里【生产】标注的值:DATABASE_URL→OVH 托管 PG、S3_*→OVH Object Storage;
+# API_BASE_URL / CORS_ORIGINS 填 https://<域名>;REFRESH_COOKIE_SECURE / ENABLE_HSTS 改 true
+docker compose -f docker-compose.yml up -d --build   # 只起应用,不带 override
+```
+
+反向代理 + TLS 同样在 1Panel(证书走前台一样的签发流程)。库 / 对象存储是 OVH 托管,compose 不含它们。
+
+### 迁移(初期 → 生产)= 换 `.env` + 去掉 override
+
+1. `pg_dump` 初期库 → 灌 OVH 托管 PG;`mc mirror` 初期 MinIO bucket → OVH Object Storage;
+2. `.env` 三处指向改 OVH(`DATABASE_URL` / `S3_*` / `API_BASE_URL`+`CORS_ORIGINS` 换域名,cookie/HSTS 开 true);
+3. 用生产命令(带 `-f docker-compose.yml`)起。**应用镜像、compose、业务代码零改**——库是 PG→PG 平迁,存储是 S3→S3 换 endpoint。
+
+单独验证某个镜像可构建:
+
+```bash
+docker compose build backend    # 或 frontend
 ```
 
 ## 待接
 
 - GitHub remote 已建:`origin` → `github.com/matgo-dev/buildreach-fulfillment`。远端 CI
   (`.github/workflows/ci.yml`)已在 GitHub Actions 实跑:PR 触发 pytest + 前端 lint/build 卡点,当前绿。
-  仍待接:远端部署编排(目前本仓库无对应目录,后续按需补)。
-- `frontend/Dockerfile`:生产构建镜像待补(见上「容器部署」一节)。
 - 前端界面:登录/改密壳 + 商品目录全套(SPU/SKU 列表·详情·增改)+ 报价全套(列表·详情·整单编辑器)
   已上;随主流程各步(转销售/采购/入库…)后端稳定后逐步补(内部界面,中文)。

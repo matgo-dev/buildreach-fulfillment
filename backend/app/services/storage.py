@@ -75,7 +75,9 @@ class Storage(Protocol):
         ...
 
     def build_url(self, key: str, size: int | None = None) -> str:
-        """展示用 URL,size 给定时请求缩略(OSS 走 x-oss-process;本地存储层不做变换)。"""
+        """展示用 URL。size 是展示意图参数,但当前各实现均不做服务端变换(标准 S3 兼容
+        对象存储无 URL 传参改尺寸能力),忽略 size 返回原图。真需缩略走上传时预生成或独立
+        图片服务(imgproxy),不在 URL 拼厂商私有参数。"""
         ...
 
     def create_upload(self, key: str, content_type: str) -> dict:
@@ -178,11 +180,10 @@ class S3Storage:
         return f"{self._public_base}/{key}" if self._public_base else key
 
     def build_url(self, key: str, size: int | None = None) -> str:
-        # 存储层实时改尺寸:OSS x-oss-process 拼参数,不落地多份。
-        base = self.public_url(key)
-        if size:
-            return f"{base}?x-oss-process=image/resize,w_{size}"
-        return base
+        # 标准 S3 兼容对象存储(MinIO / OVH Object Storage)无 URL 传参实时改尺寸能力,
+        # 忽略 size 返回原图。内部系统不需要任意尺寸缩略(列表页浏览器降采样即可);真要
+        # 缩略走上传时预生成或独立图片服务(imgproxy),不在 URL 拼厂商私有参数。
+        return self.public_url(key)
 
     def create_upload(self, key: str, content_type: str) -> dict:
         # 前端直传:PUT 预签名 URL,免经后端中转。
