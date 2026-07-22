@@ -44,7 +44,7 @@ async def is_selectable_salesperson(db: AsyncSession, user_id: int) -> bool:
     return (await db.execute(stmt)).first() is not None
 
 ALLOWED_INTERNAL_ROLES = {RoleCode.ADMIN, RoleCode.PRODUCT_OPERATOR, RoleCode.SALES,
-                          RoleCode.PURCHASER, RoleCode.LOGISTICS}
+                          RoleCode.PURCHASER, RoleCode.LOGISTICS, RoleCode.FINANCE}
 
 
 def _is_super_admin(user: User) -> bool:

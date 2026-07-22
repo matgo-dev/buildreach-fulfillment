@@ -87,4 +87,17 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         Permissions.INVENTORY_READ,
         Permissions.PRODUCT_READ,
     ],
+    # 财务:统管收付核销(登记收款/付款、核销、反核销)。核销需读账层 → 持
+    # receivable:read / payable:read。持 payment:read/manage → 见供应商 + 采购付款金额:
+    # 财务执行付款天然所需,是合理授权非泄漏。操作者 ≠ 销售/采购录单角色(职责分离)。
+    # 收付审批分离(录款人 ≠ 核销人)= 留白 #8,触发前 FINANCE 单角色统管。ADMIN 不授(纯系统域)。
+    "FINANCE": [
+        *_AUTH_BASE,
+        Permissions.RECEIPT_READ,
+        Permissions.RECEIPT_MANAGE,
+        Permissions.PAYMENT_READ,
+        Permissions.PAYMENT_MANAGE,
+        Permissions.RECEIVABLE_READ,
+        Permissions.PAYABLE_READ,
+    ],
 }

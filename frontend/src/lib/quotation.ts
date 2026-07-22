@@ -2,6 +2,7 @@
 import { api } from "./api";
 import type { Page } from "./catalog";
 import type { SalesOrderLineOut, SalesOrderOut } from "./salesOrder";
+import { qs } from "./qs";
 
 export type QuotationStatus = "DRAFT" | "LOCKED" | "CONVERTED" | "VOID";
 
@@ -95,15 +96,6 @@ export interface QuotationListFilters {
   sort?: "created_at" | "total_amount";
   page?: number;
   size?: number;
-}
-
-function qs(p: Record<string, unknown>): string {
-  const q = new URLSearchParams();
-  Object.entries(p).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
-  });
-  const s = q.toString();
-  return s ? `?${s}` : "";
 }
 
 export const quotationApi = {

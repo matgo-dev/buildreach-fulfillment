@@ -1,5 +1,6 @@
 import { api } from "./api";
 import { display } from "./i18n";
+import { qs } from "./qs";
 
 // ---- 类型(对齐后端 schemas/spu.py · sku.py · categories/units 路由)----
 
@@ -201,15 +202,6 @@ export interface SkuWriteBody {
   name_i18n: Record<string, string>;
   spec_items: SkuSpecItemIn[];
   images: SkuImageRefIn[];
-}
-
-function qs(p: Record<string, unknown>): string {
-  const q = new URLSearchParams();
-  Object.entries(p).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
-  });
-  const s = q.toString();
-  return s ? `?${s}` : "";
 }
 
 export const catalogApi = {

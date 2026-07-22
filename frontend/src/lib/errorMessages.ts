@@ -70,11 +70,26 @@ const CUSTOMS_ERROR_MESSAGES: Record<number, string> = {
   42105: "附件数量超过上限",
 };
 
+// 财务域(段 422xx,核销引擎;42200 为全局校验码不在此列)。未列出的沿用后端 message。
+const FINANCE_ERROR_MESSAGES: Record<number, string> = {
+  42201: "核销金额超过收/付款单未分配余额",
+  42202: "核销金额超过该账余额",
+  42203: "币种不一致,不可核销",
+  42204: "客户/供应商不匹配,不可核销",
+  42205: "核销记录不存在或已反核销",
+  42206: "该账已作废,不可核销",
+  42207: "收款单认领状态不满足该操作条件",
+  42208: "已有核销记录,请先逐条反核销再作废",
+  42209: "收/付款单已作废,不可操作",
+  42210: "该单与该账已有核销记录,请先反核销再重新核销",
+};
+
 const BIZ_ERROR_MESSAGES: Record<number, string> = {
   ...PURCHASE_ERROR_MESSAGES,
   ...INBOUND_ERROR_MESSAGES,
   ...OUTBOUND_ERROR_MESSAGES,
   ...CUSTOMS_ERROR_MESSAGES,
+  ...FINANCE_ERROR_MESSAGES,
 };
 
 /** 统一错误提示入口:ApiError 且 code 已注册 → 注册文案;其它 Error → e.message;非 Error → fallback。 */

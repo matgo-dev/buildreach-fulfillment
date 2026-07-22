@@ -63,6 +63,14 @@ class Permissions:
     # 🔴红线开关:应收款整域(客户售价)可见;端点级门控,无此权限则整块不下发(镜像 PAYABLE_READ)。
     RECEIVABLE_READ = "receivable:read"
 
+    # ----- 履约:财务(收款单/付款单/核销)-----
+    # receipt = 客户售价侧(同 receivable:read 域,非红线);payment = 供应商+采购付款,红线。
+    RECEIPT_READ = "receipt:read"
+    RECEIPT_MANAGE = "receipt:manage"      # 登记收款、认领、核销、反核销
+    # 🔴红线开关:付款单/付侧核销整域(供应商 + 采购付款金额)可见 + 可写;端点级门控。
+    PAYMENT_READ = "payment:read"
+    PAYMENT_MANAGE = "payment:manage"
+
 
 # auth:* 是系统底层会话权限,不归任何资源域(供启动同步识别,不进矩阵)
 SYSTEM_RESERVED_CODES = frozenset({
@@ -115,6 +123,11 @@ PERMISSION_META: dict[str, dict[str, str]] = {
     Permissions.SHIPMENT_READ: {"name": "发运查看", "module": ModuleLabel.FULFILLMENT},
     Permissions.SHIPMENT_MANAGE: {"name": "发运管理", "module": ModuleLabel.FULFILLMENT},
     Permissions.RECEIVABLE_READ: {"name": "应收款查看", "module": ModuleLabel.FULFILLMENT},
+
+    Permissions.RECEIPT_READ: {"name": "收款单查看", "module": ModuleLabel.FULFILLMENT},
+    Permissions.RECEIPT_MANAGE: {"name": "收款单管理", "module": ModuleLabel.FULFILLMENT},
+    Permissions.PAYMENT_READ: {"name": "付款单查看", "module": ModuleLabel.FULFILLMENT},
+    Permissions.PAYMENT_MANAGE: {"name": "付款单管理", "module": ModuleLabel.FULFILLMENT},
 }
 
 
@@ -124,4 +137,5 @@ ROLE_META: dict[str, dict[str, str]] = {
     "SALES": {"name": "销售", "description": "报价单全生命周期;读客户/商品选料"},
     "PURCHASER": {"name": "采购员", "description": "供应商主数据 + 基于销售单发起采购单(建/确认/取消);见采购成本"},
     "LOGISTICS": {"name": "物流仓运", "description": "组柜/封柜/出库(建/改/确认/撤销/取消);出库/发运/物流/报关同一操作者。无成本/售价可见"},
+    "FINANCE": {"name": "财务", "description": "登记收款/付款 + 核销/反核销;读应收应付账层。持 payment:* 见供应商采购付款(执行付款所需)"},
 }

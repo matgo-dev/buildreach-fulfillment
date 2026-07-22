@@ -4,6 +4,7 @@
 import { api } from "./api";
 import type { Page } from "./catalog";
 import { formatMoney } from "./format";
+import { qs } from "./qs";
 
 /** 派生状态:未付 / 部分付 / 已付清(后端由 amount_* 单一口径派生)。 */
 export type PayableStatus = "UNPAID" | "PARTIALLY_PAID" | "PAID";
@@ -38,6 +39,36 @@ export interface PayableListItem {
   status: PayableStatus;
   due_at: string | null;
   created_at: string;
+  /** 该供应商名下有未分配付款余额(可一键用余额核销此账)。 */
+  counterparty_has_unallocated: boolean;
+}
+
+/** 应付详情内活动核销记录行:哪笔付款、冲了多少、何时。 */
+export interface PayableAllocationRow {
+  id: number;
+  payment_id: number;
+  payment_no: string;
+  amount: number;
+  alloc_type: "AUTO" | "MANUAL";
+  created_at: string;
+}
+
+/** 应付详情(账头 + 活动核销记录),GET /payables/{id}。🔴红线。 */
+export interface PayableDetail {
+  id: number;
+  inbound_order_id: number;
+  inbound_order_no: string;
+  purchase_order_id: number;
+  supplier_id: number;
+  supplier_display: string | null;
+  currency: string;
+  amount_original: number;
+  amount_allocated: number;
+  balance: number;
+  status: PayableStatus;
+  due_at: string | null;
+  created_at: string;
+  allocations: PayableAllocationRow[];
 }
 
 /** 派生状态徽标映射。 */
@@ -50,15 +81,6 @@ export const PAYABLE_STATUS_META: Record<PayableStatus, { label: string; color: 
 /** 金额格式化(应付域内均为真值,不涉红线脱敏)。 */
 export function formatAmount(v: number | string): string {
   return formatMoney(v);
-}
-
-function qs(p: Record<string, unknown>): string {
-  const q = new URLSearchParams();
-  Object.entries(p).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
-  });
-  const s = q.toString();
-  return s ? `?${s}` : "";
 }
 
 export interface PayableListFilters {
@@ -75,4 +97,5 @@ export interface PayableListFilters {
 export const payableApi = {
   list: (p: PayableListFilters) =>
     api.get<Page<PayableListItem>>(`/api/v1/payables${qs(p as Record<string, unknown>)}`),
+  get: (id: number) => api.get<PayableDetail>(`/api/v1/payables/${id}`),
 };

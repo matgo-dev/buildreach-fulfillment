@@ -268,11 +268,17 @@ async def confirm_order(db: AsyncSession, *, order_id, actor_user_id, actor_user
     无锁预读身份链 → 锁 SO 头 FOR UPDATE → 锁出库单头 → 转移守卫 → 锁内单一库存闸
     (Σ本单该 sku qty ≤ available(so,sku),不足 41902 带逐 sku 明细)→ ISSUED
     → 同事务建 receivable(偏唯一保幂等)→ 审计 + commit。"""
-    # 1. 无锁预读 so_id(sales_order_id 不可变,预读安全)。
-    pre = await get_order(db, order_id)
+    # 1. 无锁预读 so_id(sales_order_id 不可变,预读安全)。**列级 select 不实体化**:
+    #    若整行实体化,对象进 identity map,后续 get_order_for_update 会返回锁前旧属性
+    #    (SQLAlchemy 默认不用新行值覆盖已加载对象),转移守卫读到锁前快照(错题集 A1)。
+    pre_so_id = (await db.execute(
+        select(OutboundOrder.sales_order_id)
+        .where(OutboundOrder.id == order_id))).scalar_one_or_none()
+    if pre_so_id is None:
+        raise NotFoundError(f"出库单不存在: {order_id}")
     # 2. 锁 SO 头(单 SO,无多头排序问题)。
     so = (await db.execute(
-        select(SalesOrder).where(SalesOrder.id == pre.sales_order_id)
+        select(SalesOrder).where(SalesOrder.id == pre_so_id)
         .with_for_update())).scalar_one()
     # 3. 锁出库单头 + 转移守卫。
     order = await get_order_for_update(db, order_id)
@@ -327,11 +333,16 @@ async def confirm_order(db: AsyncSession, *, order_id, actor_user_id, actor_user
     return order
 
 
-async def _get_active_receivable(db: AsyncSession, outbound_order_id: int) -> Receivable | None:
-    return (await db.execute(
-        select(Receivable).where(
-            Receivable.outbound_order_id == outbound_order_id,
-            Receivable.voided_at.is_(None)))).scalar_one_or_none()
+async def _get_active_receivable(db: AsyncSession, outbound_order_id: int, *,
+                                 for_update: bool = False) -> Receivable | None:
+    """取该出库单的活动应收。撤账路径须传 for_update=True 锁账行(D2):核销引擎锁的是
+    receipt+receivable,与撤账原本锁集不相交(TOCTOU 大开:撤账读到 allocated=0 → 核销提交 →
+    撤账照 void → 作废账挂活动核销)。锁下重判 amount_allocated>0,与核销串行化。"""
+    stmt = select(Receivable).where(
+        Receivable.outbound_order_id == outbound_order_id, Receivable.voided_at.is_(None))
+    if for_update:
+        stmt = stmt.with_for_update()
+    return (await db.execute(stmt)).scalar_one_or_none()
 
 
 async def revert_order(db: AsyncSession, *, order_id, void_reason: str | None, actor_user_id,
@@ -341,9 +352,14 @@ async def revert_order(db: AsyncSession, *, order_id, void_reason: str | None, a
     锁读柜头(FOR UPDATE)防 TOCTOU——无锁快照读会与并发封柜确认交错,破 D2 封柜不变量。
     ② receivable.amount_allocated=0(已核销拒,41907)。
     作废(void)应收留痕、issued_at 清空,库存派生自然恢复可发。"""
-    pre = await get_order(db, order_id)
+    # 列级预读 so_id,不实体化(同 confirm_order:防 identity map 让锁下重取读到旧属性,错题集 A1)。
+    pre_so_id = (await db.execute(
+        select(OutboundOrder.sales_order_id)
+        .where(OutboundOrder.id == order_id))).scalar_one_or_none()
+    if pre_so_id is None:
+        raise NotFoundError(f"出库单不存在: {order_id}")
     (await db.execute(
-        select(SalesOrder).where(SalesOrder.id == pre.sales_order_id).with_for_update())).scalar_one()
+        select(SalesOrder).where(SalesOrder.id == pre_so_id).with_for_update())).scalar_one()
     order = await get_order_for_update(db, order_id)
     assert_transition(OUTBOUND_ORDER_TRANSITIONS, order.status, OutboundOrderStatus.DRAFT,
                       OutboundOrderInvalidTransitionError)
@@ -353,7 +369,8 @@ async def revert_order(db: AsyncSession, *, order_id, void_reason: str | None, a
         .with_for_update())).scalar_one()
     if ship.status != ShipmentOrderStatus.OPEN:
         raise OutboundShipmentLoadedCannotRevertError()
-    receivable = await _get_active_receivable(db, order.id)
+    # D2:锁账行(FOR UPDATE)后重判核销——与核销引擎串行化,闭合 TOCTOU。
+    receivable = await _get_active_receivable(db, order.id, for_update=True)
     if receivable is not None and Decimal(str(receivable.amount_allocated)) > 0:
         raise ReceivableAllocatedCannotRevertError()
     if receivable is not None:

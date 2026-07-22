@@ -2,6 +2,7 @@
 // 🔴 纯派生,零成本/供应商字段 —— 读投影天然无红线,零脱敏分支(契约 §3)。
 import { api } from "./api";
 import type { Page } from "./catalog";
+import { qs } from "./qs";
 
 /** `/api/v1/inventory` 列表行(契约 §3 逐字字段)。 */
 export interface StockBalanceItem {
@@ -38,15 +39,6 @@ export interface InventoryListFilters {
   scope?: "history";
   page?: number;
   size?: number;
-}
-
-function qs(p: Record<string, unknown>): string {
-  const q = new URLSearchParams();
-  Object.entries(p).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
-  });
-  const s = q.toString();
-  return s ? `?${s}` : "";
 }
 
 export const inventoryApi = {

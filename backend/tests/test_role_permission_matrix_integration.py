@@ -8,7 +8,7 @@ async def test_list_roles_returns_full_matrix(client, superadmin_headers):
     assert r.status_code == 200, r.text
     items = r.json()["data"]
     codes = {it["code"] for it in items}
-    assert codes == {"ADMIN", "PRODUCT_OPERATOR", "SALES", "PURCHASER", "LOGISTICS"}
+    assert codes == {"ADMIN", "PRODUCT_OPERATOR", "SALES", "PURCHASER", "LOGISTICS", "FINANCE"}
 
     admin = next(it for it in items if it["code"] == "ADMIN")
     admin_codes = {p["code"] for p in admin["permissions"]}

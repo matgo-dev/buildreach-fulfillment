@@ -4,6 +4,7 @@ import type { Page } from "./catalog";
 import type { PurchaseProgress, RelatedPurchaseOrder } from "./purchaseOrder";
 import type { StockBalanceLine } from "./inventory";
 import type { RelatedOutboundOrder } from "./outboundOrder";
+import { qs } from "./qs";
 
 // 镜像后端 SalesOrderStatus:CANCELLED 终态(报价回锁档可重转);更多态留给后续增量。
 export type SalesOrderStatus = "CONFIRMED" | "CANCELLED";
@@ -84,15 +85,6 @@ export interface SalesOrderListFilters {
   dir?: "asc" | "desc";
   page?: number;
   size?: number;
-}
-
-function qs(p: Record<string, unknown>): string {
-  const q = new URLSearchParams();
-  Object.entries(p).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
-  });
-  const s = q.toString();
-  return s ? `?${s}` : "";
 }
 
 export const salesOrderApi = {

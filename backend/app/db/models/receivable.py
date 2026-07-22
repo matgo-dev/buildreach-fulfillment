@@ -8,10 +8,12 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
     Text,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -59,6 +61,16 @@ class Receivable(Base, TimestampUpdateMixin):
         CheckConstraint(
             "amount_allocated >= 0 AND amount_allocated <= amount_original",
             name="ck_receivables_allocated_range"),
+        # 幂等键(仅约束活动行):一张出库单至多一张活动 receivable(撤销出库作废后可重建)。
+        # 单一源头补漏:此偏唯一原仅生在迁移 0026,未落 model,create_all 的测试库缺此约束
+        # (model↔迁移漂移)。镜像 payables uq_payables_inbound_active,收口回 model 层。
+        Index("uq_receivables_outbound_active", "outbound_order_id", unique=True,
+              postgresql_where=text("voided_at IS NULL")),
+        # 账龄 partial composite 索引(财务步 F1):自动核销候选查询(客户+币种+未结清+账龄序)
+        # 过滤+锁序一并走索引、排除已结清行,翻 100 倍不退化。谓词含生成列 balance(PG 接受)。
+        Index("ix_receivables_open_aging",
+              "customer_id", "currency", "due_at", "created_at", "id",
+              postgresql_where=text("voided_at IS NULL AND balance > 0")),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

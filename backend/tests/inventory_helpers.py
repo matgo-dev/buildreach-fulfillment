@@ -16,7 +16,7 @@ from tests.purchase_helpers import create_supplier  # noqa: F401
 
 async def seed_inventory_catalog(db, *, sku_codes=("SKUINV_A",), unit="ton",
                                  cust_code="CINV0001", quote_language=None,
-                                 sku_name_i18n=None):
+                                 sku_name_i18n=None, spu_code="SPUINV1"):
     """建 ACTIVE catalog(1 SPU + N SKU)+ 客户。返回 (customer, [Sku...])。
     多 SKU 支撑「跨 PO 不同 SKU 归属」与「同 SO 两行同 SKU 合并」两类场景。
 
@@ -27,7 +27,7 @@ async def seed_inventory_catalog(db, *, sku_codes=("SKUINV_A",), unit="ton",
         db.add(Category(code="10", parent_code=None, name_i18n={"zh": "钢材"},
                         level=1, is_leaf=True, sort_order=0))
         await db.flush()
-    spu = Spu(spu_code="SPUINV1", category_code="10", name_i18n={"zh": "工字钢"},
+    spu = Spu(spu_code=spu_code, category_code="10", name_i18n={"zh": "工字钢"},
               created_by=1, status="ACTIVE")
     db.add(spu)
     await db.flush()

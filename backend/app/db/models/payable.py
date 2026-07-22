@@ -63,6 +63,11 @@ class Payable(Base, TimestampUpdateMixin):
         # (作废行 voided_at 非空,退出偏唯一,与新活动行共存)。
         Index("uq_payables_inbound_active", "inbound_order_id", unique=True,
               postgresql_where=text("voided_at IS NULL")),
+        # 账龄 partial composite 索引(财务步 F1):自动核销候选(供应商+币种+未结清+账龄序)
+        # 过滤+锁序走索引、排除已结清行,翻 100 倍不退化。谓词含生成列 balance(PG 接受)。
+        Index("ix_payables_open_aging",
+              "supplier_id", "currency", "due_at", "created_at", "id",
+              postgresql_where=text("voided_at IS NULL AND balance > 0")),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

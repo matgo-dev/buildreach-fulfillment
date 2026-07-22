@@ -12,7 +12,7 @@ from app.core.dependencies import CurrentUser
 from app.core.exceptions import success
 from app.db.session import get_db
 from app.rbac.constants import Permissions
-from app.rbac.guards import require_permission
+from app.rbac.guards import has_permission, require_permission
 from app.schemas.common import Page, PageParams
 from app.schemas.payable import PayableListItem
 from app.services import payable_service
@@ -28,10 +28,19 @@ async def list_payables(page_params: PageParams = Depends(),
                         status: str | None = Query(
                             None, pattern=r"^(UNPAID|PARTIALLY_PAID|PAID)$"),
                         q: str | None = None,
-                        _current: CurrentUser = _READ, db: AsyncSession = Depends(get_db)):
+                        current: CurrentUser = _READ, db: AsyncSession = Depends(get_db)):
+    # D10 提示位派生自付款域(🔴红线):无 payment:read 者不下发(恒 False),权限跟数据走——
+    # PURCHASER 持 payable:read 无 payment:read,不该经账层列表旁路感知付款单存在性。
     items, total = await payable_service.list_payables(
         db, supplier_id=supplier_id, currency=currency, status=status, q=q,
-        page=page_params.page, size=page_params.size)
+        page=page_params.page, size=page_params.size,
+        can_read_payment=has_permission(current, Permissions.PAYMENT_READ))
     return success(Page(
         items=[PayableListItem.build(it) for it in items],
         total=total, page=page_params.page, size=page_params.size).model_dump())
+
+
+@router.get("/{payable_id}", summary="应付款详情(嵌活动核销记录:哪笔付款冲了多少)· 🔴红线")
+async def get_payable(payable_id: int, _current: CurrentUser = _READ,
+                      db: AsyncSession = Depends(get_db)):
+    return success(await payable_service.get_detail(db, payable_id))
