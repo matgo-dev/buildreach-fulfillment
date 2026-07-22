@@ -110,7 +110,7 @@ services:
       ACCOUNT_LOCK_THRESHOLD: ${ACCOUNT_LOCK_THRESHOLD:-10}
       ACCOUNT_LOCK_MINUTES: ${ACCOUNT_LOCK_MINUTES:-15}
     ports:
-      - "127.0.0.1:${BACKEND_HOST_PORT:-8001}:8000"
+      - "127.0.0.1:${BACKEND_HOST_PORT:-17858}:8000"
     logging: *default-logging
 
   frontend:
@@ -124,7 +124,7 @@ services:
       # 运行时注入:entrypoint.sh 生成 __env.js 供浏览器读取
       API_BASE_URL: ${API_BASE_URL:?请在 .env 设 API_BASE_URL(对外访问后端的公网地址)}
     ports:
-      - "127.0.0.1:${FRONTEND_HOST_PORT:-3001}:3000"
+      - "127.0.0.1:${FRONTEND_HOST_PORT:-7858}:3000"
     logging: *default-logging
 
 volumes:

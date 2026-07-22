@@ -35,7 +35,7 @@ cp .env.example .env.production   # 按注释改:强口令、API_BASE_URL、CORS
 
 - ECS:`.env.production` 里 `API_BASE_URL` / `CORS_ORIGINS` = `http://<ECS_IP>`;`REFRESH_COOKIE_SECURE=false`。
 - OVH:改 `https://<域名>`;`REFRESH_COOKIE_SECURE=true` + `ENABLE_HSTS=true`。
-- 1Panel 建反向代理:`/api` → `127.0.0.1:8001`,其余 → `127.0.0.1:3001`;OVH 签证书(同前台流程)。
+- 1Panel 建反向代理:`/api` → `127.0.0.1:17858`,其余 → `127.0.0.1:7858`;OVH 签证书(同前台流程)。
 
 ## 三、发布
 
