@@ -4,6 +4,7 @@
 import { api } from "./api";
 import type { Page } from "./catalog";
 import type { ShipmentStatus } from "./shipment";
+import { qs } from "./qs";
 
 export type OutboundOrderStatus = "DRAFT" | "ISSUED" | "CANCELLED";
 
@@ -102,15 +103,6 @@ export interface OutboundOrderUpdateBody {
   lines: OutboundOrderLineIn[];
   /** 乐观锁基线 = 打开编辑时的 order.updated_at(对齐 PO / 入库)。 */
   expected_updated_at: string;
-}
-
-function qs(p: Record<string, unknown>): string {
-  const q = new URLSearchParams();
-  Object.entries(p).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
-  });
-  const s = q.toString();
-  return s ? `?${s}` : "";
 }
 
 export interface OutboundOrderListFilters {

@@ -24,6 +24,7 @@ from app.core.exceptions import (
     AllocationCurrencyMismatchError,
     AllocationExceedsAccountError,
     AllocationExceedsSourceError,
+    AllocationPairAlreadyActiveError,
     AllocationReverseNotFoundError,
     NotFoundError,
 )
@@ -140,7 +141,7 @@ async def manual_allocate(db: AsyncSession, spec: AllocationSpec, source, accoun
                           actor_user_id: int):
     """人工核销:指定账,核销额强制取满 min(source 未分配, 账余额),不允许自填欠额(D8)。
     调用方须已锁 source 行。本函数锁指定账行 FOR UPDATE 并校验:同对手方、同币种、账未作废、
-    双侧有余额。偏唯一保证同 (source, account) 至多一条活动核销(重复 → 409,调用方映射)。"""
+    同对无活动核销(42210)、双侧有余额。偏唯一兜底并发写(调用方映射同 42210)。"""
     A = spec.account_model
     acc = (await db.execute(
         select(A).where(A.id == account_id).with_for_update())).scalar_one_or_none()
@@ -152,6 +153,16 @@ async def manual_allocate(db: AsyncSession, spec: AllocationSpec, source, accoun
         raise AllocationCounterpartyMismatchError()
     if acc.currency != source.currency:
         raise AllocationCurrencyMismatchError()
+    # 同 (source, account) 已有活动核销 → 42210(偏唯一契约:一对至多一条,部分核销靠 amount)。
+    # 单线程可达:反核销其它账后 source 回血、同对余额也 >0,重核同对即撞;source+account 双锁下
+    # 判定无 TOCTOU,偏唯一仅兜底并发。前置判而非等 IntegrityError,错误语义才准确(非「超余额」)。
+    am = spec.alloc_model
+    dup = (await db.execute(
+        select(am.id).where(getattr(am, spec.source_fk) == source.id,
+                            getattr(am, spec.account_fk) == account_id,
+                            am.reversed_at.is_(None)).limit(1))).scalar_one_or_none()
+    if dup is not None:
+        raise AllocationPairAlreadyActiveError()
     remaining = _source_remaining(source)
     if remaining <= 0:
         raise AllocationExceedsSourceError()
@@ -165,10 +176,19 @@ async def manual_allocate(db: AsyncSession, spec: AllocationSpec, source, accoun
 async def reverse(db: AsyncSession, spec: AllocationSpec, alloc_id: int, *,
                   actor_user_id: int, reason: str | None):
     """反核销:软删该核销记录(reversed_at 留痕),金额退回 source 未分配 + 账余额恢复。
-    锁 alloc 所属 source + account FOR UPDATE(锁序:源先账后);已反核销/不存在 → 42205(幂等)。"""
+    已反核销/不存在 → 42205(幂等)。
+
+    并发正确性 = 「首锁即读」(与登录行锁/D2 撤账守卫同模式):alloc 行在本 session 的
+    **首次加载即带 FOR UPDATE**——并发双反核销时后到者阻塞于行锁,解锁后首读即见
+    reversed_at 非空 → 42205。不可先裸读、锁后再重读:SQLAlchemy identity map 对已加载
+    对象默认**丢弃重读的新行值**(需 populate_existing 才覆盖),锁后重判会恒真、形同虚设。
+    锁序:alloc → source → account;核销路径只 INSERT 新 alloc 行、从不锁既有 alloc 行,
+    无反向持锁,无死锁环。
+    """
     from datetime import datetime, timezone
     m = spec.alloc_model
-    alloc = (await db.execute(select(m).where(m.id == alloc_id))).scalar_one_or_none()
+    alloc = (await db.execute(
+        select(m).where(m.id == alloc_id).with_for_update())).scalar_one_or_none()
     if alloc is None or alloc.reversed_at is not None:
         raise AllocationReverseNotFoundError()
     # 锁序:source 行先、account 行后(与核销写入口同向,无环)。
@@ -176,10 +196,6 @@ async def reverse(db: AsyncSession, spec: AllocationSpec, alloc_id: int, *,
     acc = (await db.execute(
         select(spec.account_model).where(spec.account_model.id == getattr(alloc, spec.account_fk))
         .with_for_update())).scalar_one()
-    # 锁后重取 alloc 状态(防并发双反核销):重判活动性。
-    alloc = (await db.execute(select(m).where(m.id == alloc_id))).scalar_one()
-    if alloc.reversed_at is not None:
-        raise AllocationReverseNotFoundError()
     amt = _d(alloc.amount)
     alloc.reversed_at = datetime.now(timezone.utc).replace(tzinfo=None)
     alloc.reversed_by = actor_user_id

@@ -2,6 +2,7 @@
 // 🔴 整域红线:整页由 layout 的 RouteGuard(payment:read)门控 —— 无权不渲染/不请求,
 // 后端亦整端点 403。付款关联供应商 + 采购付款金额,前端不下发给无权角色。
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   App,
   Button,
@@ -56,10 +57,14 @@ function PaymentStatusTag({ status, voidedAt }: { status: string; voidedAt: stri
 export default function PaymentListPage() {
   const { message } = App.useApp();
   const [form] = Form.useForm();
+  // D10 一键入口:从应付抽屉带 supplier_id 预筛进来(useSearchParams,与 /purchasing/orders 同式)。
+  const presetSupplierId = useSearchParams().get("supplier_id");
 
   const [status, setStatus] = useState("");
   const [keyword, setKeyword] = useState("");
-  const [supplierId, setSupplierId] = useState<number | undefined>(undefined);
+  const [supplierId, setSupplierId] = useState<number | undefined>(
+    presetSupplierId ? Number(presetSupplierId) : undefined,
+  );
   const [currency, setCurrency] = useState<string | undefined>(undefined);
   const [suppliers, setSuppliers] = useState<SupplierListItem[]>([]);
 
@@ -99,16 +104,12 @@ export default function PaymentListPage() {
     { errorMessage: "加载付款单列表失败" },
   );
 
-  // 供应商下拉(筛选 + 登记共用)。D10:从应付抽屉带 supplier_id 预筛进来时初始化筛选。
+  // 供应商下拉(筛选 + 登记共用)。
   useEffect(() => {
     supplierApi
       .list({ size: 100 })
       .then((res) => setSuppliers(res.items))
       .catch(() => undefined);
-    if (typeof window !== "undefined") {
-      const sid = new URLSearchParams(window.location.search).get("supplier_id");
-      if (sid) setSupplierId(Number(sid));
-    }
   }, []);
 
   async function openDetail(id: number) {
@@ -371,7 +372,8 @@ export default function PaymentListPage() {
             label="付款金额"
             rules={[{ required: true, message: "请输入付款金额" }]}
           >
-            <InputNumber min={0.01} step={0.01} style={{ width: "100%" }} placeholder="登记即定死,> 0" />
+            {/* precision=2:两位小数与后端 Decimal(decimal_places=2)/DB Numeric(18,2) 对齐,禁三位小数被静默舍入。 */}
+            <InputNumber min={0.01} step={0.01} precision={2} style={{ width: "100%" }} placeholder="登记即定死,> 0" />
           </Form.Item>
           <Form.Item name="currency" label="币种" rules={[{ required: true }]}>
             <Select options={CURRENCIES.map((c) => ({ value: c, label: c }))} />

@@ -35,7 +35,8 @@ async def get(db: AsyncSession, receivable_id: int) -> Receivable | None:
 
 async def list_receivables(db: AsyncSession, *, customer_id=None, status: str | None = None,
                            currency: str | None = None, q: str | None = None,
-                           page: int = 1, size: int = 20) -> tuple[list[dict], int]:
+                           page: int = 1, size: int = 20,
+                           can_read_receipt: bool = False) -> tuple[list[dict], int]:
     """应收列表(仅活动行):客户/状态/币种/搜索过滤 + 分页,created_at 降序。
     投影客户名 + 出库单号 + SO 号(账层无自身业务号);q = 出库单号 / SO 号 / 客户名 模糊。"""
     conds = [Receivable.voided_at.is_(None)]
@@ -59,7 +60,9 @@ async def list_receivables(db: AsyncSession, *, customer_id=None, status: str | 
         db, base.order_by(Receivable.created_at.desc()), page=page, size=size, scalars=False)
     # D10:本页涉及客户中,谁有未分配收款余额(预收)。单条聚合查询(走 receipts.customer_id
     # 索引 + amount_unallocated>0 谓词),按页有界,无 N+1;标志纯提示,不自动核销。
-    cust_ids = {r.customer_id for (r, *_rest) in rows}
+    # 提示位派生自收款域:无 receipt:read 不计算不下发(恒 False),权限跟数据走
+    # (SALES 持 receivable:read 无 receipt:read,不该经账层列表旁路感知收款单存在性)。
+    cust_ids = {r.customer_id for (r, *_rest) in rows} if can_read_receipt else set()
     unalloc = await _customers_with_unallocated(db, cust_ids)
     items = [{
         "id": r.id, "outbound_order_id": r.outbound_order_id, "outbound_order_no": ob_no,

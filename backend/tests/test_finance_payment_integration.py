@@ -93,3 +93,19 @@ async def test_purchaser_can_read_payables_but_not_payments(client, purchaser_he
     """PURCHASER 持 payable:read(看账层欠款)但不持 payment:read(不看付款执行明细)。"""
     assert (await client.get("/api/v1/payables", headers=purchaser_headers)).status_code == 200
     assert (await client.get("/api/v1/payments", headers=purchaser_headers)).status_code == 403
+
+
+async def test_register_payment_unknown_supplier_404(client, finance_headers):
+    """FK 前置判:不存在的 supplier_id → 41501(404),不裸撞 FK IntegrityError 500。"""
+    r = await client.post("/api/v1/payments", headers=finance_headers, json={
+        "supplier_id": 999999, "currency": "USD", "amount": "10.00", "paid_at": "2026-07-21"})
+    assert r.status_code == 404, r.text
+    assert r.json()["code"] == 41501
+
+
+async def test_register_payment_amount_validation_422(client, finance_headers):
+    """脏金额在 schema 层 422 拒(镜像收侧)。"""
+    for bad in ("abc", "-5", "0", "10.005"):
+        r = await client.post("/api/v1/payments", headers=finance_headers, json={
+            "supplier_id": 1, "currency": "USD", "amount": bad, "paid_at": "2026-07-21"})
+        assert r.status_code == 422, f"amount={bad}: {r.text}"

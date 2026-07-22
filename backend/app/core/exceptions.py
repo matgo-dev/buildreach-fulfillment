@@ -25,7 +25,8 @@
   21 | 附件       | 421xx(42101 类型不允许;42102 超大;42103 孤儿配额;42104 不可用;42105 数量超上限)
   22 | 财务       | 422xx(核销引擎:42201 核销超收付款未分配;42202 核销超账余额;42203 跨币种;
        |            |       42204 客户/供应商不匹配;42205 反核销记录不存在/已反核销;42206 账已作废不可核销;
-       |            |       42207 认领非 UNCLAIMED;42208 已有活动核销不可作废;42209 收付款单已作废不可操作)
+       |            |       42207 认领非 UNCLAIMED;42208 已有活动核销不可作废;42209 收付款单已作废不可操作;
+       |            |       42210 同对已有活动核销,先反核销再重核)
 
 兜底码:
   40000 = 通用客户端兜底(裸 HTTPException 降级)
@@ -778,6 +779,15 @@ class SourceVoidedError(BusinessError):
 
     def __init__(self, message: str = "Receipt/Payment is voided"):
         super().__init__(status.HTTP_409_CONFLICT, 42209, message)
+
+
+class AllocationPairAlreadyActiveError(BusinessError):
+    """42210 — 同 (收/付款单, 账) 已有活动核销(偏唯一契约:一对至多一条,部分核销靠 amount)。
+    先反核销该条,再重核即得新的取满额。单线程可达(反核销其它账回血后同对重核),
+    引擎前置判;偏唯一 uq_*_alloc_active 兜底并发,service 层同映射此码。"""
+
+    def __init__(self, message: str = "An active allocation already exists for this pair, reverse it first"):
+        super().__init__(status.HTTP_409_CONFLICT, 42210, message)
 
 
 def success(data: Any = None, message: str = "ok") -> dict:

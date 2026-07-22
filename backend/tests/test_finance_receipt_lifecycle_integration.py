@@ -194,3 +194,67 @@ async def test_reverse_restores_both_sides_and_is_idempotent(
                                headers=finance_headers)
     assert rev2.status_code == 404
     assert rev2.json()["code"] == 42205
+
+
+# ---------- 同对重复核销(42210)+ 入参健壮性 ----------
+
+async def test_manual_allocate_same_pair_active_rejected_42210(
+        client, db_session, sales_headers, purchaser_headers, logistics_headers, finance_headers):
+    """同 (收款, 应收) 已有活动核销 → 42210。单线程可达:反核销其它账回血后同对重核。
+    构造:R1=60(老)/ R2=100;收款 100 → 自动核销 R1=60、R2=40(R2 余 60)。
+    反核销 R1 条 → 收款回血 60;人工重核 R2 → 同对已有 40 活动核销 → 42210
+    (修复前被误映射 42202「超账余额」,而 R2 余额 60 > 0,语义不通)。"""
+    from tests.outbound_helpers import (
+        create_and_confirm_outbound, create_shipment, setup_available_stock)
+
+    ctx = await setup_available_stock(client, db_session, sales_headers, purchaser_headers,
+                                      sku_codes=("SKUFIN_DUP",), so_qty=16, unit_price="10.00",
+                                      received=16)
+    ship1 = await create_shipment(client, logistics_headers)
+    ship2 = await create_shipment(client, logistics_headers)
+    so_line = ctx["so_lines"][0]["id"]
+    ob1, c1 = await create_and_confirm_outbound(
+        client, logistics_headers, sales_order_id=ctx["sales_order_id"], shipment_id=ship1["id"],
+        lines=[{"sales_order_line_id": so_line, "qty": 6}])    # R1 = 60(先建 = 账龄老)
+    assert c1.status_code == 200, c1.text
+    ob2, c2 = await create_and_confirm_outbound(
+        client, logistics_headers, sales_order_id=ctx["sales_order_id"], shipment_id=ship2["id"],
+        lines=[{"sales_order_line_id": so_line, "qty": 10}])   # R2 = 100
+    assert c2.status_code == 200, c2.text
+
+    data = await _register(client, finance_headers, amount="100.00",
+                           customer_id=ctx["customer"].id)
+    allocs = data["allocations"]
+    assert len(allocs) == 2
+    a_r1 = next(a for a in allocs if float(a["amount"]) == 60.0)
+    a_r2 = next(a for a in allocs if float(a["amount"]) == 40.0)
+
+    rev = await client.delete(f"/api/v1/receipt-allocations/{a_r1['id']}",
+                              headers=finance_headers)
+    assert rev.status_code == 200, rev.text
+    # 同对重核:R2 余额 60>0、收款回血 60>0,旧有全部校验都过 → 必须由 42210 前置判接住。
+    r = await client.post(f"/api/v1/receipts/{data['receipt']['id']}/allocations",
+                          headers=finance_headers, json={"account_id": a_r2["receivable_id"]})
+    assert r.status_code == 409
+    assert r.json()["code"] == 42210
+
+
+async def test_register_receipt_amount_validation_422(client, finance_headers):
+    """脏金额在 schema 层 422 拒(Decimal gt=0 / 两位小数),不裸撞 DB
+    (负数撞 CHECK、非数值撞 DBAPI 均为 500)。"""
+    for bad in ("abc", "-5", "0", "10.005"):
+        r = await client.post("/api/v1/receipts", headers=finance_headers, json={
+            "amount": bad, "currency": "USD", "received_at": "2026-07-21"})
+        assert r.status_code == 422, f"amount={bad}: {r.text}"
+
+
+async def test_register_and_claim_unknown_customer_404(client, finance_headers):
+    """FK 前置判:不存在的 customer_id → 404,不裸撞 FK IntegrityError 500。"""
+    r = await client.post("/api/v1/receipts", headers=finance_headers, json={
+        "amount": "10.00", "currency": "USD", "received_at": "2026-07-21",
+        "customer_id": 999999})
+    assert r.status_code == 404, r.text
+    data = await _register(client, finance_headers, amount="10.00")   # UNCLAIMED
+    c = await client.post(f"/api/v1/receipts/{data['receipt']['id']}/claim",
+                          headers=finance_headers, json={"customer_id": 999999})
+    assert c.status_code == 404, c.text

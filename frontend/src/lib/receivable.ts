@@ -3,6 +3,7 @@
 // 应收 = 发货(我方履约完成),每出库单一张,与应付(每入库单一张)完全对称。
 import { api } from "./api";
 import type { Page } from "./catalog";
+import { qs } from "./qs";
 
 /** 派生状态:未收 / 部分收 / 已收清(后端由 amount_* 单一口径派生,沿用应付三色)。 */
 export type ReceivableStatus = "UNPAID" | "PARTIALLY_PAID" | "PAID";
@@ -60,15 +61,6 @@ export const RECEIVABLE_STATUS_META: Record<ReceivableStatus, { label: string; c
   PARTIALLY_PAID: { label: "部分收", color: "processing" },
   PAID: { label: "已收清", color: "success" },
 };
-
-function qs(p: Record<string, unknown>): string {
-  const q = new URLSearchParams();
-  Object.entries(p).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
-  });
-  const s = q.toString();
-  return s ? `?${s}` : "";
-}
 
 export interface ReceivableListFilters {
   customer_id?: number;

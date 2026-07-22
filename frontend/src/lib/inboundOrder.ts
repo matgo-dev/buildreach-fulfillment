@@ -5,6 +5,7 @@ import { api } from "./api";
 import type { Page } from "./catalog";
 import type { PurchaseOrderOut } from "./purchaseOrder";
 import type { PayableOut } from "./payable";
+import { qs } from "./qs";
 
 export type InboundOrderStatus = "IN_TRANSIT" | "RECEIVED" | "CANCELLED";
 
@@ -103,15 +104,6 @@ export interface InboundOrderUpdateBody {
   lines: InboundOrderLineIn[];
   /** 乐观锁基线 = 打开编辑时的 order.updated_at(对齐 PO)。 */
   expected_updated_at: string;
-}
-
-function qs(p: Record<string, unknown>): string {
-  const q = new URLSearchParams();
-  Object.entries(p).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
-  });
-  const s = q.toString();
-  return s ? `?${s}` : "";
 }
 
 export interface InboundOrderListFilters {

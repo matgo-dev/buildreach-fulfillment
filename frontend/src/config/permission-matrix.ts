@@ -8,8 +8,6 @@
  * 供应商/采购(PURCHASER)、出库/发运(LOGISTICS);ADMIN 纯系统域,不持任何业务权限点(Q25 职责分离)。
  */
 
-import type { RoleCode } from "@/lib/auth";
-
 export const Permissions = {
   // ----- 系统底层会话(独立于业务矩阵)-----
   AUTH_LOGIN: "auth:login",
@@ -68,6 +66,3 @@ export const Permissions = {
 } as const;
 
 export type PermissionCode = (typeof Permissions)[keyof typeof Permissions];
-
-/** 角色。与后端 app/rbac/constants.py ROLE_META 对齐:ADMIN(系统)/ PRODUCT_OPERATOR(商品)/ SALES(报价)/ PURCHASER(采购)。 */
-export const BASE_ROLES: readonly RoleCode[] = ["ADMIN", "PRODUCT_OPERATOR", "SALES", "PURCHASER"] as const;

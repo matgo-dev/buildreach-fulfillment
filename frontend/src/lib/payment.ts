@@ -5,6 +5,7 @@
 import { api } from "./api";
 import type { Page } from "./catalog";
 import type { AllocType } from "./receipt";
+import { qs } from "./qs";
 
 /** 派生状态:未分配 / 部分分配 / 已分配完(后端 derive_payment_status 单一口径,无待认领)。 */
 export type PaymentStatus = "UNALLOCATED" | "PARTIALLY_ALLOCATED" | "FULLY_ALLOCATED";
@@ -85,15 +86,6 @@ export interface PaymentListFilters {
   q?: string;
   page?: number;
   size?: number;
-}
-
-function qs(p: Record<string, unknown>): string {
-  const q = new URLSearchParams();
-  Object.entries(p).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
-  });
-  const s = q.toString();
-  return s ? `?${s}` : "";
 }
 
 export const paymentApi = {

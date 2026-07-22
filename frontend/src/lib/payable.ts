@@ -4,6 +4,7 @@
 import { api } from "./api";
 import type { Page } from "./catalog";
 import { formatMoney } from "./format";
+import { qs } from "./qs";
 
 /** 派生状态:未付 / 部分付 / 已付清(后端由 amount_* 单一口径派生)。 */
 export type PayableStatus = "UNPAID" | "PARTIALLY_PAID" | "PAID";
@@ -80,15 +81,6 @@ export const PAYABLE_STATUS_META: Record<PayableStatus, { label: string; color: 
 /** 金额格式化(应付域内均为真值,不涉红线脱敏)。 */
 export function formatAmount(v: number | string): string {
   return formatMoney(v);
-}
-
-function qs(p: Record<string, unknown>): string {
-  const q = new URLSearchParams();
-  Object.entries(p).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
-  });
-  const s = q.toString();
-  return s ? `?${s}` : "";
 }
 
 export interface PayableListFilters {

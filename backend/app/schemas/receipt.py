@@ -7,13 +7,17 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
 
 class ReceiptCreateIn(BaseModel):
     """登记收款。amount/currency/received_at 必填;customer_id 可空 = 待认领。"""
-    amount: str = Field(..., description="到账金额,登记即定死,> 0")
+    # Decimal 强校验(> 0、两位小数、位数上限对齐 DB Numeric(18,2)):脏输入在 422 层拒,
+    # 不裸撞 DB(非数值 → DBAPI 错 / 负数 → CHECK IntegrityError 都会 500)。
+    amount: Decimal = Field(..., gt=0, max_digits=18, decimal_places=2,
+                            description="到账金额,登记即定死,> 0,两位小数")
     currency: str = Field(..., pattern=r"^[A-Z]{3}$")
     received_at: date
     customer_id: int | None = None

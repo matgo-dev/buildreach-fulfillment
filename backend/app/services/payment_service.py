@@ -17,10 +17,11 @@ from app.audit.constants import AuditAction, AuditResourceType
 from app.audit.logger import write_audit
 from app.core.codegen import NumberScope, format_code
 from app.core.exceptions import (
-    AllocationExceedsAccountError,
+    AllocationPairAlreadyActiveError,
     NotFoundError,
     SourceHasActiveAllocationsError,
     SourceVoidedError,
+    SupplierNotFoundError,
 )
 from app.db.models.inbound_order import InboundOrder
 from app.db.models.payable import Payable
@@ -109,6 +110,11 @@ def _audit_allocs(allocs: list[PaymentAllocation]) -> list[dict]:
 async def register(db: AsyncSession, *, fields: dict, actor_user_id, actor_user_email,
                    request: Request | None = None) -> Payment:
     """登记付款 → 锁 source 行后同事务触发自动核销(冲开口应付,余额留存为预付,P0)。"""
+    # FK 前置判(公网输入):供应商不存在 → 41501,不裸撞 FK IntegrityError 500(先判再耗号段)。
+    # 只判存在不判状态:停用供应商的历史欠款仍需付(41606 停用禁选仅约束新采购,不约束还债)。
+    if (await db.execute(select(Supplier.id).where(
+            Supplier.id == fields["supplier_id"]))).scalar_one_or_none() is None:
+        raise SupplierNotFoundError(f"供应商不存在: {fields['supplier_id']}")
     period = _period()
     seq = await allocate(db, NumberScope.PAYMENT, period)
     payment = Payment(
@@ -153,7 +159,7 @@ async def void(db: AsyncSession, *, payment_id: int, void_reason: str | None, ac
 async def manual_allocate(db: AsyncSession, *, payment_id: int, account_id: int, actor_user_id,
                           actor_user_email, request: Request | None = None) -> Payment:
     """人工核销:选一张应付,金额自动取满 min(未分配, 余额)。已作废 42209;
-    跨供应商/币种/超额/作废账 → 引擎抛对应码;偏唯一并发重复 → 42202。"""
+    跨供应商/币种/超额/作废账/同对已核 → 引擎抛对应码;偏唯一兜底并发重复 → 同映射 42210。"""
     payment = await _get_for_update(db, payment_id)
     if payment.voided_at is not None:
         raise SourceVoidedError()
@@ -170,7 +176,7 @@ async def manual_allocate(db: AsyncSession, *, payment_id: int, account_id: int,
     except IntegrityError as exc:
         await db.rollback()
         if "uq_payment_alloc_active" in str(exc.orig):
-            raise AllocationExceedsAccountError() from exc
+            raise AllocationPairAlreadyActiveError() from exc
         raise
     await db.refresh(payment)
     return payment

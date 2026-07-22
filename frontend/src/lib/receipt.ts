@@ -4,6 +4,7 @@
 // 收款与付款(payment.ts)对称,差异:收款有「待认领」态 + 认领动作。
 import { api } from "./api";
 import type { Page } from "./catalog";
+import { qs } from "./qs";
 
 /** 派生状态:待认领 / 未分配 / 部分分配 / 已分配完(后端 derive_receipt_status 单一口径)。
  *  作废态不进此映射,靠单头 voided_at 单独呈现「已作废」。 */
@@ -92,15 +93,6 @@ export interface ReceiptListFilters {
   q?: string;
   page?: number;
   size?: number;
-}
-
-function qs(p: Record<string, unknown>): string {
-  const q = new URLSearchParams();
-  Object.entries(p).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
-  });
-  const s = q.toString();
-  return s ? `?${s}` : "";
 }
 
 export const receiptApi = {

@@ -17,7 +17,7 @@ from app.audit.constants import AuditAction, AuditResourceType
 from app.audit.logger import write_audit
 from app.core.codegen import NumberScope, format_code
 from app.core.exceptions import (
-    AllocationExceedsAccountError,
+    AllocationPairAlreadyActiveError,
     NotFoundError,
     ReceiptNotUnclaimedError,
     SourceHasActiveAllocationsError,
@@ -58,6 +58,15 @@ async def get(db: AsyncSession, receipt_id: int) -> Receipt:
     if r is None:
         raise NotFoundError(f"收款单不存在: {receipt_id}")
     return r
+
+
+async def _ensure_customer_exists(db: AsyncSession, customer_id: int) -> None:
+    """FK 前置判(公网输入按恶意可达设计):客户不存在 → 404,不裸撞 FK IntegrityError 500。
+    只判存在不判状态:停用客户的历史到账仍需登记/认领(钱已到,主数据状态不改变事实)。"""
+    ok = (await db.execute(
+        select(Customer.id).where(Customer.id == customer_id))).scalar_one_or_none()
+    if ok is None:
+        raise NotFoundError(f"客户不存在: {customer_id}")
 
 
 async def _customer_name(db: AsyncSession, customer_id: int | None) -> str | None:
@@ -112,6 +121,8 @@ def _audit_allocs(allocs: list[ReceiptAllocation]) -> list[dict]:
 async def register(db: AsyncSession, *, fields: dict, actor_user_id, actor_user_email,
                    request: Request | None = None) -> Receipt:
     """登记收款。已认领(customer_id 非空)→ 锁 source 行后同事务触发自动核销。"""
+    if fields.get("customer_id") is not None:
+        await _ensure_customer_exists(db, fields["customer_id"])   # 先判再耗号段
     period = _period()
     seq = await allocate(db, NumberScope.RECEIPT, period)
     receipt = Receipt(
@@ -153,6 +164,7 @@ async def claim(db: AsyncSession, *, receipt_id: int, customer_id: int, actor_us
         raise SourceVoidedError()
     if receipt.customer_id is not None:
         raise ReceiptNotUnclaimedError()
+    await _ensure_customer_exists(db, customer_id)
     receipt.customer_id = customer_id
     await db.flush()
     allocs = await allocation_engine.auto_allocate(
@@ -190,8 +202,8 @@ async def void(db: AsyncSession, *, receipt_id: int, void_reason: str | None, ac
 async def manual_allocate(db: AsyncSession, *, receipt_id: int, account_id: int, actor_user_id,
                           actor_user_email, request: Request | None = None) -> Receipt:
     """人工核销:选一张应收,金额自动取满 min(未分配, 余额)(D8)。
-    未认领单拒之 42207;已作废 42209;跨客户/币种/超额/作废账 → 引擎抛对应码;
-    偏唯一并发重复 → 42202(账已被并发冲满)。"""
+    未认领单拒之 42207;已作废 42209;跨客户/币种/超额/作废账/同对已核 → 引擎抛对应码;
+    偏唯一兜底并发重复 → 同映射 42210(单线程路径已被引擎前置判接住)。"""
     receipt = await _get_for_update(db, receipt_id)
     if receipt.voided_at is not None:
         raise SourceVoidedError()
@@ -210,7 +222,7 @@ async def manual_allocate(db: AsyncSession, *, receipt_id: int, account_id: int,
     except IntegrityError as exc:
         await db.rollback()
         if "uq_receipt_alloc_active" in str(exc.orig):
-            raise AllocationExceedsAccountError() from exc
+            raise AllocationPairAlreadyActiveError() from exc
         raise
     await db.refresh(receipt)
     return receipt

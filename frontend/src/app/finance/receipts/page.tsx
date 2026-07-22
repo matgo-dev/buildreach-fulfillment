@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   App,
   Button,
@@ -7,7 +8,6 @@ import {
   DatePicker,
   Descriptions,
   Drawer,
-  Empty,
   Form,
   Input,
   InputNumber,
@@ -56,10 +56,14 @@ function ReceiptStatusTag({ status, voidedAt }: { status: string; voidedAt: stri
 export default function ReceiptListPage() {
   const { message } = App.useApp();
   const [form] = Form.useForm();
+  // D10 一键入口:从应收抽屉带 customer_id 预筛进来(useSearchParams,与 /purchasing/orders 同式)。
+  const presetCustomerId = useSearchParams().get("customer_id");
 
   const [status, setStatus] = useState("");
   const [keyword, setKeyword] = useState("");
-  const [customerId, setCustomerId] = useState<number | undefined>(undefined);
+  const [customerId, setCustomerId] = useState<number | undefined>(
+    presetCustomerId ? Number(presetCustomerId) : undefined,
+  );
   const [currency, setCurrency] = useState<string | undefined>(undefined);
   const [customers, setCustomers] = useState<CustomerListItem[]>([]);
 
@@ -103,16 +107,12 @@ export default function ReceiptListPage() {
     { errorMessage: "加载收款单列表失败" },
   );
 
-  // 客户下拉(筛选 + 认领共用)。D10:从应收/应付抽屉带 customer_id 预筛进来时初始化筛选。
+  // 客户下拉(筛选 + 认领共用)。
   useEffect(() => {
     customerApi
       .list({ size: 100 })
       .then((res) => setCustomers(res.items))
       .catch(() => undefined);
-    if (typeof window !== "undefined") {
-      const cid = new URLSearchParams(window.location.search).get("customer_id");
-      if (cid) setCustomerId(Number(cid));
-    }
   }, []);
 
   async function openDetail(id: number) {
@@ -390,7 +390,8 @@ export default function ReceiptListPage() {
             label="到账金额"
             rules={[{ required: true, message: "请输入到账金额" }]}
           >
-            <InputNumber min={0.01} step={0.01} style={{ width: "100%" }} placeholder="登记即定死,> 0" />
+            {/* precision=2:两位小数与后端 Decimal(decimal_places=2)/DB Numeric(18,2) 对齐,禁三位小数被静默舍入。 */}
+            <InputNumber min={0.01} step={0.01} precision={2} style={{ width: "100%" }} placeholder="登记即定死,> 0" />
           </Form.Item>
           <Form.Item name="currency" label="币种" rules={[{ required: true }]}>
             <Select options={CURRENCIES.map((c) => ({ value: c, label: c }))} />

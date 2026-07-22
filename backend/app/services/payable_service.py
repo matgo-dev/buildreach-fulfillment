@@ -30,7 +30,8 @@ _STATUS_CONDS = {
 
 async def list_payables(db: AsyncSession, *, supplier_id=None, currency=None,
                         status: str | None = None, q: str | None = None,
-                        page: int = 1, size: int = 20) -> tuple[list[dict], int]:
+                        page: int = 1, size: int = 20,
+                        can_read_payment: bool = False) -> tuple[list[dict], int]:
     """应付列表(仅活动行):状态/搜索/供应商/币种过滤 + 分页,created_at 降序。
     投影供应商名 + 入库单号 + PO 号(人面识别,账层无自身业务号)。
     q = 入库单号 / PO 号 / 供应商名 模糊;count 与 rows 同一 join 基座(搜索条件跨表)。"""
@@ -56,7 +57,8 @@ async def list_payables(db: AsyncSession, *, supplier_id=None, currency=None,
         db, base.order_by(Payable.created_at.desc()),
         page=page, size=size, scalars=False)
     # D10:本页涉及供应商中,谁有未分配付款余额(预付)。单条聚合查询,按页有界,无 N+1。
-    sup_ids = {p.supplier_id for (p, *_rest) in rows}
+    # 🔴 提示位派生自付款域:无 payment:read 不计算不下发(恒 False),权限跟数据走。
+    sup_ids = {p.supplier_id for (p, *_rest) in rows} if can_read_payment else set()
     unalloc = await _suppliers_with_unallocated(db, sup_ids)
     items = [{
         "id": p.id, "inbound_order_id": p.inbound_order_id, "inbound_order_no": inb_no,
