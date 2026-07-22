@@ -1,0 +1,193 @@
+name: Build & Deploy
+
+# 手动触发:GitHub 网页 → Actions → "Build & Deploy" → Run workflow
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_REGISTRY: ghcr.io/matgo-dev/buildreach-fulfillment
+  # 阿里云 ACR(给 ECS 拉,国内快)—— 仓库 Variables 里配:
+  #   ACR_REGISTRY        = crpi-xxxx.cn-hangzhou.personal.cr.aliyuncs.com
+  #   ACR_IMAGE_REGISTRY  = crpi-xxxx.cn-hangzhou.personal.cr.aliyuncs.com/<命名空间>
+  ACR_REGISTRY: ${{ vars.ACR_REGISTRY }}
+  ACR_IMAGE_REGISTRY: ${{ vars.ACR_IMAGE_REGISTRY }}
+
+jobs:
+  # ── 迁移安全检查 ──
+  check-migration:
+    name: 迁移安全检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 检查破坏性迁移
+        run: |
+          git fetch origin main --quiet 2>/dev/null || true
+          # 扫描范围 = 本分支相对 main 的分叉点;在 main 上(merge-base==HEAD)回落 HEAD~1,
+          # 兜住 squash 合并进来的那一整个提交(而非只看最后一条 commit)。
+          BASE=$(git merge-base origin/main HEAD 2>/dev/null || echo "")
+          if [ -z "$BASE" ] || [ "$BASE" = "$(git rev-parse HEAD)" ]; then
+            BASE=$(git rev-parse HEAD~1 2>/dev/null || echo "")
+          fi
+          export BASE_SHA="$BASE"
+          echo "迁移扫描范围: ${BASE_SHA:-<root>}..HEAD"
+          # 授权标记也只在被扫描范围内认(而非仅最后一条 commit message)
+          if [ -n "$BASE_SHA" ] && git log "$BASE_SHA..HEAD" --pretty=%B | grep -q '\[allow-destructive-migration\]'; then
+            echo "范围内已授权破坏性迁移,跳过检查"; exit 0
+          fi
+          bash deploy/check-migration-safety.sh
+
+  # ── 构建镜像并推送到 GHCR + ACR ──
+  build:
+    name: 构建并推送镜像
+    needs: check-migration
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 计算镜像 Tag
+        id: meta
+        env:
+          RAW_BRANCH: ${{ github.ref_name }}
+        run: |
+          BRANCH=$(printf '%s' "$RAW_BRANCH" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_.-]+/-/g; s/^[.-]+//; s/[.-]+$//; s/-+/-/g' | cut -c1-80)
+          [ -z "$BRANCH" ] && BRANCH=ref
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "image_tag=${BRANCH}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "latest_tag=${BRANCH}-latest" >> "$GITHUB_OUTPUT"
+
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 登录阿里云 ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ACR_REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: 设置 Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 生成构建时间戳
+        run: echo "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      - name: 构建并推送 backend 镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_REGISTRY }}/backend:${{ steps.meta.outputs.image_tag }}
+            ${{ env.IMAGE_REGISTRY }}/backend:${{ steps.meta.outputs.latest_tag }}
+            ${{ env.ACR_IMAGE_REGISTRY }}/backend:${{ steps.meta.outputs.image_tag }}
+            ${{ env.ACR_IMAGE_REGISTRY }}/backend:${{ steps.meta.outputs.latest_tag }}
+          build-args: |
+            BUILD_COMMIT=${{ github.sha }}
+            BUILD_BRANCH=${{ github.ref_name }}
+            BUILD_COMMIT_AUTHOR=${{ github.actor }}
+            BUILD_COMMIT_TIME=${{ env.BUILD_TIME }}
+            BUILD_TIME=${{ env.BUILD_TIME }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: 构建并推送 frontend 镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_REGISTRY }}/frontend:${{ steps.meta.outputs.image_tag }}
+            ${{ env.IMAGE_REGISTRY }}/frontend:${{ steps.meta.outputs.latest_tag }}
+            ${{ env.ACR_IMAGE_REGISTRY }}/frontend:${{ steps.meta.outputs.image_tag }}
+            ${{ env.ACR_IMAGE_REGISTRY }}/frontend:${{ steps.meta.outputs.latest_tag }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+  # ── 部署到 ECS(测试/预发,从 ACR 拉)──
+  deploy-ecs:
+    name: 部署到 ECS (Staging)
+    needs: build
+    if: ${{ !startsWith(github.ref_name, 'release-v') }}
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - name: 同步部署文件到 ECS
+        env:
+          ECS_HOST: ${{ secrets.ECS_HOST }}
+          ECS_USER: ${{ secrets.ECS_USER }}
+          ECS_SSH_KEY: ${{ secrets.ECS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$ECS_SSH_KEY" > ~/.ssh/fulfillment_ecs
+          chmod 600 ~/.ssh/fulfillment_ecs
+          ssh-keyscan -p 22 -H "$ECS_HOST" >> ~/.ssh/known_hosts
+          tar -czf - deploy/deploy.sh deploy/check-migration-safety.sh docker-compose.production.yml | \
+            ssh -i ~/.ssh/fulfillment_ecs -p 22 "$ECS_USER@$ECS_HOST" \
+              'cd /opt/fulfillment && tar -xzf - && chmod +x deploy/*.sh'
+      - name: SSH 部署
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.ECS_HOST }}
+          username: ${{ secrets.ECS_USER }}
+          key: ${{ secrets.ECS_SSH_KEY }}
+          port: 22
+          command_timeout: 15m
+          script_stop: true
+          script: |
+            cd /opt/fulfillment
+            DEPLOY_SKIP_CODE_UPDATE=1 \
+            DEPLOY_REF=${{ github.sha }} \
+            IMAGE_TAG=${{ needs.build.outputs.image_tag }} \
+            IMAGE_REGISTRY=${{ vars.ACR_IMAGE_REGISTRY }} \
+            DEPLOY_API_BASE_URL=http://${{ secrets.ECS_HOST }} \
+            DEPLOY_CORS_ORIGINS=http://${{ secrets.ECS_HOST }} \
+              bash deploy/deploy.sh
+
+  # ── 部署到 OVH(生产,从 GHCR 拉,仅 release-v* 分支)──
+  deploy-ovh:
+    name: 部署到 OVH (Production)
+    needs: build
+    if: ${{ startsWith(github.ref_name, 'release-v') }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: SSH 部署
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.OVH_HOST }}
+          username: ${{ secrets.OVH_USER }}
+          key: ${{ secrets.OVH_SSH_KEY }}
+          port: 22
+          command_timeout: 15m
+          script_stop: true
+          script: |
+            cd /opt/fulfillment
+            # 精确切到触发 workflow 的 commit —— 分支/tag 均可(tag 无 origin/<tag> 分支,不能 reset origin/$REF)
+            git fetch origin --tags --force
+            git reset --hard ${{ github.sha }}
+            DEPLOY_REF="${{ github.sha }}" \
+            IMAGE_TAG=${{ needs.build.outputs.image_tag }} \
+            GHCR_TOKEN=${{ secrets.GHCR_TOKEN }} \
+            DEPLOY_API_BASE_URL=${{ secrets.OVH_PUBLIC_ORIGIN }} \
+            DEPLOY_CORS_ORIGINS=${{ secrets.OVH_PUBLIC_ORIGIN }} \
+              bash deploy/deploy.sh

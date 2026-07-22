@@ -331,8 +331,8 @@
 
 ## 本地开发
 
-本地开发**复用现有 brew PostgreSQL**(`@ :5433`),不用下面 `docker-compose.yml` 里的 `db` 服务
-——`docker-compose.yml` 的 `db` 只供整机部署/演示用。
+本地开发**复用现有 brew PostgreSQL**(`@ :5433`),不用容器编排里的 `db` 服务
+——`db` / `minio` 只在 `docker-compose*.yml`(整机 build / 部署)里,供部署用。
 
 ### 1. 建库(一次性)
 
@@ -492,34 +492,42 @@ access 过期后前端 401 时经 `POST /api/v1/auth/refresh` 单飞续期(并�
   (纯 HTTP 阶段两者都无效/被浏览器忽略,保持 false)。
 - `ENABLE_API_DOCS` 生产保持 false;`SUPER_ADMIN_INITIAL_PASSWORD` 部署前改强口令。
 
-## 容器部署(整机部署/演示)
+## 容器部署(CI/CD:ECS Staging / OVH Production)
+
+**CI 构建镜像 → 推 ACR(阿里云,给 ECS)/ GHCR(给 OVH)→ SSH 到服务器跑 `deploy/deploy.sh`**
+(拉镜像 → 起容器 → 健康检查 → 失败自动回滚)。反向代理 + TLS 由宿主 **1Panel(OpenResty)** 承载,
+应用端口只绑 `127.0.0.1`。**完整手册见 [`deploy/README-deploy.md`](deploy/README-deploy.md)。**
+
+| | ECS(Staging) | OVH(Production) |
+|---|---|---|
+| 触发 | Actions → Build & Deploy,非 `release-v*` 分支 | 同上,`release-v*` 分支/tag |
+| 镜像源 | 阿里云 ACR(国内快) | GHCR |
+| 对外 | IP + http | 域名 + https(1Panel 签证书) |
+
+前端 `API_BASE_URL` **运行时注入**(`frontend/entrypoint.sh` 生成 `public/__env.js` → `window.__ENV`,
+`layout` 里 `<Script src="/__env.js">` 加载)——**同一镜像跑 ECS 与 OVH**,地址启动时给。
+
+### 编排文件
+
+- `docker-compose.production.yml` —— 部署用(**拉镜像**),`deploy.sh` 调用。含 `db` + `minio` + backend + frontend。
+- `docker-compose.yml` —— 本地整机 **build** 测试用(`cp .env.example .env && docker compose up -d --build`),不参与部署。
+- `.github/workflows/deploy.yml` —— `check-migration`(破坏性迁移闸门)→ `build`(推 ACR+GHCR)→ `deploy-ecs` / `deploy-ovh`。
+
+### 库 / 对象存储:当前容器,OVH 上线前切托管
+
+与前台一致,库(`db`)+ 对象存储(`minio`)当前是**容器**,`deploy.sh` 每次部署前 `pg_dump` 备份。
+**OVH 上线、灌真实财务数据前**切 OVH Managed PG / Object Storage —— 步骤见
+[`deploy/README-deploy.md`](deploy/README-deploy.md) 第四节。
+
+### 本地验证镜像可构建
 
 ```bash
-cp .env.example .env   # 改 JWT_SECRET_KEY / POSTGRES_PASSWORD / SUPER_ADMIN_* 等敏感项
-docker compose --env-file .env up -d --build db minio backend
-```
-
-起 `db`(独立于本地开发用的 brew PG)+ `minio`(演示对象存储)+ `backend`(容器内自动等库就绪→
-`alembic upgrade head`→启动,见 `backend/docker-entrypoint.sh`)。`minio` 里业务用的 bucket
-(`fulfillment-attachments`)由 `minio-init` 一次性服务自动建好(幂等,随 `backend` 一起触发,不需要
-单独跑);生产走云对象存储时 bucket 由运维预先建好,没有对应的一次性服务。
-
-`frontend` 服务在 `docker-compose.yml` 里已占位,但**还没有 `frontend/Dockerfile`**(T7 只搭了本地
-`pnpm dev` 开发壳,未做生产构建镜像)——补齐 Dockerfile 前,`docker compose up` 不带 service 名的全量
-启动会在 frontend 这一步失败;跑 `db minio backend` 三件套即可验证后端全链路,前端仍用 `pnpm dev`
-起本地开发模式连它。
-
-单独验证后端镜像可构建:
-
-```bash
-docker compose build backend
+docker compose build backend    # 或 frontend
 ```
 
 ## 待接
 
 - GitHub remote 已建:`origin` → `github.com/matgo-dev/buildreach-fulfillment`。远端 CI
   (`.github/workflows/ci.yml`)已在 GitHub Actions 实跑:PR 触发 pytest + 前端 lint/build 卡点,当前绿。
-  仍待接:远端部署编排(目前本仓库无对应目录,后续按需补)。
-- `frontend/Dockerfile`:生产构建镜像待补(见上「容器部署」一节)。
 - 前端界面:登录/改密壳 + 商品目录全套(SPU/SKU 列表·详情·增改)+ 报价全套(列表·详情·整单编辑器)
   已上;随主流程各步(转销售/采购/入库…)后端稳定后逐步补(内部界面,中文)。

@@ -1,0 +1,16 @@
+# 构建镜像时排除,缩小上下文 + 防止本地密钥/产物进镜像层
+node_modules
+.next
+.turbo
+*.tsbuildinfo
+# 本地环境文件(含密钥),绝不进镜像
+.env
+.env.*
+!.env.example
+.git
+.gitignore
+Dockerfile
+.dockerignore
+npm-debug.log*
+.DS_Store
+README.md
