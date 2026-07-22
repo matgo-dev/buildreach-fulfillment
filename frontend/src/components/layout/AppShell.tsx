@@ -67,7 +67,9 @@ const MENU_GROUPS = [
     group: "财务",
     items: [
       { key: "/finance/receivables", icon: <AccountBookOutlined />, label: "应收款", perm: Permissions.RECEIVABLE_READ },
+      { key: "/finance/receipts", icon: <AccountBookOutlined />, label: "收款单", perm: Permissions.RECEIPT_READ },
       { key: "/finance/payables", icon: <AccountBookOutlined />, label: "应付款", perm: Permissions.PAYABLE_READ },
+      { key: "/finance/payments", icon: <AccountBookOutlined />, label: "付款单", perm: Permissions.PAYMENT_READ },
     ],
   },
   {

@@ -216,12 +216,16 @@ async def list_lines(db: AsyncSession, order_id: int) -> list[InboundOrderLine]:
         .order_by(InboundOrderLine.sort_order))).scalars().all())
 
 
-async def get_active_payable(db: AsyncSession, inbound_order_id: int) -> Payable | None:
-    """该入库单的活动 payable(voided_at IS NULL)。详情 payable 块用。"""
-    return (await db.execute(
-        select(Payable).where(
-            Payable.inbound_order_id == inbound_order_id,
-            Payable.voided_at.is_(None)))).scalar_one_or_none()
+async def get_active_payable(db: AsyncSession, inbound_order_id: int, *,
+                             for_update: bool = False) -> Payable | None:
+    """该入库单的活动 payable(voided_at IS NULL)。详情 payable 块用(默认不锁);
+    撤销入库路径须传 for_update=True 锁账行(D2):核销引擎锁 payment+payable,与撤账原本锁集
+    不相交,TOCTOU 大开。锁下重判 amount_allocated>0,与核销串行化。"""
+    stmt = select(Payable).where(
+        Payable.inbound_order_id == inbound_order_id, Payable.voided_at.is_(None))
+    if for_update:
+        stmt = stmt.with_for_update()
+    return (await db.execute(stmt)).scalar_one_or_none()
 
 
 # ---------- 建单 ----------
@@ -426,7 +430,8 @@ async def unreceive_order(db: AsyncSession, *, order_id, void_reason: str | None
     # 3. 转移 + payable 守卫,翻转状态(RECEIVED 退出库存 inbound 臂)。
     assert_transition(INBOUND_ORDER_TRANSITIONS, order.status, InboundOrderStatus.IN_TRANSIT,
                       InboundOrderInvalidTransitionError)
-    payable = await get_active_payable(db, order.id)
+    # D2:锁账行(FOR UPDATE)后重判核销——与核销引擎串行化,闭合 TOCTOU。
+    payable = await get_active_payable(db, order.id, for_update=True)
     if payable is not None and Decimal(str(payable.amount_allocated)) > 0:
         raise PayableAllocatedCannotUnreceiveError()
     if payable is not None:

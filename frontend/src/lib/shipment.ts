@@ -3,6 +3,7 @@
 import { api } from "./api";
 import type { Page } from "./catalog";
 import type { OutboundOrderStatus } from "./outboundOrder";
+import { qs } from "./qs";
 
 export type ShipmentStatus = "OPEN" | "LOADED" | "DEPARTED" | "CANCELLED";
 
@@ -204,15 +205,6 @@ export interface CustomsUpdateBody {
   expected_updated_at: string;
   /** 传了 = 全量替换附件(未列出的后端软删);不传 = 附件不动。 */
   attachment_ids?: number[];
-}
-
-function qs(p: Record<string, unknown>): string {
-  const q = new URLSearchParams();
-  Object.entries(p).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
-  });
-  const s = q.toString();
-  return s ? `?${s}` : "";
 }
 
 export interface ShipmentListFilters {

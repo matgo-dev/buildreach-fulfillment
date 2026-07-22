@@ -53,6 +53,8 @@ class PayableListItem(BaseModel):
     status: str
     due_at: date | None
     created_at: datetime
+    # D10:该供应商是否有未分配付款余额(预付),供列表提示「一键核销」入口(纯提示,非自动)。
+    counterparty_has_unallocated: bool = False
 
     @classmethod
     def build(cls, item: dict) -> dict:
@@ -65,4 +67,5 @@ class PayableListItem(BaseModel):
             "amount_allocated": float(item["amount_allocated"]),
             "balance": float(item["balance"]),
             "status": derive_payable_status(item["amount_original"], item["amount_allocated"]),
+            "counterparty_has_unallocated": item.get("counterparty_has_unallocated", False),
         }

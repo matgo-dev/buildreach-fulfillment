@@ -24,6 +24,8 @@ class AuditResourceType(str, Enum):
     SHIPMENT_ORDER = "shipment_order"
     SHIPMENT_EVENT = "shipment_event"
     CUSTOMS_DECLARATION = "customs_declaration"
+    RECEIPT = "receipt"
+    PAYMENT = "payment"
 
 
 class AuditAction(str, Enum):
@@ -58,6 +60,11 @@ class AuditAction(str, Enum):
     UNLOAD = "UNLOAD"
     DEPART = "DEPART"
     UNDEPART = "UNDEPART"
+    # 财务:收付款单登记(CREATE)/ 认领客户(CLAIM,仅收款)/ 作废(VOID)/
+    # 核销(ALLOCATE,自动或人工把钱勾到账)/ 反核销(REVERSE,软删核销留痕)。
+    CLAIM = "CLAIM"
+    ALLOCATE = "ALLOCATE"
+    REVERSE = "REVERSE"
     LOGIN_SUCCESS = "LOGIN_SUCCESS"
     LOGIN_FAILED = "LOGIN_FAILED"
     LOGIN_LOCKED = "LOGIN_LOCKED"

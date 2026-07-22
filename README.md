@@ -295,6 +295,40 @@
     派生筛选(复用 `latest_event_select` 单一源头;发运柜有界小表,派生 join 走索引,升级触发式物化不提前冗余)。
     错误码段 20 补 `42007`–`42010`。迁移 `0029_shipment_events`。
 
+- **报关(主流程第十步,分支 `feat/customs-declaration`,已合 main PR#34)**:发运柜整柜一次报关留痕
+  (录入申报 → 回填放行),软删重录纠错;**单据附件基建首落地**(报关单/放行扫描件)。
+  - **表**:`customs_declarations`(挂柜子资源,每柜至多一条活动记录,偏唯一;`declaration_no` 活动期
+    全局唯一 `42016`)+ 全局基建表 `attachments`(直接 FK 归属,非多态;孤儿配额偏索引)。派生报关状态
+    `NONE/DECLARED/RELEASED`,不落列。迁移 `0030_attachments` + `0031_customs_declarations`。
+  - **RBAC**:**零新增权限点**,复用 `shipment:read`/`shipment:manage`(附件走同域门控);错误码段 21(附件
+    `421xx`)+ 段 20 补 `42011`–`42016`。附件走后端中转上传(见「本地开发 · 单据附件」)。
+
+- **财务(主流程第十一步 · 收尾节点,分支 `feat/finance-increment`)**:账实分离三层的**实层 + 核销层**——
+  收款单/付款单(人工登记一笔到账/付款)+ 核销记录(自动按账龄 FIFO / 人工挑单把钱勾到应收/应付账层)。
+  **主流程 11 步至此闭环。**
+  - **表(迁移 `0032_finance_receipts_payments`)**:`receipts`(收侧实层;`customer_id` **可空 = 待认领** D1)、
+    `payments`(付侧实层,🔴红线,`supplier_id` 必填、`paid_at` 付款日)、`receipt_allocations`/`payment_allocations`
+    (核销层,偏唯一「一对活动核销至多一条」,`reversed_at` 反核销软删留痕)。`amount_unallocated` 生成列
+    = 未分配余额 = **预收/预付**(P0 记录支持,自动消费后置)。收付款单 status 纯派生不落列(收四态含 `UNCLAIMED`、
+    付三态)。**核销引擎是全系统 `amount_allocated` 唯一写入口**(核销 `+=` / 反核销 `-=`,`balance` 生成列跟随)。
+    另补两条账龄 partial composite 索引 `ix_{receivables,payables}_open_aging`(F1:候选查询过滤+锁序走索引、
+    排除已结清行,翻量不退化)。
+  - **核销引擎(收付泛型共用)**:自动核销(登记已认领/认领后同事务,按 `(due_at, created_at, id)` 账龄序取满
+    `min`)/ 人工核销(选账取满 `min`,不自填欠额 D8)/ 反核销(软删退回双侧)。全写入口锁**源行先、账行后**
+    FOR UPDATE,自动核销多账行固定序取锁,无死锁环;偏唯一兜底并发重复核销转 `409`。全程 Decimal。
+  - **D2 撤账×核销联动加固**:核销引擎建成后 `41708`(撤入库)/`41907`(撤出库)守卫才真正生效;撤账路径
+    活动账行读改 `FOR UPDATE` 重判(`_get_active_receivable`/`get_active_payable` 传 `for_update=True`),与核销串行化。
+  - **RBAC**:新增角色 **`FINANCE`(财务)** = `receipt:*` + `payment:*`(🔴)+ `receivable:read`/`payable:read`
+    (核销需读账层)。`payment:*` 红线(供应商 + 采购付款金额),无权者整端点 403。D9:收款详情内嵌应收明细额
+    对无 `receivable:read` 者脱敏为 null(权限跟数据走)。`ADMIN` 纯系统域不授。审计加 `RECEIPT`/`PAYMENT` 资源
+    类型 + `CLAIM`/`ALLOCATE`/`REVERSE` 动作。
+  - **端点**:`/receipts`(列表/登记/详情/`claim`/`void`/`allocations`)+ `DELETE /receipt-allocations/{id}`
+    (反核销,`reverse_reason` 走 query);`/payments` 同构(🔴 无 `claim`)+ `/payment-allocations`;新增
+    `GET /receivables/{id}`、`GET /payables/{id}`(嵌活动核销记录);账层列表加 `counterparty_has_unallocated`
+    提示标志(D10:提示 + 一键,不自动吃存量余额)。单号 `NumberScope.RECEIPT`(`RC{YYYYMM}####`）/`PAYMENT`
+    (`PM{YYYYMM}####`);核销记录内部无单号。错误码段 22(财务 `422xx`:核销超额/跨币种/跨对手方/反核销幂等/
+    作废守卫)。
+
 ## 本地开发
 
 本地开发**复用现有 brew PostgreSQL**(`@ :5433`),不用下面 `docker-compose.yml` 里的 `db` 服务

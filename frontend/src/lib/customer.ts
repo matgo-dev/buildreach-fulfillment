@@ -1,6 +1,7 @@
 // 客户主数据前端类型 + API。对齐后端 schemas/customer.py。
 import { api } from "./api";
 import type { Page } from "./catalog";
+import { qs } from "./qs";
 
 export type CustomerStatus = "ACTIVE" | "INACTIVE";
 
@@ -48,15 +49,6 @@ export interface CustomerListFilters {
   q?: string;
   page?: number;
   size?: number;
-}
-
-function qs(p: Record<string, unknown>): string {
-  const q = new URLSearchParams();
-  Object.entries(p).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
-  });
-  const s = q.toString();
-  return s ? `?${s}` : "";
 }
 
 export const customerApi = {

@@ -1,6 +1,7 @@
 // 供应商主数据前端类型 + API。对齐后端 schemas/supplier.py。
 import { api } from "./api";
 import type { Page } from "./catalog";
+import { qs } from "./qs";
 
 export type SupplierStatus = "ACTIVE" | "INACTIVE";
 
@@ -47,15 +48,6 @@ export interface SupplierListFilters {
   q?: string;
   page?: number;
   size?: number;
-}
-
-function qs(p: Record<string, unknown>): string {
-  const q = new URLSearchParams();
-  Object.entries(p).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
-  });
-  const s = q.toString();
-  return s ? `?${s}` : "";
 }
 
 export const supplierApi = {

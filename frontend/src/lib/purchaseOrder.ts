@@ -4,6 +4,7 @@
 import { api } from "./api";
 import type { Page } from "./catalog";
 import { formatMoney } from "./format";
+import { qs } from "./qs";
 
 export type PurchaseOrderStatus = "DRAFT" | "CONFIRMED" | "CANCELLED";
 
@@ -137,15 +138,6 @@ export interface RelatedPurchaseOrder {
 /** 红线金额渲染:null(无成本权限)→ 静音「—」,绝不显示 0。 */
 export function formatCost(v: number | string | null | undefined): string {
   return v === null || v === undefined ? "—" : formatMoney(v);
-}
-
-function qs(p: Record<string, unknown>): string {
-  const q = new URLSearchParams();
-  Object.entries(p).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
-  });
-  const s = q.toString();
-  return s ? `?${s}` : "";
 }
 
 export interface PurchaseOrderListFilters {
