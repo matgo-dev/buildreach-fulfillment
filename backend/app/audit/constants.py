@@ -62,6 +62,7 @@ class AuditAction(str, Enum):
     LOGIN_FAILED = "LOGIN_FAILED"
     LOGIN_LOCKED = "LOGIN_LOCKED"
     LOGOUT = "LOGOUT"
+    REFRESH_REPLAY = "REFRESH_REPLAY"   # 已用 refresh token 宽限窗外重现 → 撤整族
     PASSWORD_CHANGE = "PASSWORD_CHANGE"
     PASSWORD_RESET = "PASSWORD_RESET"   # ADMIN 代重置(≠自助 PASSWORD_CHANGE)
     USER_DISABLE = "USER_DISABLE"       # ADMIN 停用账号

@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from jose import JWTError
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
@@ -27,15 +28,50 @@ from app.core.security import (
     create_access_token,
     create_refresh_token,
     decode_token,
+    hash_jti,
     hash_password,
     validate_password_strength,
     verify_password,
 )
 from app.db.models.audit_log import AuditStatus
+from app.db.models.refresh_token import RefreshToken
 from app.db.models.user import User, UserStatus
 from app.services.rate_limit import login_rate_limiter
 
 logger = logging.getLogger(__name__)
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+async def _issue_refresh_in_family(
+    db: AsyncSession, user: User, family_id: str
+) -> tuple[str, str]:
+    """签发一枚 refresh token 并在指定家族记一行账。返回 (token 明文, jti_hash)。
+
+    row 尚未 flush;调用方在同事务里 flush/commit。issued_at = 记账时刻。
+    """
+    now = _utcnow()
+    token, jti = create_refresh_token(user.id, user.email, user.token_version)
+    jti_hash = hash_jti(jti)
+    db.add(RefreshToken(
+        user_id=user.id,
+        family_id=family_id,
+        jti_hash=jti_hash,
+        issued_at=now,
+        expires_at=now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+    ))
+    return token, jti_hash
+
+
+async def _revoke_family(db: AsyncSession, family_id: str) -> None:
+    """撤销整个 token 家族(登出 / 重放检测)。set-based,一族有界几行,不逐行。"""
+    await db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.family_id == family_id, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=_utcnow())
+    )
 
 
 def _client_ip(request: Request | None) -> str:
@@ -204,7 +240,8 @@ async def login(
     user.failed_login_attempts = 0
     user.locked_until = None
     access_token, expires_in = create_access_token(user.id, user.email, user.token_version)
-    refresh_token = create_refresh_token(user.id, user.email, user.token_version)
+    # 新登录开一个 token 家族;row 随下方 LOGIN_SUCCESS 审计一并落库(commit=True)。
+    refresh_token, _ = await _issue_refresh_in_family(db, user, uuid.uuid4().hex)
     await write_audit(
         db,
         resource_type=AuditResourceType.AUTH,
@@ -229,8 +266,9 @@ async def refresh(
 ) -> dict:
     """用 refresh token 换新 access token,并轮换 refresh token(滑动 7 天)。
 
-    吊销由 users.token_version 单一源头管辖(改密/管理员重置即 +1,旧 refresh 一并失效),
-    不建 jti 黑名单 —— 内部平台威胁模型下重放检测属过度设计。
+    两层吊销:users.token_version = 改密/封号的全局总闸;refresh_tokens 家族账本 =
+    单会话精确掐断(轮换作废 + 重放检测)。公网部署威胁模型下二者都必要。
+    轮换:查 jti 账本行 → 标父 used、同族派生子;已 used 的父在宽限窗外再现 = 重放 → 撤整族。
     must_change_password 用户允许 refresh:强制改密拦截由 guard 层(40007)负责,
     不该把「必须改密」降级成「会话失效」。
     """
@@ -252,8 +290,55 @@ async def refresh(
     if int(payload.get("tv", -1)) != user.token_version:
         raise NotAuthenticatedError("Token revoked")
 
+    jti = payload.get("jti")
+    if not jti:
+        raise NotAuthenticatedError("Invalid refresh token")
+
+    now = _utcnow()
+    # 行锁串行化同一 token 的并发轮换,把「判 used → 决定容忍/撤族 → 派生」原子化。
+    row = (await db.execute(
+        select(RefreshToken)
+        .where(RefreshToken.jti_hash == hash_jti(jti))
+        .with_for_update()
+    )).scalar_one_or_none()
+
+    if row is None:
+        # 签名合法但账本无此行:伪造 / 已惰性清理的过期 token。
+        raise NotAuthenticatedError("Unknown refresh token")
+    if row.revoked_at is not None:
+        raise NotAuthenticatedError("Session revoked")
+    if row.expires_at <= now:
+        raise NotAuthenticatedError("Refresh token expired")
+
+    first_use = row.used_at is None
+    if not first_use:
+        # 父 token 已被轮换过 —— 潜在重放。
+        grace = timedelta(seconds=settings.REFRESH_REPLAY_GRACE_SECONDS)
+        if now - row.used_at > grace:
+            # 宽限窗外重现 = 重放 → 撤整族(先记账再抛)。
+            await _revoke_family(db, row.family_id)
+            await write_audit(
+                db,
+                resource_type=AuditResourceType.AUTH,
+                action=AuditAction.REFRESH_REPLAY,
+                status=AuditStatus.FAILED,
+                user_id=user.id,
+                user_email=user.email,
+                error_message="refresh token replay",
+                extra={"family_id": row.family_id},
+            )
+            raise NotAuthenticatedError("Refresh token replay detected")
+        # 窗内并发轮换(多标签页竞态):容忍、发新、不动 used_at(防无限撑窗)、不撤族。
+
     access_token, expires_in = create_access_token(user.id, user.email, user.token_version)
-    new_refresh_token = create_refresh_token(user.id, user.email, user.token_version)
+    # 先 flush 子行,父行的自引用 replaced_by_jti_hash 才有可指向的目标。
+    new_refresh_token, new_hash = await _issue_refresh_in_family(db, user, row.family_id)
+    await db.flush()
+    if first_use:
+        # used_at 与 replaced_by 成对写(DB 有配对 CHECK 兜底)。
+        row.used_at = now
+        row.replaced_by_jti_hash = new_hash
+    await db.commit()
     return {
         "access_token": access_token,
         "refresh_token": new_refresh_token,
@@ -302,11 +387,12 @@ async def change_password(
         request=request,
         commit=False,
     )
-    await db.commit()
 
-    # 基于新 token_version 签发，当前会话无缝续登
+    # 基于新 token_version 签发,当前会话无缝续登。tv 已 +1 使旧族全部作废,
+    # 这里开一个新族记账(与 tv 呼应),否则新 refresh token 无账本行、下次轮换会 401。
     access_token, expires_in = create_access_token(user.id, user.email, user.token_version)
-    refresh_token = create_refresh_token(user.id, user.email, user.token_version)
+    refresh_token, _ = await _issue_refresh_in_family(db, user, uuid.uuid4().hex)
+    await db.commit()
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
@@ -318,16 +404,36 @@ async def change_password(
 async def logout(
     db: AsyncSession,
     *,
-    user_id: int,
-    user_email: str,
+    refresh_token: str | None,
+    user_id: int | None = None,
+    user_email: str | None = None,
     request: Request | None = None,
 ) -> None:
-    """无状态 JWT 登出:仅写审计,前端自行清 token。"""
-    await write_audit(
-        db,
-        resource_type=AuditResourceType.AUTH,
-        action=AuditAction.LOGOUT,
-        user_id=user_id,
-        user_email=user_email,
-        request=request,
-    )
+    """登出:撤销 refresh cookie 所属的 token 家族(服务端吊销,非仅清浏览器 cookie)+ 写审计。
+
+    幂等:token 缺失/失效/账本无行都静默跳过撤族;仅在拿到有效用户身份时写 LOGOUT 审计。
+    """
+    if refresh_token:
+        try:
+            payload = decode_token(refresh_token, expected_type="refresh")
+        except JWTError:
+            payload = None
+        jti = payload.get("jti") if payload else None
+        if jti:
+            row = (await db.execute(
+                select(RefreshToken).where(RefreshToken.jti_hash == hash_jti(jti))
+            )).scalar_one_or_none()
+            if row is not None:
+                await _revoke_family(db, row.family_id)
+
+    if user_id is not None:
+        await write_audit(
+            db,
+            resource_type=AuditResourceType.AUTH,
+            action=AuditAction.LOGOUT,
+            user_id=user_id,
+            user_email=user_email,
+            request=request,
+            commit=False,
+        )
+    await db.commit()

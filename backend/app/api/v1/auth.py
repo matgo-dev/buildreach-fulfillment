@@ -97,17 +97,22 @@ async def logout(
     token: str | None = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
 ):
-    # 幂等:access token 缺失/过期也照样清 cookie 返回成功(登出不该失败);
-    # 仅在 token 有效时写 LOGOUT 审计。
+    # 幂等:access token 缺失/过期也照样清 cookie 返回成功(登出不该失败)。
+    # 家族撤销从 refresh cookie 取(即便 access token 已过期也能撤本会话);
+    # 仅在 access token 有效时写 LOGOUT 审计(拿得到用户身份)。
+    current = None
     if token:
         try:
             current = await get_current_user(token=token, db=db)
         except BusinessError:
             current = None
-        if current is not None:
-            await auth_service.logout(
-                db, user_id=current.id, user_email=current.email, request=request
-            )
+    await auth_service.logout(
+        db,
+        refresh_token=request.cookies.get(settings.REFRESH_COOKIE_NAME),
+        user_id=current.id if current else None,
+        user_email=current.email if current else None,
+        request=request,
+    )
     response.delete_cookie(
         key=settings.REFRESH_COOKIE_NAME,
         path=settings.REFRESH_COOKIE_PATH,

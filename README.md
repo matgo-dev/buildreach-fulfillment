@@ -419,9 +419,17 @@ JSON 形状见 `scripts/sample_categories.json`。幂等:`code` 已存在则跳�
 **会话机制**:登录返回 **15 分钟 access token**(前端 Zustand 纯内存,无 Web Storage 落点)+
 **7 天滑动 refresh token**(httpOnly cookie,`SameSite=Lax`,路径限定 `/api/v1/auth`)。
 access 过期后前端 401 时经 `POST /api/v1/auth/refresh` 单飞续期(并发请求共享一次刷新),
-每次刷新**轮换** refresh cookie(滑动 7 天);`POST /api/v1/auth/logout` 清 cookie(幂等,
-带有效 token 时写 LOGOUT 审计)。**吊销单一源头 = `users.token_version`**:改密/管理员重置
-即 +1,旧 access/refresh 一并失效,不建 jti 黑名单。
+每次刷新**轮换** refresh cookie(滑动 7 天)。
+
+**Refresh token 家族账本(重放检测 + 单会话吊销)**:一次登录开一个 token *family*,服务端在
+`refresh_tokens` 表按 jti 的 sha256 哈希记账(不存原文)。轮换时把父 token 标记 `used`、同族派生
+后继;**已用的父 token 在宽限窗**(`REFRESH_REPLAY_GRACE_SECONDS`,默认 60s)**外再现 = 重放 →
+撤销整个家族**(令旧会话失效并记 `REFRESH_REPLAY` 审计),窗内并发轮换(多标签页竞态)则容忍、
+发新、不撤族且不延后窗口。`POST /api/v1/auth/logout` **在服务端撤销本会话家族**(非仅清浏览器
+cookie,被复制走的 cookie 也续不了命)+ 清 cookie(幂等,带有效 access token 时写 LOGOUT 审计)。
+
+**两层吊销**:`users.token_version`(改密/管理员重置即 +1)= 全局总闸,一刀切该用户所有会话;
+`refresh_tokens` 家族 = 单会话精确掐断。二者各管各、非二选一。迁移 `0032_refresh_tokens`。
 
 **登录防爆破(两道)**:
 
@@ -444,7 +452,7 @@ access 过期后前端 401 时经 `POST /api/v1/auth/refresh` 单飞续期(并�
 
 **相关环境变量**(详见 `.env.example`):`SUPER_ADMIN_INITIAL_PASSWORD`(**必填,无默认值**)、
 `ENABLE_API_DOCS`、`ENABLE_HSTS`、`ACCOUNT_LOCK_THRESHOLD` / `ACCOUNT_LOCK_MINUTES`、
-`REFRESH_COOKIE_SECURE`。
+`REFRESH_COOKIE_SECURE`、`REFRESH_REPLAY_GRACE_SECONDS`。
 
 > 早期 M0 的 `/api/v1/attachments` 最小上传端点(无类型/大小校验、无业务 RBAC、无任何消费方)
 > 已下线;对象存储层与商品图直传(`/api/v1/uploads`,守 `product:manage`)不受影响。

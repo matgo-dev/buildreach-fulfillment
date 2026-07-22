@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     REFRESH_COOKIE_SECURE: bool = False
     REFRESH_COOKIE_SAMESITE: str = "lax"
 
+    # refresh 重放宽限窗:同族 refresh cookie 被并发轮换(多标签页休眠唤醒)时,父 token
+    # 在首次 used_at 后此秒数内被复用视为竞态而非重放 —— 容忍、发新、不撤族;窗外复用
+    # 判重放 → 撤整族。窗从首次 used_at 起算、不因窗内重放延后(防无限撑窗)。
+    REFRESH_REPLAY_GRACE_SECONDS: int = 60
+
     # Trace / Proxy(前置可信网关时才置 true)
     TRUST_INBOUND_TRACE_ID: bool = False
     TRUST_PROXY: bool = False
