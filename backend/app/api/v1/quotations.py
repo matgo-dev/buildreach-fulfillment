@@ -16,6 +16,7 @@ from app.db.models.quotation import QuotationStatus
 from app.db.session import get_db
 from app.rbac.constants import Permissions
 from app.rbac.guards import require_permission
+from app.rbac.redaction import can_see_price
 from app.schemas.common import Page, PageParams
 from app.schemas.quotation import (
     QuotationLineOut,
@@ -166,9 +167,11 @@ async def convert_quotation(
         actor_user_email=current.email, request=request)
     lines = await sales_order_service.list_lines(db, so.id)
     parties = await sales_order_service.resolve_order_parties(db, so)
+    # 守 quote:manage(仅 SALES,恒持 receivable:read);经 build 保持「无裸 dump」不变式。
+    price_visible = can_see_price(current)
     return success({
-        "order": {**SalesOrderOut.model_validate(so, from_attributes=True).model_dump(), **parties},
+        "order": SalesOrderOut.build(so, parties, can_see_price=price_visible),
         "lines": await unit_service.translate_unit_snapshots(
-            db, [SalesOrderLineOut.model_validate(l, from_attributes=True).model_dump()
+            db, [SalesOrderLineOut.build(l, can_see_price=price_visible)
                  for l in lines]),
     })

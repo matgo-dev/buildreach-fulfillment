@@ -1,7 +1,7 @@
 """采购单 schemas + 红线脱敏构造工厂。
 
 🔴红线:采购价(unit_price)/ 行额(line_total)/ 单头金额(total_amount)对无 `purchase:read_cost`
-者置 null。可见性下沉到 `.build(..., can_see_cost=...)` 构造工厂(单点经 redact_cost),
+者置 null。可见性下沉到 `.build(..., can_see_cost=...)` 构造工厂(单点经 redact_fields),
 让「新出口忘记脱敏而裸露成本」在结构上更难发生,而非 dump 后 patch。
 """
 from __future__ import annotations
@@ -10,7 +10,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from app.rbac.redaction import PO_COST_FIELDS, PO_LINE_COST_FIELDS, redact_cost
+from app.rbac.redaction import PO_COST_FIELDS, PO_LINE_COST_FIELDS, redact_fields
 
 # ---------- 写入(建单 / 编辑对账)----------
 
@@ -73,7 +73,7 @@ class PurchaseOrderLineOut(BaseModel):
     @classmethod
     def build(cls, line, *, can_see_cost: bool) -> dict:
         d = cls.model_validate(line, from_attributes=True).model_dump()
-        return redact_cost(d, PO_LINE_COST_FIELDS, can_see_cost=can_see_cost)
+        return redact_fields(d, PO_LINE_COST_FIELDS, visible=can_see_cost)
 
 
 class PurchaseOrderOut(BaseModel):
@@ -90,7 +90,7 @@ class PurchaseOrderOut(BaseModel):
     @classmethod
     def build(cls, po, extra: dict | None = None, *, can_see_cost: bool) -> dict:
         d = cls.model_validate(po, from_attributes=True).model_dump()
-        d = redact_cost(d, PO_COST_FIELDS, can_see_cost=can_see_cost)
+        d = redact_fields(d, PO_COST_FIELDS, visible=can_see_cost)
         if extra:
             d.update(extra)
         return d
@@ -112,7 +112,7 @@ class PurchaseOrderListItem(BaseModel):
     @classmethod
     def build(cls, item: dict, *, can_see_cost: bool) -> dict:
         d = cls.model_validate(item).model_dump()
-        return redact_cost(d, PO_COST_FIELDS, can_see_cost=can_see_cost)
+        return redact_fields(d, PO_COST_FIELDS, visible=can_see_cost)
 
 
 class RelatedPurchaseOrderItem(BaseModel):
@@ -129,4 +129,4 @@ class RelatedPurchaseOrderItem(BaseModel):
     @classmethod
     def build(cls, item: dict, *, can_see_cost: bool) -> dict:
         d = cls.model_validate(item).model_dump()
-        return redact_cost(d, PO_COST_FIELDS, can_see_cost=can_see_cost)
+        return redact_fields(d, PO_COST_FIELDS, visible=can_see_cost)

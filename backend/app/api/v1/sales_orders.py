@@ -14,7 +14,7 @@ from app.core.exceptions import success
 from app.db.session import get_db
 from app.rbac.constants import Permissions
 from app.rbac.guards import has_permission, require_permission
-from app.rbac.redaction import can_see_cost
+from app.rbac.redaction import can_see_cost, can_see_price
 from app.schemas.common import Page, PageParams
 from app.schemas.inventory import StockBalanceRow
 from app.schemas.outbound_order import OutboundableLineOut, RelatedOutboundOrderItem
@@ -53,15 +53,20 @@ async def list_sales_orders(
     purchasable_only: bool = False,
     sort: str = Query("created_at", pattern=r"^(created_at|total_amount)$"),
     dir: str = Query("desc", pattern=r"^(asc|desc)$"),
-    _current: CurrentUser = _GUARD,
+    current: CurrentUser = _GUARD,
     db: AsyncSession = Depends(get_db),
 ):
+    price_visible = can_see_price(current)
+    # 售价红线:无 receivable:read 者不仅值脱敏,按成交额排序也会经排序泄漏相对大小 →
+    # 静默回落到 created_at(该字段对其恒为 null,按它排序本无意义)。
+    if sort == "total_amount" and not price_visible:
+        sort = "created_at"
     items, total = await sales_order_service.list_orders(
         db, status=status, customer_id=customer_id, salesperson_id=salesperson_id,
         no=no, purchase_progress=purchase_progress, purchasable_only=purchasable_only,
         sort=sort, dir=dir, page=page_params.page, size=page_params.size)
     return success(Page(
-        items=[SalesOrderListItem.model_validate(it).model_dump() for it in items],
+        items=[SalesOrderListItem.build(it, can_see_price=price_visible) for it in items],
         total=total, page=page_params.page, size=page_params.size).model_dump())
 
 
@@ -78,11 +83,11 @@ async def cancel_sales_order(
         actor_user_email=current.email, request=request)
     lines = await sales_order_service.list_lines(db, order_id)
     parties = await sales_order_service.resolve_order_parties(db, so)
+    price_visible = can_see_price(current)
     return success({
-        "order": {**SalesOrderOut.model_validate(so, from_attributes=True).model_dump(),
-                  **parties},
+        "order": SalesOrderOut.build(so, parties, can_see_price=price_visible),
         "lines": await unit_service.translate_unit_snapshots(
-            db, [SalesOrderLineOut.model_validate(ln, from_attributes=True).model_dump()
+            db, [SalesOrderLineOut.build(ln, can_see_price=price_visible)
                  for ln in lines]),
     })
 
@@ -107,10 +112,9 @@ async def get_sales_order(
     # 采购进度(轴2 派生)+ 每行 covered_qty(数量,非红线):所有 sales:read 者可见。
     progress, covered = await purchase_order_service.compute_progress(db, order_id)
 
-    order_out = {
-        **SalesOrderOut.model_validate(so, from_attributes=True).model_dump(),
-        **parties, "purchase_progress": progress,
-    }
+    price_visible = can_see_price(current)
+    order_out = SalesOrderOut.build(
+        so, {**parties, "purchase_progress": progress}, can_see_price=price_visible)
     # 关联采购单区:仅 purchase:read 者下发(SALES 拿不到供应商身份/金额)。
     if has_permission(current, Permissions.PURCHASE_READ):
         related = await purchase_order_service.list_related_by_sales_order(db, order_id)
@@ -133,7 +137,7 @@ async def get_sales_order(
 
     line_outs = []
     for ln in lines:
-        d = SalesOrderLineOut.model_validate(ln, from_attributes=True).model_dump()
+        d = SalesOrderLineOut.build(ln, can_see_price=price_visible)
         d["covered_qty"] = float(covered.get(ln.id, 0))
         line_outs.append(d)
     await unit_service.translate_unit_snapshots(db, line_outs)
