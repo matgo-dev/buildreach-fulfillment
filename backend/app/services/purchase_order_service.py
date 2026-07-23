@@ -34,7 +34,6 @@ from app.core.exceptions import (
 )
 from app.db.models.inbound_order import InboundOrder, InboundOrderLine, InboundOrderStatus
 from app.db.models.purchase_order import (
-    PURCHASE_ORDER_DELETABLE_STATUSES,
     PURCHASE_ORDER_EDITABLE_STATUSES,
     PURCHASE_ORDER_TRANSITIONS,
     PurchaseOrder,
@@ -364,17 +363,7 @@ async def _transition(db: AsyncSession, po: PurchaseOrder, target: str, audit_ac
     return po
 
 
-async def delete_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_email,
-                       request: Request | None = None) -> None:
-    """硬删采购单(仅草稿;行 CASCADE)。草稿=从没弄好可删,已确认走取消。"""
-    po = await get_order_for_update(db, order_id)
-    if po.status not in PURCHASE_ORDER_DELETABLE_STATUSES:
-        raise PurchaseOrderNotDraftError()
-    await write_audit(db, resource_type=AuditResourceType.PURCHASE_ORDER, action=AuditAction.DELETE,
-                      user_id=actor_user_id, user_email=actor_user_email,
-                      resource_id=po.id, request=request, commit=False)
-    await db.delete(po)
-    await db.commit()
+# 无 delete_order:采购单无整单硬删。草稿要弃走 cancel_order(取消,DRAFT→CANCELLED),退役单轨走状态机。
 
 
 # ---------- 列表 ----------

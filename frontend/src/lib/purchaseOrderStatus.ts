@@ -1,9 +1,9 @@
 // 采购单状态机的前端镜像 —— 唯一权威源头是 backend db/models/purchase_order.py
-// (PURCHASE_ORDER_TRANSITIONS / EDITABLE / DELETABLE)。此处只映射 UI 呈现,
+// (PURCHASE_ORDER_TRANSITIONS / EDITABLE)。此处只映射 UI 呈现,
 // 不重复业务规则:后端才是硬约束,前端隐藏按钮只是 UX,越权调用仍被后端拦。
 import type { PurchaseOrderStatus, PurchaseProgress } from "@/lib/purchaseOrder";
 
-/** 三态:草稿(可编辑可删)/ 已确认(冻结)/ 已取消(终态)。 */
+/** 三态:草稿(可编辑)/ 已确认(冻结)/ 已取消(终态)。 */
 export const PURCHASE_ORDER_STATUS_META: Record<PurchaseOrderStatus, { label: string; color: string }> = {
   DRAFT: { label: "草稿", color: "warning" },
   CONFIRMED: { label: "已确认", color: "success" },
@@ -17,9 +17,8 @@ const PURCHASE_ORDER_TRANSITIONS: Record<PurchaseOrderStatus, PurchaseOrderStatu
   CANCELLED: [],
 };
 
-/** 镜像 EDITABLE / DELETABLE:仅草稿可改可删。 */
+/** 镜像 EDITABLE:仅草稿可改。无硬删——退役走取消。 */
 export const purchaseOrderEditable = (s: PurchaseOrderStatus): boolean => s === "DRAFT";
-export const purchaseOrderDeletable = (s: PurchaseOrderStatus): boolean => s === "DRAFT";
 
 /** 详情页状态门禁动作(镜像转移矩阵)。 */
 export const purchaseOrderConfirmable = (s: PurchaseOrderStatus): boolean =>

@@ -1,4 +1,4 @@
-"""采购单状态机门禁 + 整单编辑(乐观锁/对账)+ 硬删 + PO 内复合 UNIQUE(DB 兜底)。"""
+"""采购单状态机门禁 + 整单编辑(乐观锁/对账)+ PO 内复合 UNIQUE(DB 兜底)。无整单硬删(退役走 cancel)。"""
 import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -28,8 +28,8 @@ async def _setup(client, purchaser_headers, sales_headers, db_session, so_qty=10
 
 
 @pytest.mark.asyncio
-async def test_confirm_then_cannot_edit_or_delete(client, purchaser_headers, sales_headers, db_session):
-    """DRAFT→CONFIRMED 后:编辑/硬删被拒(仅草稿可编辑/删)→ 41607。"""
+async def test_confirm_then_cannot_edit(client, purchaser_headers, sales_headers, db_session):
+    """DRAFT→CONFIRMED 后:编辑被拒(仅草稿可编辑)→ 41607。"""
     so_id, so_lines, sup = await _setup(client, purchaser_headers, sales_headers, db_session)
     po = await _draft_po(client, purchaser_headers, so_id, sup["id"], so_lines[0]["id"])
     H = purchaser_headers
@@ -42,8 +42,6 @@ async def test_confirm_then_cannot_edit_or_delete(client, purchaser_headers, sal
         "lines": [{"source_sales_order_line_id": so_lines[0]["id"], "qty": 1, "unit_price": 7}],
         "expected_updated_at": detail["order"]["updated_at"]})
     assert upd.status_code == 409 and upd.json()["code"] == 41607
-    dele = await client.delete(f"/api/v1/purchase-orders/{po['id']}", headers=H)
-    assert dele.status_code == 409 and dele.json()["code"] == 41607
 
 
 @pytest.mark.asyncio
@@ -87,17 +85,6 @@ async def test_edit_optimistic_lock_conflict(client, purchaser_headers, sales_he
         "lines": [{"source_sales_order_line_id": so_lines[0]["id"], "qty": 1, "unit_price": 7}],
         "expected_updated_at": stale})
     assert upd.status_code == 409 and upd.json()["code"] == 41605
-
-
-@pytest.mark.asyncio
-async def test_delete_draft(client, purchaser_headers, sales_headers, db_session):
-    """硬删草稿:删后详情 404(41601)。"""
-    so_id, so_lines, sup = await _setup(client, purchaser_headers, sales_headers, db_session)
-    H = purchaser_headers
-    po = await _draft_po(client, H, so_id, sup["id"], so_lines[0]["id"])
-    assert (await client.delete(f"/api/v1/purchase-orders/{po['id']}", headers=H)).status_code == 200
-    g = await client.get(f"/api/v1/purchase-orders/{po['id']}", headers=H)
-    assert g.status_code == 404 and g.json()["code"] == 41601
 
 
 @pytest.mark.asyncio

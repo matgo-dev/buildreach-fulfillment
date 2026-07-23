@@ -1,4 +1,4 @@
-"""T8 报价 API:8 端点整单化(create/get/list/put/delete/lock/unlock/void)+ 删旧 /lines。"""
+"""T8 报价 API:整单化端点(create/get/list/put/lock/unlock/void)+ 删旧 /lines。无整单硬删(退役走 void)。"""
 import pytest
 from sqlalchemy import select
 
@@ -169,18 +169,3 @@ async def test_snapshot_refreshes_when_line_sku_changes(client, sales_headers, d
     assert p.status_code == 200, p.text
     g2 = (await client.get(f"/api/v1/quotations/{oid}", headers=H)).json()["data"]
     assert g2["lines"][0]["name_snapshot"] == "工字钢300"  # 换商品→按新 SKU 刷新
-
-
-@pytest.mark.asyncio
-async def test_delete_only_draft(client, sales_headers, db_session):
-    cust, sku = await _seed_active(db_session)
-    H = sales_headers
-    oid = (await client.post("/api/v1/quotations", headers=H, json={
-        "customer_id": cust.id, "currency": "USD",
-        "lines": [{"sku_id": sku.id, "unit_price": 10, "qty": 1}]})).json()["data"]["id"]
-    # 锁档后不可删
-    await client.post(f"/api/v1/quotations/{oid}/lock", headers=H)
-    assert (await client.delete(f"/api/v1/quotations/{oid}", headers=H)).status_code == 409
-    # 解锁回草稿后可删
-    await client.post(f"/api/v1/quotations/{oid}/unlock", headers=H)
-    assert (await client.delete(f"/api/v1/quotations/{oid}", headers=H)).status_code == 200

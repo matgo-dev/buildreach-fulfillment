@@ -1,10 +1,9 @@
 """采购单状态机矩阵单测(轴1 单据生命周期,model 层单一源头)。
 
 DRAFT→CONFIRMED(下单)→CANCELLED;DRAFT 可直接取消;CANCELLED 终态无出边。
-可编辑/可硬删仅 DRAFT。不设 SENT;RECEIVED 留入库步。
+可编辑仅 DRAFT;无硬删——退役单轨走取消。不设 SENT;RECEIVED 留入库步。
 """
 from app.db.models.purchase_order import (
-    PURCHASE_ORDER_DELETABLE_STATUSES,
     PURCHASE_ORDER_EDITABLE_STATUSES,
     PURCHASE_ORDER_TRANSITIONS,
     PurchaseOrderStatus,
@@ -25,9 +24,8 @@ def test_cancelled_is_terminal():
     assert PURCHASE_ORDER_TRANSITIONS[PurchaseOrderStatus.CANCELLED] == set()
 
 
-def test_only_draft_editable_and_deletable():
+def test_only_draft_editable():
     assert PURCHASE_ORDER_EDITABLE_STATUSES == {PurchaseOrderStatus.DRAFT}
-    assert PURCHASE_ORDER_DELETABLE_STATUSES == {PurchaseOrderStatus.DRAFT}
 
 
 def test_no_confirmed_to_draft_backdoor():

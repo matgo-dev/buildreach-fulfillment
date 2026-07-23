@@ -1,6 +1,5 @@
 """报价状态机常量单一源头(model 层)单元测试。纯 Python,无 DB。"""
 from app.db.models.quotation import (
-    QUOTATION_DELETABLE,
     QUOTATION_EDITABLE,
     QUOTATION_TRANSITIONS,
     QUOTATION_VOIDABLE,
@@ -25,10 +24,9 @@ def test_transitions_matrix():
     assert QUOTATION_TRANSITIONS[QuotationStatus.VOID] == set()
 
 
-def test_editable_deletable_voidable_sets():
-    # 删=硬删仅草稿;编辑仅草稿(锁档后只读)。
+def test_editable_voidable_sets():
+    # 编辑仅草稿(锁档后只读)。无硬删——退役单轨走作废。
     assert QUOTATION_EDITABLE == {"DRAFT"}
-    assert QUOTATION_DELETABLE == {"DRAFT"}
     # VOIDABLE 派生自矩阵(非并列副本):值恒 = 目标含 VOID 的态 —— 矩阵一改它自动跟随,不漂移。
     assert QUOTATION_VOIDABLE == {
         s for s, t in QUOTATION_TRANSITIONS.items() if QuotationStatus.VOID in t}

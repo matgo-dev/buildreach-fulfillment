@@ -195,7 +195,7 @@ async def test_lock_converted_quotation_rejected(client, db_session, sales_heade
 
 # ---------- 锚点 10:B2 并发交错 —— 不落进程内编排测试,见模块 docstring ----------
 
-# ---------- 锚点 11:S1 —— 报价回 LOCKED 后删行/删单引用保护;改量放行可重转 ----------
+# ---------- 锚点 11:S1 —— 报价回 LOCKED 后删行引用保护;改量放行可重转 ----------
 
 async def test_quotation_edit_after_cancel_reference_guard(client, db_session, sales_headers):
     so, _ = await _make_so(client, sales_headers, db_session)
@@ -212,12 +212,8 @@ async def test_quotation_edit_after_cancel_reference_guard(client, db_session, s
                 "summary": q["summary"], "expected_updated_at": q["updated_at"],
                 "lines": lines}
 
-    # 删被引用行(payload 缺席 = DELETE)→ 41411
+    # 删被引用行(payload 缺席 = DELETE)→ 41411(行级引用保护;整单已无硬删,退役走作废)
     r = await client.put(f"/api/v1/quotations/{qid}", headers=sales_headers, json=_body([]))
-    assert r.status_code == 409 and r.json()["code"] == 41411, r.text
-
-    # 硬删整单 → 41411
-    r = await client.delete(f"/api/v1/quotations/{qid}", headers=sales_headers)
     assert r.status_code == 409 and r.json()["code"] == 41411, r.text
 
     # 改数量/价格(UPDATE 不触 FK)→ 放行,且可重锁重转

@@ -132,15 +132,6 @@ async def update_purchase_order(order_id: int, body: PurchaseOrderUpdateIn, requ
     return success(await _detail_payload(db, po, current))
 
 
-@router.delete("/{order_id}", summary="硬删草稿采购单")
-async def delete_purchase_order(order_id: int, request: Request,
-                                current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
-    await purchase_order_service.delete_order(
-        db, order_id=order_id, actor_user_id=current.id, actor_user_email=current.email,
-        request=request)
-    return success(None)
-
-
 @router.post("/{order_id}/confirm", summary="确认采购单(下单 DRAFT→CONFIRMED)")
 async def confirm_purchase_order(order_id: int, request: Request,
                                  current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):

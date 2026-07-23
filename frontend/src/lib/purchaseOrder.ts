@@ -168,7 +168,6 @@ export const purchaseOrderApi = {
     api.post<{ order: PurchaseOrderOut; lines: PurchaseOrderLineOut[] }>("/api/v1/purchase-orders", b),
   update: (id: number, b: PurchaseOrderUpdateBody) =>
     api.put<{ order: PurchaseOrderOut; lines: PurchaseOrderLineOut[] }>(`/api/v1/purchase-orders/${id}`, b),
-  del: (id: number) => api.del<null>(`/api/v1/purchase-orders/${id}`),
   confirm: (id: number) =>
     api.post<{ order: PurchaseOrderOut; lines: PurchaseOrderLineOut[] }>(`/api/v1/purchase-orders/${id}/confirm`),
   cancel: (id: number) =>
