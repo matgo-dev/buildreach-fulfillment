@@ -15,6 +15,8 @@ import type { CardProps } from "antd";
  *     <ListPageBody>{loadError ? <ListErrorState /> : <ListTable … />}</ListPageBody>
  *   </ListPageCard>
  * size="small" 等原生 Card 属性照常透传;style / styles.body 会与本组件的定高样式合并(调用方覆盖优先)。
+ * 不传 title:列表页标题由面包屑承担;且 body 的 height:100% 未扣 Card header,传 title 会纵向溢出
+ * (真出现带头场景时再扩展本组件,勿在调用方打补丁)。
  */
 /** Card 的 styles 语义分区对象形态(不含函数形态 —— 本组件调用方均传对象,不传函数)。 */
 type CardSemanticStyles = {

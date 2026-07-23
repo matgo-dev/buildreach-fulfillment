@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Table } from "antd";
 import type { TableProps } from "antd";
 
@@ -23,21 +23,30 @@ export function ListTable<RecordType = Record<string, unknown>>({
   const wrapRef = useRef<HTMLDivElement>(null);
   const [bodyH, setBodyH] = useState<number>();
 
+  const measure = useCallback(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const headH = wrap.querySelector<HTMLElement>(".ant-table-thead")?.offsetHeight ?? 0;
+    const pagerEl = wrap.querySelector<HTMLElement>(".ant-table-pagination");
+    const pagerH = pagerEl ? pagerEl.offsetHeight + 16 : 0; // + 分页上外边距(下外边距被裁无害)
+    // 下限夹住而非放弃内滚:外壳锁死整页不滚,scroll.y 一旦缺席,超高内容会被 overflow:hidden 裁掉且无处可滚。
+    setBodyH(Math.max(wrap.clientHeight - headH - pagerH, 40));
+  }, []);
+
   useEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
-    const measure = () => {
-      const headH = wrap.querySelector<HTMLElement>(".ant-table-thead")?.offsetHeight ?? 0;
-      const pagerEl = wrap.querySelector<HTMLElement>(".ant-table-pagination");
-      const pagerH = pagerEl ? pagerEl.offsetHeight + 16 : 0; // + 分页上下外边距
-      const avail = wrap.clientHeight - headH - pagerH;
-      setBodyH(avail > 40 ? avail : undefined);
-    };
     const ro = new ResizeObserver(measure);
     ro.observe(wrap);
-    measure();
     return () => ro.disconnect();
-  }, []);
+  }, [measure]);
+
+  // 每次 commit 后重测:AntD 空表(total=0)不渲染分页条,空↔有数据切换时分页条出现/消失
+  // 并不改变容器尺寸,ResizeObserver 观测不到,只靠它会拿陈旧高度把分页条裁出可视区。
+  // setState 同值是 no-op,不会循环渲染。
+  useEffect(() => {
+    measure();
+  });
 
   return (
     <div ref={wrapRef} style={{ height: "100%", minHeight: 0, overflow: "hidden" }}>

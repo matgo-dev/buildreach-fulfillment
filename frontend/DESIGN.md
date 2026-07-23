@@ -99,6 +99,8 @@ font-family: ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Microsoft 
 - **Input**：`h-10 rounded-md border-slate-300 bg-white px-3 text-sm`，focus `ring-2 ring-brand`。
 - **Table**：表头 `bg-slate-50 text-xs text-gray-500 font-medium`；行 `border-t border-gray-100 hover:bg-slate-50`；**行高 ~36px**；操作列 `whitespace-nowrap`。**不用斑马**（`even:bg` 去掉——与前台 admin 的有意偏离）。
 - **Badge/StatusChip**：`rounded-full px-2 py-0.5 text-[11px] font-medium` + 圆点，按 §1.3 状态色。
+- **列表页固定外壳三件套（`ListPageCard` + `ListPageBody` + `ListTable`，`components/common/`）**：页级主列表的**唯一合法载体**——工具条/表头固定、仅数据行内滚，`scroll.y` 由 ListTable 自测自喂；新列表页一律用它，**不手抄** flex/minHeight 契约。抽屉/弹窗内短表仍用原生 Table。
+- **ProgressCell（派生进度，`components/common/ProgressCell`）**：「覆盖进度」（收货/采购进度等**派生轴**）与「单据状态」（生命周期状态机）**换形区分**——描边 chip + 分级方块（空=未开始 / 半=进行中 / 实=完成），不用实心 pill；**不用连续进度条**（列级仅三态、无精确分数，连续条谎报精度）。三态由 meta color 判级：default / processing / success。列名用「单据状态」点明轴归属。
 - **Drawer（详情/表单主载体）**：右侧滑出，遮罩 `bg-black/30`，容器白底 `rounded-xl` 左描边 + 轻阴影；含「打开完整详情页」出口。
 - **Toast**：`fixed top-4 居中 z-[9999]`，`rounded-lg px-5 py-3 shadow-lg`。
 - **Modal**：遮罩 `inset-0 z-50 bg-black/40`，容器 `max-w-md rounded-xl p-6`（仅用于确认类；表单优先抽屉）。
@@ -122,6 +124,7 @@ font-family: ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Microsoft 
     - 也不放**侧栏头部右侧**（Notion / Atlassian 位）——按钮若在侧栏内，折叠时会随侧栏 168→80 一起位移，反复「收起看宽表格→展开」时目标点每次都在动（Fitts 定律）；放顶栏左端则屏幕坐标恒定，且正压在侧栏那一列上方，邻接性仍在。侧栏仅 168px 也塞不下品牌 + 按钮的两套排布。
     - 图标用 `MenuFold`/`MenuUnfold`（带方向语义），不用无指向的汉堡。
   - 客户/供应商**同组、两个独立入口，不合并成「往来单位」单入口 + tab**：**没有任何角色同时持有 `customer:read` 与 `supplier:read`**（连 ADMIN 都只持客户侧，见 `backend/app/rbac/permissions_config.py` 的职责分离），故 tab 方案对每个角色都必有一个死 tab——tab 的前提是「同一个人在两切面间来回切」，这个人不存在。权限过滤后各角色看到的本就只有其中一个入口，合并省不下一行。（合并成**同一张列表**则另有红线问题：二者红线字段与 RBAC 边界完全不同，会打穿脱敏，见 §9。）
+- **固定外壳（视口锁死）**：`AppShell` 锁 `height:100vh; overflow:hidden`，面包屑固定；children 落在默认可滚区——详情/表单整页内容在该区滚（零改动），列表页则用三件套（§5）让卡片恰好填满、**只有表体滚**（SAP Fiori / NetSuite / Linear 密集列表形态）。`admin/roles` 多表矩阵页整页滚为合理豁免。
 - **外壳全站唯一实例**（硬约束）：`AppShell` 只挂在根 layout 的 `ShellGate` 上，业务段 layout **只留 `RouteGuard` 权限门、不再各自套壳**。外壳若按业务域各挂一个，跨域导航会整体重挂，**侧栏滚动位置与折叠态每次归零**。侧栏 `position:sticky` 钉住视口，菜单超高时只在菜单区内部滚。
 - **面包屑从菜单结构派生**（组名 + 菜单标签），不由各段 layout 手抄——单一源头，改菜单即改面包屑。
 - **浏览器页签标题**：全站页面均为客户端组件（Next `metadata` 不生效），故 `document.title` 由 AppShell 集中设为「菜单标签 · 履约系统」。**触发式待办（现在不做）**：详情页再带上单号（如 `OB-20260717-014 · 履约系统`）只在「同时开两张同类单据来回比对」时才有增量价值，该操作路径尚未被真实使用验证；与「不做 MDI 多页签工作台」同一条线——上线后观察到真实并行路径再一起做，晚做不变贵。
