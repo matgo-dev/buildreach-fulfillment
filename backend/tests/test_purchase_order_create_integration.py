@@ -120,6 +120,45 @@ async def test_empty_po_rejected(client, purchaser_headers, sales_headers, db_se
 
 
 @pytest.mark.asyncio
+async def test_duplicate_source_line_rejected_clean(client, purchaser_headers, sales_headers, db_session):
+    """一 SO 行一采购行:payload 同一 source_sales_order_line_id 重复 → 前置 41610(400),
+    而非打穿 DB 复合 UNIQUE 成裸 500(错题集 A5)。qty 取小(2+2≤5)确保先撞重复而非超采。"""
+    cust, sku = await seed_catalog_and_customer(db_session)
+    so_id, so_lines = await make_confirmed_sales_order(
+        client, sales_headers, cust, sku, lines=[{"unit_price": 100, "qty": 5}])
+    sup = await create_supplier(client, purchaser_headers)
+
+    sid = so_lines[0]["id"]
+    r = await client.post("/api/v1/purchase-orders", headers=purchaser_headers, json={
+        "source_sales_order_id": so_id, "supplier_id": sup["id"], "currency": "USD",
+        "lines": [{"source_sales_order_line_id": sid, "qty": 2, "unit_price": 7},
+                  {"source_sales_order_line_id": sid, "qty": 2, "unit_price": 8}]})
+    assert r.status_code == 400, r.text
+    assert r.json()["code"] == 41610
+
+
+@pytest.mark.asyncio
+async def test_duplicate_source_line_rejected_on_edit(client, purchaser_headers, sales_headers, db_session):
+    """编辑(PUT)同样前置挡重复 SO 行 → 41610,不打穿约束。"""
+    cust, sku = await seed_catalog_and_customer(db_session)
+    so_id, so_lines = await make_confirmed_sales_order(
+        client, sales_headers, cust, sku, lines=[{"unit_price": 100, "qty": 5}])
+    sup = await create_supplier(client, purchaser_headers)
+    sid = so_lines[0]["id"]
+    created = await client.post("/api/v1/purchase-orders", headers=purchaser_headers, json={
+        "source_sales_order_id": so_id, "supplier_id": sup["id"], "currency": "USD",
+        "lines": [{"source_sales_order_line_id": sid, "qty": 2, "unit_price": 7}]})
+    po = created.json()["data"]["order"]
+
+    r = await client.put(f"/api/v1/purchase-orders/{po['id']}", headers=purchaser_headers, json={
+        "supplier_id": sup["id"], "currency": "USD", "expected_updated_at": po["updated_at"],
+        "lines": [{"source_sales_order_line_id": sid, "qty": 1, "unit_price": 7},
+                  {"source_sales_order_line_id": sid, "qty": 1, "unit_price": 8}]})
+    assert r.status_code == 400, r.text
+    assert r.json()["code"] == 41610
+
+
+@pytest.mark.asyncio
 async def test_source_so_invalid(client, purchaser_headers, sales_headers, db_session):
     """源 SO 无效(不存在或非 CONFIRMED)→ 41604。SO 恒 CONFIRMED,此处验不存在分支。"""
     sup = await create_supplier(client, purchaser_headers)
