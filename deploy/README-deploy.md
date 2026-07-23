@@ -43,6 +43,7 @@ cp .env.example .env.production   # 按注释改:强口令、API_BASE_URL、CORS
 - **OVH**:从 `release-v*` 分支/tag 触发。
 - **手动**(服务器上):`IMAGE_TAG=<tag> bash deploy/deploy.sh`。
 - **破坏性迁移**被 `check-migration-safety.sh` 拦截;确需 → commit message 加 `[allow-destructive-migration]`。
+- **发布后核对版本**:`GET /api/v1/version` 返回当前部署的 commit / 分支 / 构建时间(CI build-args → 镜像 ENV 注入,同前台;本地 dev 显 `dev`)。
 
 ## 四、上线前切托管(OVH 生产,登记待办)
 
