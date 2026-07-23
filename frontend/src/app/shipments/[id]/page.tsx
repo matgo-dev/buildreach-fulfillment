@@ -23,6 +23,7 @@ import dayjs from "dayjs";
 import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
 import { PageLoading } from "@/components/common/PageLoading";
+import { ListErrorState } from "@/components/common/ListErrorState";
 import { Permissions } from "@/config/permission-matrix";
 import { ApiError } from "@/lib/api";
 import { formatDateTime, formatQty } from "@/lib/format";
@@ -72,6 +73,7 @@ export default function ShipmentDetailPage() {
 
   const [detail, setDetail] = useState<ShipmentDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [busy, setBusy] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [loadOpen, setLoadOpen] = useState(false);
@@ -82,9 +84,11 @@ export default function ShipmentDetailPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(false);
     try {
       setDetail(await shipmentApi.get(id));
     } catch (e) {
+      setLoadError(true);
       message.error(resolveBizError(e, "加载失败"));
     } finally {
       setLoading(false);
@@ -270,6 +274,7 @@ export default function ShipmentDetailPage() {
     },
   ];
 
+  if (loadError && !detail) return <ListErrorState onRetry={load} />;
   if (loading || !detail) return <PageLoading />;
 
   const { shipment, outbound_orders } = detail;

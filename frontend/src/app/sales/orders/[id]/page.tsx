@@ -8,6 +8,7 @@ import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
 import { ProgressCell } from "@/components/common/ProgressCell";
 import { PageLoading } from "@/components/common/PageLoading";
+import { ListErrorState } from "@/components/common/ListErrorState";
 import { Permissions } from "@/config/permission-matrix";
 import { formatDateTime, formatMoney, formatQty } from "@/lib/format";
 import { resolveBizError } from "@/lib/errorMessages";
@@ -38,6 +39,7 @@ export default function SalesOrderDetailPage() {
   const [order, setOrder] = useState<SalesOrderOut | null>(null);
   const [lines, setLines] = useState<SalesOrderLineOut[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
   // 取消对话框:留痕原因(可空)。危险操作只放详情页(同入库先例)。
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -46,11 +48,13 @@ export default function SalesOrderDetailPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(false);
     try {
       const { order: o, lines: ls } = await salesOrderApi.get(id);
       setOrder(o);
       setLines(ls);
     } catch (e) {
+      setLoadError(true);
       message.error(resolveBizError(e, "加载失败"));
     } finally {
       setLoading(false);
@@ -90,6 +94,7 @@ export default function SalesOrderDetailPage() {
     [],
   );
 
+  if (loadError && !order) return <ListErrorState onRetry={load} />;
   if (loading || !order) return <PageLoading />;
 
   const relatedPOs = order.related_purchase_orders; // undefined = 无 purchase:read,不渲染区块

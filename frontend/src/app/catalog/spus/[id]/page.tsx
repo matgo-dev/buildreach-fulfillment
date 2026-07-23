@@ -13,6 +13,7 @@ import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
 import { PageLoading } from "@/components/common/PageLoading";
 import { selectFilter } from "@/components/common/SelectFilter";
+import { ListErrorState } from "@/components/common/ListErrorState";
 import { SpuForm } from "@/components/catalog/SpuForm";
 import { SkuForm } from "@/components/catalog/SkuForm";
 import { useAuthStore } from "@/stores/authStore";
@@ -32,6 +33,7 @@ export default function SpuDetailPage() {
   const canManage = useAuthStore((s) => s.hasPermission("product:manage"));
   const [spu, setSpu] = useState<SpuDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [editSpu, setEditSpu] = useState(false);
   const [skuForm, setSkuForm] = useState<{ open: boolean; sku?: SkuDetailItem; copyFrom?: SkuDetailItem }>({ open: false });
   const [units, setUnits] = useState<UnitOut[]>([]);
@@ -47,9 +49,11 @@ export default function SpuDetailPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(false);
     try {
       setSpu(await catalogApi.getSpu(Number(id)));
     } catch (e) {
+      setLoadError(true);
       message.error(resolveBizError(e, "加载失败"));
     } finally {
       setLoading(false);
@@ -63,6 +67,7 @@ export default function SpuDetailPage() {
     if (editParam) setEditSpu(true);
   }, [editParam]);
 
+  if (loadError && !spu) return <ListErrorState onRetry={load} />;
   if (loading || !spu) return <PageLoading />;
 
   async function delSku(skuId: number) {

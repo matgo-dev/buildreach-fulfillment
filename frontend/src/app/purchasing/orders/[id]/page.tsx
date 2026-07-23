@@ -8,6 +8,7 @@ import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
 import { ProgressCell } from "@/components/common/ProgressCell";
 import { PageLoading } from "@/components/common/PageLoading";
+import { ListErrorState } from "@/components/common/ListErrorState";
 import { Permissions } from "@/config/permission-matrix";
 import { formatDateTime, formatQty } from "@/lib/format";
 import { resolveBizError } from "@/lib/errorMessages";
@@ -41,17 +42,20 @@ export default function PurchaseOrderDetailPage() {
   const [lines, setLines] = useState<PurchaseOrderLineOut[]>([]);
   const [inbounds, setInbounds] = useState<RelatedInboundOrder[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(false);
     try {
       const { order: o, lines: ls, inbound_orders: ibs } = await purchaseOrderApi.get(id);
       setOrder(o);
       setLines(ls);
       setInbounds(ibs);
     } catch (e) {
+      setLoadError(true);
       message.error(resolveBizError(e, "加载失败"));
     } finally {
       setLoading(false);
@@ -114,6 +118,7 @@ export default function PurchaseOrderDetailPage() {
     [],
   );
 
+  if (loadError && !order) return <ListErrorState onRetry={load} />;
   if (loading || !order) return <PageLoading />;
 
   return (

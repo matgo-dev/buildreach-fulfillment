@@ -7,6 +7,7 @@ import { ArrowLeftOutlined } from "@ant-design/icons";
 import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
 import { PageLoading } from "@/components/common/PageLoading";
+import { ListErrorState } from "@/components/common/ListErrorState";
 import { Permissions } from "@/config/permission-matrix";
 import { ApiError } from "@/lib/api";
 import { formatDateTime, formatQty } from "@/lib/format";
@@ -53,6 +54,7 @@ export default function OutboundOrderDetailPage() {
 
   const [detail, setDetail] = useState<OutboundOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
   // 撤销出库对话框:留痕原因(可空)。
@@ -61,9 +63,11 @@ export default function OutboundOrderDetailPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(false);
     try {
       setDetail(await outboundOrderApi.get(id));
     } catch (e) {
+      setLoadError(true);
       message.error(resolveBizError(e, "加载失败"));
     } finally {
       setLoading(false);
@@ -134,6 +138,7 @@ export default function OutboundOrderDetailPage() {
     [],
   );
 
+  if (loadError && !detail) return <ListErrorState onRetry={load} />;
   if (loading || !detail) return <PageLoading />;
 
   const { order, lines } = detail;
