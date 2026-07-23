@@ -5,10 +5,10 @@ import type { QuotationStatus } from "@/lib/quotation";
 
 /** 四态:草稿(可编辑)/ 锁档(冻结基准)/ 已转销售(终态)/ 已作废(终态)。 */
 export const QUOTATION_STATUS_META: Record<QuotationStatus, { label: string; color: string }> = {
-  DRAFT: { label: "草稿", color: "default" },
+  DRAFT: { label: "草稿", color: "warning" },
   LOCKED: { label: "锁档", color: "processing" },
   CONVERTED: { label: "已转销售", color: "success" },
-  VOID: { label: "已作废", color: "error" },
+  VOID: { label: "已作废", color: "default" },
 };
 
 /** 镜像 QUOTATION_EDITABLE / DELETABLE:仅草稿可改可硬删(锁档后只读)。 */

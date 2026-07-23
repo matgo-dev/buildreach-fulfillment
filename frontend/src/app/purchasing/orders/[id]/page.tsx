@@ -6,6 +6,7 @@ import type { ColumnsType } from "antd/es/table";
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
+import { ProgressCell } from "@/components/common/ProgressCell";
 import { PageLoading } from "@/components/common/PageLoading";
 import { Permissions } from "@/config/permission-matrix";
 import { formatDateTime, formatQty } from "@/lib/format";
@@ -143,7 +144,7 @@ export default function PurchaseOrderDetailPage() {
             <span>{order.no}</span>
             <StatusTag meta={PURCHASE_ORDER_STATUS_META} value={order.status} />
             {order.receipt_progress && (
-              <StatusTag meta={RECEIPT_PROGRESS_META} value={order.receipt_progress} />
+              <ProgressCell meta={RECEIPT_PROGRESS_META} value={order.receipt_progress} />
             )}
             {/* 在途信号从已加载的入库记录派生(IN_TRANSIT 计数),与收货进度并列弱化。 */}
             <InTransitBadge count={inbounds.filter((i) => i.status === "IN_TRANSIT").length} />

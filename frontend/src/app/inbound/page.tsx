@@ -1,12 +1,14 @@
 "use client";
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Card, Empty, Input, Segmented, Space, Table } from "antd";
+import { Button, Empty, Input, Segmented, Space } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
+import { ListTable } from "@/components/common/ListTable";
 import { ListErrorState } from "@/components/common/ListErrorState";
+import { ListPageCard, ListPageBody } from "@/components/common/ListPageCard";
 import { useListQuery } from "@/hooks/useListQuery";
 import { Permissions } from "@/config/permission-matrix";
 import { formatDateTime, formatQty } from "@/lib/format";
@@ -109,7 +111,7 @@ export default function InboundOrderListPage() {
   ];
 
   return (
-    <Card>
+    <ListPageCard>
       {/* 工具条统一次序(DESIGN §7):状态 → 搜索;标题由面包屑承担,不重复。 */}
       <Space style={{ marginBottom: 16, width: "100%", justifyContent: "space-between" }} wrap>
         <Space wrap>
@@ -139,33 +141,35 @@ export default function InboundOrderListPage() {
         </Can>
       </Space>
 
-      {loadError && !rows.length ? (
-        <ListErrorState onRetry={load} />
-      ) : (
-        <Table<InboundOrderListItem>
-          rowKey="id"
-          columns={columns}
-          dataSource={rows}
-          loading={loading}
-          scroll={{ x: 1180 }}
-          locale={{
-            emptyText: (
-              <Empty description="暂无入库单">
-                <Can perm={Permissions.INBOUND_MANAGE}>
-                  <Button type="primary" icon={<PlusOutlined />} onClick={() => setPickerOpen(true)}>
-                    登记入库
-                  </Button>
-                </Can>
-              </Empty>
-            ),
-          }}
-          onRow={(r) => ({
-            onClick: () => router.push(`/inbound/${r.id}`),
-            style: { cursor: "pointer" },
-          })}
-          pagination={pagination}
-        />
-      )}
+      <ListPageBody>
+        {loadError && !rows.length ? (
+          <ListErrorState onRetry={load} />
+        ) : (
+          <ListTable<InboundOrderListItem>
+            rowKey="id"
+            columns={columns}
+            dataSource={rows}
+            loading={loading}
+            scroll={{ x: 1180 }}
+            locale={{
+              emptyText: (
+                <Empty description="暂无入库单">
+                  <Can perm={Permissions.INBOUND_MANAGE}>
+                    <Button type="primary" icon={<PlusOutlined />} onClick={() => setPickerOpen(true)}>
+                      登记入库
+                    </Button>
+                  </Can>
+                </Empty>
+              ),
+            }}
+            onRow={(r) => ({
+              onClick: () => router.push(`/inbound/${r.id}`),
+              style: { cursor: "pointer" },
+            })}
+            pagination={pagination}
+          />
+        )}
+      </ListPageBody>
 
       {/* pull 入口:选 CONFIRMED PO → 打开建单器。入库单恒绑单一 PO,故先选一张。 */}
       <PurchaseOrderPicker
@@ -186,6 +190,6 @@ export default function InboundOrderListPage() {
           load();
         }}
       />
-    </Card>
+    </ListPageCard>
   );
 }

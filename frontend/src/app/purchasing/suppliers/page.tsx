@@ -3,7 +3,6 @@ import { useCallback, useState } from "react";
 import {
   App,
   Button,
-  Card,
   Col,
   Descriptions,
   Drawer,
@@ -14,13 +13,14 @@ import {
   Segmented,
   Select,
   Space,
-  Table,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { PlusOutlined } from "@ant-design/icons";
 import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
+import { ListTable } from "@/components/common/ListTable";
 import { ListErrorState } from "@/components/common/ListErrorState";
+import { ListPageCard, ListPageBody } from "@/components/common/ListPageCard";
 import { useListQuery } from "@/hooks/useListQuery";
 import { useCrudDrawer } from "@/hooks/useCrudDrawer";
 import { Permissions } from "@/config/permission-matrix";
@@ -142,7 +142,7 @@ export default function SupplierListPage() {
   const readOnly = mode === "view";
 
   return (
-    <Card>
+    <ListPageCard>
       <Space style={{ marginBottom: 16, width: "100%", justifyContent: "space-between" }} wrap>
         <Space wrap>
           <Segmented
@@ -170,23 +170,25 @@ export default function SupplierListPage() {
         </Can>
       </Space>
 
-      {loadError && !rows.length ? (
-        <ListErrorState onRetry={load} />
-      ) : (
-        <Table<SupplierListItem>
-          rowKey="id"
-          columns={columns}
-          dataSource={rows}
-          loading={loading}
-          scroll={{ x: 800 }}
-          locale={{ emptyText: "暂无供应商" }}
-          onRow={(r) => ({
-            onClick: () => openView(r.id),
-            style: { cursor: "pointer" },
-          })}
-          pagination={pagination}
-        />
-      )}
+      <ListPageBody>
+        {loadError && !rows.length ? (
+          <ListErrorState onRetry={load} />
+        ) : (
+          <ListTable<SupplierListItem>
+            rowKey="id"
+            columns={columns}
+            dataSource={rows}
+            loading={loading}
+            scroll={{ x: 800 }}
+            locale={{ emptyText: "暂无供应商" }}
+            onRow={(r) => ({
+              onClick: () => openView(r.id),
+              style: { cursor: "pointer" },
+            })}
+            pagination={pagination}
+          />
+        )}
+      </ListPageBody>
 
       <Drawer
         title={mode === "create" ? "新建供应商" : mode === "edit" ? "编辑供应商" : "供应商详情"}
@@ -262,6 +264,6 @@ export default function SupplierListPage() {
           </Form>
         )}
       </Drawer>
-    </Card>
+    </ListPageCard>
   );
 }

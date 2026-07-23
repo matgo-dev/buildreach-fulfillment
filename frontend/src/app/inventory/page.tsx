@@ -1,11 +1,13 @@
 "use client";
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Card, Empty, Input, Space, Switch, Table } from "antd";
+import { Button, Empty, Input, Space, Switch } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Can } from "@/components/common/Can";
+import { ListTable } from "@/components/common/ListTable";
 import { ListErrorState } from "@/components/common/ListErrorState";
 import { NumCell } from "@/components/common/NumCell";
+import { ListPageCard, ListPageBody } from "@/components/common/ListPageCard";
 import { useListQuery } from "@/hooks/useListQuery";
 import { Permissions } from "@/config/permission-matrix";
 import { inventoryApi, type StockBalanceItem } from "@/lib/inventory";
@@ -88,7 +90,7 @@ export default function InventoryListPage() {
   ];
 
   return (
-    <Card>
+    <ListPageCard>
       {/* 工具条统一次序(DESIGN §7):无状态轴 → 搜索 → 页面特有开关。 */}
       <Space style={{ marginBottom: 16, width: "100%", justifyContent: "space-between" }} wrap>
         <Space wrap>
@@ -116,21 +118,23 @@ export default function InventoryListPage() {
         </Space>
       </Space>
 
-      {loadError && !rows.length ? (
-        <ListErrorState onRetry={load} />
-      ) : (
-        <Table<StockBalanceItem>
-          rowKey={(r) => `${r.sales_order_id}-${r.sku_code}`}
-          columns={columns}
-          dataSource={rows}
-          loading={loading}
-          scroll={{ x: 1000 }}
-          locale={{
-            emptyText: <Empty description="暂无在库货品" />,
-          }}
-          pagination={pagination}
-        />
-      )}
-    </Card>
+      <ListPageBody>
+        {loadError && !rows.length ? (
+          <ListErrorState onRetry={load} />
+        ) : (
+          <ListTable<StockBalanceItem>
+            rowKey={(r) => `${r.sales_order_id}-${r.sku_code}`}
+            columns={columns}
+            dataSource={rows}
+            loading={loading}
+            scroll={{ x: 1000 }}
+            locale={{
+              emptyText: <Empty description="暂无在库货品" />,
+            }}
+            pagination={pagination}
+          />
+        )}
+      </ListPageBody>
+    </ListPageCard>
   );
 }

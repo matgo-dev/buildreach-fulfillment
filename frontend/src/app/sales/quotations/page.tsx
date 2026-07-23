@@ -4,19 +4,19 @@ import { useRouter } from "next/navigation";
 import {
   App,
   Button,
-  Card,
   Input,
   Popconfirm,
   Segmented,
   Space,
   Switch,
-  Table,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { PlusOutlined } from "@ant-design/icons";
 import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
+import { ListTable } from "@/components/common/ListTable";
 import { ListErrorState } from "@/components/common/ListErrorState";
+import { ListPageCard, ListPageBody } from "@/components/common/ListPageCard";
 import { useListQuery } from "@/hooks/useListQuery";
 import { useAuthStore } from "@/stores/authStore";
 import { Permissions } from "@/config/permission-matrix";
@@ -187,7 +187,7 @@ export default function QuotationListPage() {
   ];
 
   return (
-    <Card>
+    <ListPageCard>
       <Space style={{ marginBottom: 16, width: "100%", justifyContent: "space-between" }} wrap>
         <Space wrap>
           <Segmented
@@ -218,27 +218,29 @@ export default function QuotationListPage() {
           </Button>
         </Can>
       </Space>
-      {loadError && !rows.length ? (
-        <ListErrorState onRetry={load} />
-      ) : (
-        <Table<QuotationListItem>
-          rowKey="id"
-          columns={columns}
-          dataSource={rows}
-          loading={loading}
-          scroll={{ x: 1200 }}
-          locale={{ emptyText: "暂无报价" }}
-          onRow={(r) => ({
-            onClick: () => router.push(`/sales/quotations/${r.id}`),
-            style: { cursor: "pointer" },
-          })}
-          pagination={pagination}
-          onChange={(_p, _f, sorter) => {
-            const s = Array.isArray(sorter) ? sorter[0] : sorter;
-            setSort(s?.field === "total_amount" ? "total_amount" : "created_at");
-          }}
-        />
-      )}
-    </Card>
+      <ListPageBody>
+        {loadError && !rows.length ? (
+          <ListErrorState onRetry={load} />
+        ) : (
+          <ListTable<QuotationListItem>
+            rowKey="id"
+            columns={columns}
+            dataSource={rows}
+            loading={loading}
+            scroll={{ x: 1200 }}
+            locale={{ emptyText: "暂无报价" }}
+            onRow={(r) => ({
+              onClick: () => router.push(`/sales/quotations/${r.id}`),
+              style: { cursor: "pointer" },
+            })}
+            pagination={pagination}
+            onChange={(_p, _f, sorter) => {
+              const s = Array.isArray(sorter) ? sorter[0] : sorter;
+              setSort(s?.field === "total_amount" ? "total_amount" : "created_at");
+            }}
+          />
+        )}
+      </ListPageBody>
+    </ListPageCard>
   );
 }

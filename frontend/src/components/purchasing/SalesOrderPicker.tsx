@@ -3,7 +3,7 @@ import { useCallback, useState } from "react";
 import { Input, Segmented } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { PickerDrawer } from "@/components/common/PickerDrawer";
-import { StatusTag } from "@/components/common/StatusTag";
+import { ProgressCell } from "@/components/common/ProgressCell";
 import { formatMoney } from "@/lib/format";
 import { salesOrderApi, type SalesOrderListItem } from "@/lib/salesOrder";
 import { PURCHASE_PROGRESS_META } from "@/lib/purchaseOrderStatus";
@@ -59,7 +59,7 @@ export function SalesOrderPicker({
       dataIndex: "purchase_progress",
       width: 110,
       render: (p: SalesOrderListItem["purchase_progress"]) =>
-        p ? <StatusTag meta={PURCHASE_PROGRESS_META} value={p} /> : "—",
+        p ? <ProgressCell meta={PURCHASE_PROGRESS_META} value={p} /> : "—",
     },
   ];
 

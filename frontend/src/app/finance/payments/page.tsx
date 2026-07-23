@@ -6,7 +6,6 @@ import { useSearchParams } from "next/navigation";
 import {
   App,
   Button,
-  Card,
   DatePicker,
   Descriptions,
   Drawer,
@@ -26,7 +25,9 @@ import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
 import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
+import { ListTable } from "@/components/common/ListTable";
 import { ListErrorState } from "@/components/common/ListErrorState";
+import { ListPageCard, ListPageBody } from "@/components/common/ListPageCard";
 import { useListQuery } from "@/hooks/useListQuery";
 import { Permissions } from "@/config/permission-matrix";
 import { supplierApi, type SupplierListItem } from "@/lib/supplier";
@@ -271,7 +272,7 @@ export default function PaymentListPage() {
   const canVoid = p && !p.voided_at;
 
   return (
-    <Card>
+    <ListPageCard>
       <Space style={{ marginBottom: 16, width: "100%", justifyContent: "space-between" }} wrap>
         <Space wrap>
           <Segmented
@@ -312,30 +313,32 @@ export default function PaymentListPage() {
         </Can>
       </Space>
 
-      {loadError && !rows.length ? (
-        <ListErrorState onRetry={load} />
-      ) : (
-        <Table<PaymentListItem>
-          rowKey="id"
-          columns={columns}
-          dataSource={rows}
-          loading={loading}
-          scroll={{ x: 1290 }}
-          locale={{ emptyText: "暂无付款单" }}
-          onChange={(_, filters) => {
-            const c = (filters.currency?.[0] as string) || undefined;
-            if (c !== currency) {
-              setCurrency(c);
-              setPage(1);
-            }
-          }}
-          onRow={(row) => ({
-            onClick: () => openDetail(row.id),
-            style: { cursor: "pointer" },
-          })}
-          pagination={pagination}
-        />
-      )}
+      <ListPageBody>
+        {loadError && !rows.length ? (
+          <ListErrorState onRetry={load} />
+        ) : (
+          <ListTable<PaymentListItem>
+            rowKey="id"
+            columns={columns}
+            dataSource={rows}
+            loading={loading}
+            scroll={{ x: 1290 }}
+            locale={{ emptyText: "暂无付款单" }}
+            onChange={(_, filters) => {
+              const c = (filters.currency?.[0] as string) || undefined;
+              if (c !== currency) {
+                setCurrency(c);
+                setPage(1);
+              }
+            }}
+            onRow={(row) => ({
+              onClick: () => openDetail(row.id),
+              style: { cursor: "pointer" },
+            })}
+            pagination={pagination}
+          />
+        )}
+      </ListPageBody>
 
       {/* 登记付款:amount/currency/paid_at/supplier 必填(无待认领态)。 */}
       <Modal
@@ -577,6 +580,6 @@ export default function PaymentListPage() {
           onChange={(e) => setReverseReason(e.target.value)}
         />
       </Modal>
-    </Card>
+    </ListPageCard>
   );
 }

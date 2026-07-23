@@ -1,12 +1,14 @@
 "use client";
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Card, Empty, Input, Segmented, Space, Table } from "antd";
+import { Button, Empty, Input, Segmented, Space } from "antd";
 import { ContainerOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
+import { ListTable } from "@/components/common/ListTable";
 import { ListErrorState } from "@/components/common/ListErrorState";
+import { ListPageCard, ListPageBody } from "@/components/common/ListPageCard";
 import { useListQuery } from "@/hooks/useListQuery";
 import { Permissions } from "@/config/permission-matrix";
 import { formatDateTime, formatQty } from "@/lib/format";
@@ -119,7 +121,7 @@ export default function OutboundOrderListPage() {
   ];
 
   return (
-    <Card>
+    <ListPageCard>
       {/* 工具条统一次序(DESIGN §7):状态 → 搜索(覆盖 单号/SO号/柜号)。 */}
       <Space style={{ marginBottom: 16 }} wrap>
         <Segmented
@@ -142,38 +144,40 @@ export default function OutboundOrderListPage() {
         />
       </Space>
 
-      {loadError && !rows.length ? (
-        <ListErrorState onRetry={load} />
-      ) : (
-        <Table<OutboundOrderListItem>
-          rowKey="id"
-          columns={columns}
-          dataSource={rows}
-          loading={loading}
-          scroll={{ x: 1040 }}
-          locale={{
-            emptyText: (
-              // 出库单在柜工作台内组柜生成,故空态引导去发运柜(需 shipment:manage 才显按钮)。
-              <Empty description="暂无出库单">
-                <Can perm={Permissions.SHIPMENT_MANAGE}>
-                  <Button
-                    type="primary"
-                    icon={<ContainerOutlined />}
-                    onClick={() => router.push("/shipments")}
-                  >
-                    去发运柜组柜
-                  </Button>
-                </Can>
-              </Empty>
-            ),
-          }}
-          onRow={(r) => ({
-            onClick: () => router.push(`/outbound/${r.id}`),
-            style: { cursor: "pointer" },
-          })}
-          pagination={pagination}
-        />
-      )}
-    </Card>
+      <ListPageBody>
+        {loadError && !rows.length ? (
+          <ListErrorState onRetry={load} />
+        ) : (
+          <ListTable<OutboundOrderListItem>
+            rowKey="id"
+            columns={columns}
+            dataSource={rows}
+            loading={loading}
+            scroll={{ x: 1040 }}
+            locale={{
+              emptyText: (
+                // 出库单在柜工作台内组柜生成,故空态引导去发运柜(需 shipment:manage 才显按钮)。
+                <Empty description="暂无出库单">
+                  <Can perm={Permissions.SHIPMENT_MANAGE}>
+                    <Button
+                      type="primary"
+                      icon={<ContainerOutlined />}
+                      onClick={() => router.push("/shipments")}
+                    >
+                      去发运柜组柜
+                    </Button>
+                  </Can>
+                </Empty>
+              ),
+            }}
+            onRow={(r) => ({
+              onClick: () => router.push(`/outbound/${r.id}`),
+              style: { cursor: "pointer" },
+            })}
+            pagination={pagination}
+          />
+        )}
+      </ListPageBody>
+    </ListPageCard>
   );
 }

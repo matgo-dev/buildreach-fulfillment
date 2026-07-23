@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Input, Select, Space } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { PickerDrawer } from "@/components/common/PickerDrawer";
-import { StatusTag } from "@/components/common/StatusTag";
+import { ProgressCell } from "@/components/common/ProgressCell";
 import { purchaseOrderApi, type PurchaseOrderListItem } from "@/lib/purchaseOrder";
 import { RECEIPT_PROGRESS_META } from "@/lib/inboundOrderStatus";
 import { InTransitBadge } from "@/components/inbound/InTransitBadge";
@@ -57,7 +57,7 @@ export function PurchaseOrderPicker({
       // 选单时并列在途信号:直接告诉运营「这张已有几张在途单」,避免重复登记。
       render: (p: PurchaseOrderListItem["receipt_progress"], r) => (
         <Space size={4}>
-          {p ? <StatusTag meta={RECEIPT_PROGRESS_META} value={p} /> : <span>—</span>}
+          {p ? <ProgressCell meta={RECEIPT_PROGRESS_META} value={p} /> : <span>—</span>}
           <InTransitBadge count={r.in_transit_count} />
         </Space>
       ),

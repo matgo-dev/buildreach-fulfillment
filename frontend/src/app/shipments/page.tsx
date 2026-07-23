@@ -1,12 +1,14 @@
 "use client";
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import { App, Button, Card, Empty, Form, Input, Modal, Segmented, Select, Space, Table } from "antd";
+import { App, Button, Empty, Form, Input, Modal, Segmented, Select, Space } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
+import { ListTable } from "@/components/common/ListTable";
 import { ListErrorState } from "@/components/common/ListErrorState";
+import { ListPageCard, ListPageBody } from "@/components/common/ListPageCard";
 import { useListQuery } from "@/hooks/useListQuery";
 import { Permissions } from "@/config/permission-matrix";
 import { formatDateTime } from "@/lib/format";
@@ -156,7 +158,7 @@ export default function ShipmentListPage() {
   ];
 
   return (
-    <Card>
+    <ListPageCard>
       {/* 工具条统一次序(DESIGN §7):状态 → 搜索。 */}
       <Space style={{ marginBottom: 16, width: "100%", justifyContent: "space-between" }} wrap>
         <Space wrap>
@@ -204,37 +206,39 @@ export default function ShipmentListPage() {
         </Can>
       </Space>
 
-      {loadError && !rows.length ? (
-        <ListErrorState onRetry={load} />
-      ) : (
-        <Table<ShipmentListItem>
-          rowKey="id"
-          columns={columns}
-          dataSource={rows}
-          loading={loading}
-          scroll={{ x: 1400 }}
-          locale={{
-            emptyText: (
-              <Empty description="暂无发运柜">
-                <Can perm={Permissions.SHIPMENT_MANAGE}>
-                  <Button
-                    type="primary"
-                    icon={<PlusOutlined />}
-                    onClick={() => setCreateOpen(true)}
-                  >
-                    新建柜开始组柜
-                  </Button>
-                </Can>
-              </Empty>
-            ),
-          }}
-          onRow={(r) => ({
-            onClick: () => router.push(`/shipments/${r.id}`),
-            style: { cursor: "pointer" },
-          })}
-          pagination={pagination}
-        />
-      )}
+      <ListPageBody>
+        {loadError && !rows.length ? (
+          <ListErrorState onRetry={load} />
+        ) : (
+          <ListTable<ShipmentListItem>
+            rowKey="id"
+            columns={columns}
+            dataSource={rows}
+            loading={loading}
+            scroll={{ x: 1400 }}
+            locale={{
+              emptyText: (
+                <Empty description="暂无发运柜">
+                  <Can perm={Permissions.SHIPMENT_MANAGE}>
+                    <Button
+                      type="primary"
+                      icon={<PlusOutlined />}
+                      onClick={() => setCreateOpen(true)}
+                    >
+                      新建柜开始组柜
+                    </Button>
+                  </Can>
+                </Empty>
+              ),
+            }}
+            onRow={(r) => ({
+              onClick: () => router.push(`/shipments/${r.id}`),
+              style: { cursor: "pointer" },
+            })}
+            pagination={pagination}
+          />
+        )}
+      </ListPageBody>
 
       {/* 新建柜:柜号/柜型/封条组柜期均可空,后续在工作台补齐。 */}
       <Modal
@@ -260,6 +264,6 @@ export default function ShipmentListPage() {
           </Form.Item>
         </Form>
       </Modal>
-    </Card>
+    </ListPageCard>
   );
 }
