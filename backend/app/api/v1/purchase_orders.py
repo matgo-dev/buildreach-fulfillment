@@ -82,11 +82,13 @@ async def list_purchase_orders(page_params: PageParams = Depends(),
                                status: str | None = None, supplier_id: int | None = None,
                                source_sales_order_id: int | None = None,
                                source_sales_order_no: str | None = None,
+                               q: str | None = None, receivable_only: bool = False,
                                current: CurrentUser = _READ, db: AsyncSession = Depends(get_db)):
     items, total = await purchase_order_service.list_orders(
         db, status=status, supplier_id=supplier_id,
         source_sales_order_id=source_sales_order_id,
         source_sales_order_no=source_sales_order_no,
+        q=q, receivable_only=receivable_only,
         page=page_params.page, size=page_params.size)
     ccost = can_see_cost(current)
     po_ids = [it["id"] for it in items]

@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { Input, Select, Space } from "antd";
+import { Checkbox, Input, Select, Space } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { PickerDrawer } from "@/components/common/PickerDrawer";
 import { ProgressCell } from "@/components/common/ProgressCell";
@@ -11,8 +11,9 @@ import { supplierApi, type SupplierListItem } from "@/lib/supplier";
 
 /**
  * 入库台 pull 入口:选一张 CONFIRMED 采购单作为入库来源,选定后由父级打开建单器。
- * 入库单恒绑单一 PO —— 此处只选一张;已全部入库(FULLY_RECEIVED)的 PO 仍可见(标徽标),
- * 但打开建单器后若已无可收行会提示。收货进度徽标帮运营快速判断哪些还需收货。
+ * 入库单恒绑单一 PO —— 此处只选一张。默认只列「还有未收量」的 PO(receivable_only),
+ * 已全部入库的死单隐藏;需追溯时勾「含已收完」放开。收货进度徽标帮运营判断还需收哪些。
+ * 搜索一个框合并匹配采购单号 / 来源销售单号(操作员对着到货单上的 PO 号找)。
  */
 export function PurchaseOrderPicker({
   open,
@@ -24,7 +25,8 @@ export function PurchaseOrderPicker({
   onPick: (purchaseOrderId: number) => void;
 }) {
   const [supplierId, setSupplierId] = useState<number | undefined>(undefined);
-  const [soNo, setSoNo] = useState("");
+  const [keyword, setKeyword] = useState("");
+  const [includeReceived, setIncludeReceived] = useState(false);
   const [suppliers, setSuppliers] = useState<SupplierListItem[]>([]);
 
   const fetcher = useCallback(
@@ -32,11 +34,12 @@ export function PurchaseOrderPicker({
       purchaseOrderApi.list({
         status: "CONFIRMED",
         supplier_id: supplierId,
-        source_sales_order_no: soNo || undefined,
+        q: keyword || undefined,
+        receivable_only: !includeReceived,
         page,
         size,
       }),
-    [supplierId, soNo],
+    [supplierId, keyword, includeReceived],
   );
 
   // 供应商筛选下拉(启用+停用都要,便于筛历史)。
@@ -89,14 +92,23 @@ export function PurchaseOrderPicker({
           />
           <Input.Search
             allowClear
-            placeholder="来源销售单号"
-            style={{ width: 200 }}
-            defaultValue={soNo}
+            placeholder="采购单号 / 来源销售单号"
+            style={{ width: 220 }}
+            defaultValue={keyword}
             onSearch={(v) => {
-              setSoNo(v.trim());
+              setKeyword(v.trim());
               resetPage();
             }}
           />
+          <Checkbox
+            checked={includeReceived}
+            onChange={(e) => {
+              setIncludeReceived(e.target.checked);
+              resetPage();
+            }}
+          >
+            含已收完
+          </Checkbox>
         </>
       )}
       errorMessage="加载采购单失败"

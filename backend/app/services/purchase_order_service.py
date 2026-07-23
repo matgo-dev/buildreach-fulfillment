@@ -13,7 +13,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
@@ -32,6 +32,7 @@ from app.core.exceptions import (
     PurchaseSourceSalesOrderInvalidError,
     SupplierNotFoundError,
 )
+from app.db.models.inbound_order import InboundOrder, InboundOrderLine, InboundOrderStatus
 from app.db.models.purchase_order import (
     PURCHASE_ORDER_DELETABLE_STATUSES,
     PURCHASE_ORDER_EDITABLE_STATUSES,
@@ -381,10 +382,15 @@ async def delete_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_
 
 async def list_orders(db: AsyncSession, *, status=None, supplier_id=None,
                       source_sales_order_id=None, source_sales_order_no=None,
+                      q=None, receivable_only=False,
                       page: int = 1, size: int = 20) -> tuple[list[dict], int]:
-    """采购单列表:筛选(状态/供应商/来源SO id 或单号部分匹配)+ 分页,created_at 降序。
-    投影 supplier_display + 来源SO号 + 行数。扁平单据列表(非按 SO 分组)——SO 为中心的视图走
-    SO 详情「关联采购单区」;此处来源SO筛选只是在扁平列表内收敛,不破坏排序/分页。"""
+    """采购单列表:筛选(状态/供应商/来源SO id 或单号部分匹配 / q 合并搜 / 仅可收)+ 分页,
+    created_at 降序。投影 supplier_display + 来源SO号 + 行数。扁平单据列表(非按 SO 分组)——
+    SO 为中心的视图走 SO 详情「关联采购单区」;此处筛选只是在扁平列表内收敛,不破坏排序/分页。
+
+    - q:入库选单器用的合并搜(采购单号 OR 来源SO号,部分匹配);采购列表页仍用独立的
+      source_sales_order_no(那页有独立来源SO列,语义不混)。
+    - receivable_only:仅入库选单器用 —— 只留「还有未收量」的 PO,隐藏已全部收货的死单。"""
     conds = []
     if status:
         conds.append(PurchaseOrder.status == status)
@@ -393,9 +399,29 @@ async def list_orders(db: AsyncSession, *, status=None, supplier_id=None,
     if source_sales_order_id:
         conds.append(PurchaseOrder.source_sales_order_id == source_sales_order_id)
     # 来源SO单号部分匹配(用户按 SO 号搜,非内部 id);需 JOIN sales_orders,count 也要带上。
-    need_so_join = bool(source_sales_order_no)
     if source_sales_order_no:
         conds.append(SalesOrder.no.ilike(f"%{source_sales_order_no}%"))
+    # 合并搜:采购单号 OR 来源SO号(选单器一个框,操作员对着到货单上的 PO 号找,也允许按 SO 号）。
+    if q:
+        like = f"%{q}%"
+        conds.append(or_(PurchaseOrder.no.ilike(like), SalesOrder.no.ilike(like)))
+    # 仅可收:留下「至少一行 ordered > received」的 PO —— 即非 FULLY_RECEIVED。
+    # 这是 receipt_progress_from() 里 all(received>=required)=FULLY 的集合版镜像(受分页约束
+    # 无法在 SQL 内复用那个 per-行 Python 口径),两者须同步:FULLY 判据一旦改,这里同批改。
+    if receivable_only:
+        received_sq = (
+            select(func.coalesce(func.sum(InboundOrderLine.qty), 0))
+            .select_from(InboundOrderLine)
+            .join(InboundOrder, InboundOrder.id == InboundOrderLine.inbound_order_id)
+            .where(InboundOrderLine.purchase_order_line_id == PurchaseOrderLine.id,
+                   InboundOrder.status == InboundOrderStatus.RECEIVED)
+            .scalar_subquery())
+        conds.append(exists(
+            select(PurchaseOrderLine.id)
+            .where(PurchaseOrderLine.purchase_order_id == PurchaseOrder.id,
+                   PurchaseOrderLine.qty > received_sq)))
+    # 需 JOIN sales_orders 的条件:按 SO 号筛(独立框或合并 q)——count 也要带上同一 join。
+    need_so_join = bool(source_sales_order_no) or bool(q)
 
     count_stmt = select(func.count(PurchaseOrder.id))
     if need_so_join:
