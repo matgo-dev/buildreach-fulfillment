@@ -10,13 +10,15 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
+from app.schemas.common import LineQty
+
 # ---------- 写入(建单 / 整单保存)----------
 
 
 class InboundOrderLineIn(BaseModel):
     """入库行:引用 PO 行 + 本次入库数量。无成本字段(平移快照在 service 从 PO 行取)。"""
     purchase_order_line_id: int
-    qty: float = Field(gt=0)
+    qty: LineQty
     remark: str | None = None
     sort_order: int = Field(default=0, ge=0)
 

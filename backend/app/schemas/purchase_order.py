@@ -11,6 +11,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from app.rbac.redaction import PO_COST_FIELDS, PO_LINE_COST_FIELDS, redact_fields
+from app.schemas.common import LineQty, LineUnitPrice
 
 # ---------- 写入(建单 / 编辑对账)----------
 
@@ -18,8 +19,8 @@ from app.rbac.redaction import PO_COST_FIELDS, PO_LINE_COST_FIELDS, redact_field
 class PurchaseOrderLineIn(BaseModel):
     """建单行(无 id)。"""
     source_sales_order_line_id: int
-    qty: float = Field(gt=0)
-    unit_price: float = Field(ge=0)
+    qty: LineQty
+    unit_price: LineUnitPrice
     remark: str | None = None
     sort_order: int = Field(default=0, ge=0)
 
@@ -37,8 +38,8 @@ class PurchaseOrderLineEditIn(BaseModel):
     """编辑行:已存行带 id(对账 UPDATE),新行不带 id(INSERT)。"""
     id: int | None = None
     source_sales_order_line_id: int
-    qty: float = Field(gt=0)
-    unit_price: float = Field(ge=0)
+    qty: LineQty
+    unit_price: LineUnitPrice
     remark: str | None = None
     sort_order: int = Field(default=0, ge=0)
 

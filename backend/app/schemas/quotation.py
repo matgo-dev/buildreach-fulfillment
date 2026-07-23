@@ -5,12 +5,14 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
+from app.schemas.common import LineQty, LineUnitPrice
+
 
 class QuotationLineIn(BaseModel):
     id: int | None = None              # 已加载行带 id(对账用),新增行留空
     sku_id: int
-    unit_price: float = Field(ge=0)    # 手录报价价,非负
-    qty: float = Field(gt=0)           # 数量为正
+    unit_price: LineUnitPrice          # 手录报价价,非负,Numeric(18,2) 强校验
+    qty: LineQty                       # 数量为正,Numeric(18,3) 强校验
     remark: str | None = None          # 明细备注
     # 快照(name/spec_text/unit)不收客户端值:服务端从 SKU + SPU∪SKU 规格按报价语言权威冻结,
     # 保证冻结快照忠实反映选料。自定义客户面措辞走 remark,不污染快照。

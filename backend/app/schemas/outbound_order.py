@@ -10,13 +10,15 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from app.schemas.common import LineQty
+
 # ---------- 写入(建单 / 整单保存)----------
 
 
 class OutboundOrderLineIn(BaseModel):
     """出库行:引用 SO 行 + 本次出库数量。sku 由 service 从 SO 行派生(不采信客户端)。无金额字段。"""
     sales_order_line_id: int
-    qty: float = Field(gt=0)
+    qty: LineQty
 
 
 class OutboundOrderCreateIn(BaseModel):
