@@ -22,7 +22,6 @@ import {
   PURCHASE_ORDER_STATUS_META,
   purchaseOrderCancellable,
   purchaseOrderConfirmable,
-  purchaseOrderDeletable,
   purchaseOrderEditable,
 } from "@/lib/purchaseOrderStatus";
 import {
@@ -72,18 +71,6 @@ export default function PurchaseOrderDetailPage() {
     } catch (e) {
       message.error(resolveBizError(e, "操作失败"));
     } finally {
-      setBusy(false);
-    }
-  }
-
-  async function onDelete() {
-    setBusy(true);
-    try {
-      await purchaseOrderApi.del(id);
-      message.success("已删除");
-      router.push("/purchasing/orders");
-    } catch (e) {
-      message.error(resolveBizError(e, "删除失败"));
       setBusy(false);
     }
   }
@@ -177,18 +164,6 @@ export default function PurchaseOrderDetailPage() {
                 >
                   <Button danger loading={busy}>
                     取消
-                  </Button>
-                </Popconfirm>
-              )}
-              {purchaseOrderDeletable(order.status) && (
-                <Popconfirm
-                  title="删除草稿?"
-                  description="草稿将被永久删除,不可恢复。"
-                  okButtonProps={{ danger: true }}
-                  onConfirm={onDelete}
-                >
-                  <Button danger loading={busy}>
-                    删除
                   </Button>
                 </Popconfirm>
               )}

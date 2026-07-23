@@ -151,8 +151,10 @@ export default function SpuListPage() {
       : []),
   ];
 
+  // wrap={false}:master-detail 两列不换行。Row 定高(height:100%)后,分类树列自然内容高一旦
+  // 超过行高,antd Row 默认的 flex-wrap:wrap 会把列表列踢到下一行 —— 固定外壳的必配。
   return (
-    <Row gutter={16} align="stretch" style={{ height: "100%" }}>
+    <Row gutter={16} wrap={false} align="stretch" style={{ height: "100%" }}>
       <Col flex="240px">
         <Card
           size="small"

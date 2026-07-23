@@ -145,6 +145,10 @@ export interface PurchaseOrderListFilters {
   supplier_id?: number;
   source_sales_order_id?: number;
   source_sales_order_no?: string;
+  /** 合并搜:采购单号 OR 来源销售单号(入库选单器用一个框)。 */
+  q?: string;
+  /** 仅列「还有未收量」的 PO,隐藏已全部入库的死单(入库选单器用)。 */
+  receivable_only?: boolean;
   page?: number;
   size?: number;
 }
@@ -164,7 +168,6 @@ export const purchaseOrderApi = {
     api.post<{ order: PurchaseOrderOut; lines: PurchaseOrderLineOut[] }>("/api/v1/purchase-orders", b),
   update: (id: number, b: PurchaseOrderUpdateBody) =>
     api.put<{ order: PurchaseOrderOut; lines: PurchaseOrderLineOut[] }>(`/api/v1/purchase-orders/${id}`, b),
-  del: (id: number) => api.del<null>(`/api/v1/purchase-orders/${id}`),
   confirm: (id: number) =>
     api.post<{ order: PurchaseOrderOut; lines: PurchaseOrderLineOut[] }>(`/api/v1/purchase-orders/${id}/confirm`),
   cancel: (id: number) =>

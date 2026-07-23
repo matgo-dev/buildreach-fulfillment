@@ -82,11 +82,13 @@ async def list_purchase_orders(page_params: PageParams = Depends(),
                                status: str | None = None, supplier_id: int | None = None,
                                source_sales_order_id: int | None = None,
                                source_sales_order_no: str | None = None,
+                               q: str | None = None, receivable_only: bool = False,
                                current: CurrentUser = _READ, db: AsyncSession = Depends(get_db)):
     items, total = await purchase_order_service.list_orders(
         db, status=status, supplier_id=supplier_id,
         source_sales_order_id=source_sales_order_id,
         source_sales_order_no=source_sales_order_no,
+        q=q, receivable_only=receivable_only,
         page=page_params.page, size=page_params.size)
     ccost = can_see_cost(current)
     po_ids = [it["id"] for it in items]
@@ -128,15 +130,6 @@ async def update_purchase_order(order_id: int, body: PurchaseOrderUpdateIn, requ
         expected_updated_at=body.expected_updated_at, actor_user_id=current.id,
         actor_user_email=current.email, request=request)
     return success(await _detail_payload(db, po, current))
-
-
-@router.delete("/{order_id}", summary="硬删草稿采购单")
-async def delete_purchase_order(order_id: int, request: Request,
-                                current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
-    await purchase_order_service.delete_order(
-        db, order_id=order_id, actor_user_id=current.id, actor_user_email=current.email,
-        request=request)
-    return success(None)
 
 
 @router.post("/{order_id}/confirm", summary="确认采购单(下单 DRAFT→CONFIRMED)")

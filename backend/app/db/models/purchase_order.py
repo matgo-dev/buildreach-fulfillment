@@ -31,9 +31,9 @@ PURCHASE_ORDER_TRANSITIONS: dict[str, set[str]] = {
     PurchaseOrderStatus.CONFIRMED: {PurchaseOrderStatus.CANCELLED},
     PurchaseOrderStatus.CANCELLED: set(),
 }
-# 可编辑集 / 可硬删集:仅草稿(同报价)。CONFIRMED 已向供应商下单,锁定只能取消。
+# 可编辑集:仅草稿。CONFIRMED 已向供应商下单,锁定只能取消。
+# 无硬删(同报价):采购单一经建单即占用连续单号,草稿要弃走「取消」(DRAFT→CANCELLED),退役单轨走状态机。
 PURCHASE_ORDER_EDITABLE_STATUSES: set[str] = {PurchaseOrderStatus.DRAFT}
-PURCHASE_ORDER_DELETABLE_STATUSES: set[str] = {PurchaseOrderStatus.DRAFT}
 
 
 class PurchaseProgress:

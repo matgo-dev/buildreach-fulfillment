@@ -37,11 +37,11 @@ QUOTATION_TRANSITIONS: dict[str, set[str]] = {
     QuotationStatus.CONVERTED: {QuotationStatus.LOCKED},
     QuotationStatus.VOID: set(),
 }
-# 编辑/删除仅草稿(锁档后只读;草稿=从没弄好可硬删)——"能否 PUT/硬删"不是状态转移,
-# 矩阵推不出,故各自独立常量(独立事实,非并列副本)。
+# 编辑仅草稿(锁档后只读)——"能否 PUT"不是状态转移,矩阵推不出,故独立常量。
+# 无硬删:报价单一经建单即占用连续单号,物理删会断号且抹痕迹。草稿要弃走「作废」(VOIDABLE⊇DRAFT),
+# 退役统一走状态机(单轨),非「硬删 vs 作废」双轨。全后台业务单据同此原则(主数据走软删+停用)。
 QUOTATION_EDITABLE: set[str] = {QuotationStatus.DRAFT}
-QUOTATION_DELETABLE: set[str] = {QuotationStatus.DRAFT}
-# 可作废集相反:作废本身是一条转移,该事实矩阵已拥有,故**派生**自矩阵(目标含 VOID 的态),
+# 可作废集:作废本身是一条转移,该事实矩阵已拥有,故**派生**自矩阵(目标含 VOID 的态),
 # 不另立并列副本——防与矩阵漂移(当前值 = {DRAFT, LOCKED})。
 QUOTATION_VOIDABLE: set[str] = {
     s for s, targets in QUOTATION_TRANSITIONS.items() if QuotationStatus.VOID in targets

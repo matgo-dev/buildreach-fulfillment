@@ -106,7 +106,6 @@ export const quotationApi = {
   create: (b: QuotationSaveBody) => api.post<QuotationOrderOut>("/api/v1/quotations", b),
   update: (id: number, b: QuotationUpdateBody) =>
     api.put<QuotationOrderOut>(`/api/v1/quotations/${id}`, b),
-  del: (id: number) => api.del<null>(`/api/v1/quotations/${id}`),
   lock: (id: number) => api.post<QuotationOrderOut>(`/api/v1/quotations/${id}/lock`),
   unlock: (id: number) => api.post<QuotationOrderOut>(`/api/v1/quotations/${id}/unlock`),
   void: (id: number, reason?: string) =>

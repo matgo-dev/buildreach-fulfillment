@@ -29,7 +29,6 @@ from app.core.i18n import compose_spec_text, display
 from app.core.languages import DEFAULT_QUOTE_LANGUAGE
 from app.core.statemachine import assert_transition
 from app.db.models.quotation import (
-    QUOTATION_DELETABLE,
     QUOTATION_EDITABLE,
     QUOTATION_TRANSITIONS,
     QUOTATION_VOIDABLE,
@@ -372,16 +371,5 @@ async def list_orders(db: AsyncSession, *, status=None, customer_id=None, salesp
     return items, total
 
 
-async def delete_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_email,
-                       request: Request | None = None) -> None:
-    """硬删报价单(仅草稿;行 CASCADE)。草稿=从没弄好可删,非草稿走作废。
-    引用保护:曾转过销售单(含已取消)的报价行仍被 SO 行 FK 引用,不可硬删 → 41411。"""
-    order = await get_order_for_update(db, order_id)
-    if order.status not in QUOTATION_DELETABLE:
-        raise QuotationNotDraftError()
-    await _assert_lines_deletable(db, [ln.id for ln in await list_lines(db, order_id)])
-    await write_audit(db, resource_type=AuditResourceType.QUOTATION, action=AuditAction.DELETE,
-                      user_id=actor_user_id, user_email=actor_user_email,
-                      resource_id=order.id, request=request, commit=False)
-    await db.delete(order)
-    await db.commit()
+# 无 delete_order:报价单无整单硬删。草稿要弃走 void_order(作废),退役单轨走状态机。
+# 曾转过销售单的报价行被 SO 行 FK 引用——作废是状态翻转不触碰行,天然无引用冲突,不再需要引用守卫。

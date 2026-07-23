@@ -113,19 +113,6 @@ async def update_quotation(
     return success(_order_out(order))
 
 
-@router.delete("/{order_id}", summary="硬删报价草稿")
-async def delete_quotation(
-    order_id: int,
-    request: Request,
-    current: CurrentUser = _GUARD,
-    db: AsyncSession = Depends(get_db),
-):
-    await quotation_service.delete_order(
-        db, order_id=order_id, actor_user_id=current.id,
-        actor_user_email=current.email, request=request)
-    return success(None)
-
-
 @router.post("/{order_id}/lock", summary="锁档(DRAFT→LOCKED)")
 async def lock_quotation(
     order_id: int,

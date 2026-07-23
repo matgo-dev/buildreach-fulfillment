@@ -26,7 +26,6 @@ import { quotationApi, type QuotationListItem } from "@/lib/quotation";
 import {
   QUOTATION_STATUS_META,
   quotationConvertible,
-  quotationDeletable,
   quotationEditable,
 } from "@/lib/quotationStatus";
 
@@ -75,16 +74,6 @@ export default function QuotationListPage() {
       load();
     } catch (e) {
       message.error(resolveBizError(e, "作废失败"));
-    }
-  }
-
-  async function onDelete(id: number) {
-    try {
-      await quotationApi.del(id);
-      message.success("已删除");
-      load();
-    } catch (e) {
-      message.error(resolveBizError(e, "删除失败"));
     }
   }
 
@@ -164,18 +153,6 @@ export default function QuotationListPage() {
                   >
                     <Button type="link" size="small" danger>
                       作废
-                    </Button>
-                  </Popconfirm>
-                )}
-                {quotationDeletable(r.status) && (
-                  <Popconfirm
-                    title="删除草稿?"
-                    description="草稿将被永久删除,不可恢复。"
-                    okButtonProps={{ danger: true }}
-                    onConfirm={() => onDelete(r.id)}
-                  >
-                    <Button type="link" size="small" danger>
-                      删除
                     </Button>
                   </Popconfirm>
                 )}
