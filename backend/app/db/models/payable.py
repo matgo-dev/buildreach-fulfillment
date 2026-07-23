@@ -100,8 +100,8 @@ class Payable(Base, TimestampUpdateMixin):
     # void 轴(撤销入库置):非空 = 已作废,行留痕、不进余额与列表聚合。
     voided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     voided_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True)
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, index=True)
     void_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     # = 确认入库操作人(created_at 即应付成立时刻)。
     created_by: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)

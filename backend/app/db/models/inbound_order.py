@@ -75,7 +75,7 @@ class InboundOrder(Base, TimestampUpdateMixin):
     remark: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 建单人(审计归属)。确认/撤销动作走 audit_logs,不加 received_by(遵审计归属判据)。
     created_by: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
     # 无 currency / 金额列(契约 D3:入库单据零成本列,币种随 PO)。
 
 

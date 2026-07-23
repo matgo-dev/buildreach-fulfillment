@@ -78,7 +78,7 @@ class QuotationOrder(Base, TimestampUpdateMixin):
     # 摘要/主题:一句话标识单据,显示在列表(识别 ≠ 解释,与 remark 不同语义)。
     summary: Mapped[str | None] = mapped_column(String(180), nullable=True)
     created_by: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
     remark: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 

@@ -78,7 +78,7 @@ class SalesOrder(Base, TimestampUpdateMixin):
     remark: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 执行转换的人(审计归属);可 ≠ salesperson_id(报价业务归属,复制自报价)。
     created_by: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
     # 取消留痕轴(镜像 payable void 轴):非空 = 已取消;与 status 一致性由 CHECK 锁死。
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     cancelled_by: Mapped[int | None] = mapped_column(
