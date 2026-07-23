@@ -5,9 +5,9 @@ import {
   Button,
   Card,
   DatePicker,
+  Drawer,
   Form,
   Input,
-  Modal,
   Popconfirm,
   Select,
   Space,
@@ -240,15 +240,24 @@ export function LogisticsTrackCard({
       </div>
       <Timeline style={{ paddingTop: 8 }} items={items} />
 
-      <Modal
+      <Drawer
         title={edit.id === null ? "录入物流里程碑" : "编辑物流事件"}
         open={modalOpen}
-        okText="保存"
-        confirmLoading={busy}
-        onCancel={() => setModalOpen(false)}
-        onOk={onSubmit}
+        width="min(480px, 92vw)"
+        destroyOnClose
+        onClose={() => setModalOpen(false)}
+        footer={
+          <Space style={{ width: "100%", justifyContent: "flex-end" }}>
+            <Button onClick={() => setModalOpen(false)} disabled={busy}>
+              取消
+            </Button>
+            <Button type="primary" loading={busy} onClick={onSubmit}>
+              保存
+            </Button>
+          </Space>
+        }
       >
-        <Form layout="vertical" style={{ marginTop: 12 }}>
+        <Form layout="vertical">
           <Form.Item label="里程碑" required>
             <Select
               value={edit.event_type}
@@ -282,7 +291,7 @@ export function LogisticsTrackCard({
             />
           </Form.Item>
         </Form>
-      </Modal>
+      </Drawer>
     </Card>
   );
 }

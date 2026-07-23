@@ -341,21 +341,36 @@ export default function PaymentListPage() {
       </ListPageBody>
 
       {/* 登记付款:amount/currency/paid_at/supplier 必填(无待认领态)。 */}
-      <Modal
+      {/* 登记付款:表单走抽屉(DESIGN §5/§11.7)。 */}
+      <Drawer
         title="登记付款"
         open={createOpen}
-        okText="登记"
-        confirmLoading={creating}
-        onCancel={() => {
+        width="min(520px, 92vw)"
+        destroyOnClose
+        onClose={() => {
           setCreateOpen(false);
           form.resetFields();
         }}
-        onOk={onCreate}
+        footer={
+          <Space style={{ width: "100%", justifyContent: "flex-end" }}>
+            <Button
+              onClick={() => {
+                setCreateOpen(false);
+                form.resetFields();
+              }}
+              disabled={creating}
+            >
+              取消
+            </Button>
+            <Button type="primary" loading={creating} onClick={onCreate}>
+              登记
+            </Button>
+          </Space>
+        }
       >
         <Form
           form={form}
           layout="vertical"
-          style={{ marginTop: 12 }}
           initialValues={{ currency: "USD", paid_at: dayjs() }}
         >
           <Form.Item
@@ -391,7 +406,7 @@ export default function PaymentListPage() {
             <Input.TextArea rows={2} placeholder="选填" maxLength={500} />
           </Form.Item>
         </Form>
-      </Modal>
+      </Drawer>
 
       {/* 详情抽屉:单头 + 未分配余额高亮 + 活动核销记录。 */}
       <Drawer
