@@ -29,15 +29,17 @@ class ReceivableStatus:
 
 
 def derive_receivable_status(amount_original, amount_allocated) -> str:
-    """单一派生口径(镜像 derive_payable_status):先判收清(allocated>=original,含 0 金额单据——
-    余额 0 即无欠款),再判未收;之间→部分收。判序不可倒:先判 alloc<=0 会把 0 金额单
-    永远钉在「未收」(SO 行 unit_price 允许 0,此边界必测)。"""
+    """单一派生口径(边界共用 _settlement,与 receivable_service._STATUS_CONDS 同源不双写):
+    先判收清(含 0 金额单据——余额 0 即无欠款),再判未收;之间→部分收。
+    SO 行 unit_price 允许 0,故 0 金额边界必成立(由 is_fully_settled 先判归 PAID)。"""
     from decimal import Decimal
+
+    from app.db.models._settlement import is_fully_settled, is_unsettled
     orig = Decimal(str(amount_original))
     alloc = Decimal(str(amount_allocated))
-    if alloc >= orig:
+    if is_fully_settled(orig, alloc):
         return ReceivableStatus.PAID
-    if alloc <= 0:
+    if is_unsettled(orig, alloc):
         return ReceivableStatus.UNPAID
     return ReceivableStatus.PARTIALLY_PAID
 

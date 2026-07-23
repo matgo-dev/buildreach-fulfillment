@@ -11,6 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError
 from app.db.models.inbound_order import InboundOrder
+from app.db.models._settlement import (
+    is_fully_settled,
+    is_partially_settled,
+    is_unsettled,
+)
 from app.db.models.payable import Payable, PayableStatus, derive_payable_status
 from app.db.models.payment import Payment
 from app.db.models.payment_allocation import PaymentAllocation
@@ -18,13 +23,12 @@ from app.db.models.purchase_order import PurchaseOrder
 from app.db.models.supplier import Supplier
 from app.services.repo import paginate
 
-# 派生状态 → SQL 谓词(**镜像 derive_payable_status 判序**:先付清含 0 金额单,勿倒序改)。
+# 派生状态 → SQL 谓词(边界共用 _settlement,与 derive_payable_status 同源不双写)。
 _STATUS_CONDS = {
-    PayableStatus.PAID: Payable.amount_allocated >= Payable.amount_original,
-    PayableStatus.UNPAID: (Payable.amount_allocated <= 0)
-    & (Payable.amount_original > 0),
-    PayableStatus.PARTIALLY_PAID: (Payable.amount_allocated > 0)
-    & (Payable.amount_allocated < Payable.amount_original),
+    PayableStatus.PAID: is_fully_settled(Payable.amount_original, Payable.amount_allocated),
+    PayableStatus.UNPAID: is_unsettled(Payable.amount_original, Payable.amount_allocated),
+    PayableStatus.PARTIALLY_PAID: is_partially_settled(
+        Payable.amount_original, Payable.amount_allocated),
 }
 
 

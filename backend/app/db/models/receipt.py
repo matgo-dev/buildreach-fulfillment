@@ -31,17 +31,19 @@ class ReceiptStatus:
 
 
 def derive_receipt_status(customer_id, amount, amount_allocated) -> str:
-    """单一派生口径:customer_id 空 → UNCLAIMED(客户维度,先判);否则按核销进度——
-    先判分配完(allocated>=amount,含 0 金额边界,对齐账层判序、不依赖 amount>0 CHECK 撑着),
-    再判未分配(<=0),之间→部分分配。判序不可倒。"""
+    """单一派生口径(边界共用 _settlement,与 receipt_service._STATUS_CONDS 同源不双写):
+    customer_id 空 → UNCLAIMED(客户维度,先判);否则按核销进度——先判分配完(含 0 金额边界,
+    不依赖 amount>0 CHECK 撑着),再判未分配,之间→部分分配。"""
     from decimal import Decimal
+
+    from app.db.models._settlement import is_fully_settled, is_unsettled
     if customer_id is None:
         return ReceiptStatus.UNCLAIMED
     amt = Decimal(str(amount))
     alloc = Decimal(str(amount_allocated))
-    if alloc >= amt:
+    if is_fully_settled(amt, alloc):
         return ReceiptStatus.FULLY_ALLOCATED
-    if alloc <= 0:
+    if is_unsettled(amt, alloc):
         return ReceiptStatus.UNALLOCATED
     return ReceiptStatus.PARTIALLY_ALLOCATED
 
