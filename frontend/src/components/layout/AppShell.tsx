@@ -132,7 +132,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <Layout style={{ minHeight: "100vh" }}>
+    <Layout style={{ height: "100vh", overflow: "hidden" }}>
       {/* 侧栏钉住视口:内容区再长也不带着导航滚;菜单超高时只在菜单区内部滚。 */}
       <Sider
         collapsible
@@ -234,11 +234,29 @@ export function AppShell({ children }: { children: ReactNode }) {
             </span>
           </Dropdown>
         </Header>
-        <Content style={{ margin: 16 }}>
+        {/*
+          固定外壳:内容区吃满「视口 − 顶栏」的确定高度,自身不滚(overflow:hidden)。
+          - 面包屑固定在顶(flex-none)。
+          - children 装在默认可滚区(overflow-y:auto):详情/表单页内容高就在这里滚,零改动。
+          - 列表页则让其根 Card 撑满高度、由 ListTable 在内部滚表体 —— Card 恰好填满、外层不滚,只表体滚。
+        */}
+        <Content
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            height: "100%",
+            minHeight: 0,
+            padding: 16,
+            overflow: "hidden",
+          }}
+        >
           {breadcrumb.length > 0 && (
-            <Breadcrumb style={{ marginBottom: 12 }} items={breadcrumb.map((b) => ({ title: b }))} />
+            <Breadcrumb
+              style={{ marginBottom: 12, flex: "0 0 auto" }}
+              items={breadcrumb.map((b) => ({ title: b }))}
+            />
           )}
-          {children}
+          <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto" }}>{children}</div>
         </Content>
       </Layout>
     </Layout>

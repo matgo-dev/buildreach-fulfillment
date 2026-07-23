@@ -3,7 +3,6 @@ import { useCallback, useState } from "react";
 import {
   App,
   Button,
-  Card,
   Dropdown,
   Form,
   Input,
@@ -12,14 +11,15 @@ import {
   Select,
   Space,
   Switch,
-  Table,
   Tag,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { DownOutlined, PlusOutlined } from "@ant-design/icons";
 import { Drawer } from "antd";
 import { StatusTag } from "@/components/common/StatusTag";
+import { ListTable } from "@/components/common/ListTable";
 import { ListErrorState } from "@/components/common/ListErrorState";
+import { ListPageCard, ListPageBody } from "@/components/common/ListPageCard";
 import { useListQuery } from "@/hooks/useListQuery";
 import { useCrudDrawer } from "@/hooks/useCrudDrawer";
 import { useAuthStore } from "@/stores/authStore";
@@ -206,7 +206,7 @@ export default function UserAdminPage() {
   ];
 
   return (
-    <Card>
+    <ListPageCard>
       <Space style={{ marginBottom: 16, width: "100%", justifyContent: "space-between" }} wrap>
         <Space wrap>
           <Segmented
@@ -232,19 +232,21 @@ export default function UserAdminPage() {
         </Button>
       </Space>
 
-      {loadError && !rows.length ? (
-        <ListErrorState onRetry={load} />
-      ) : (
-        <Table<UserItem>
-          rowKey="id"
-          columns={columns}
-          dataSource={rows}
-          loading={loading}
-          scroll={{ x: 900 }}
-          locale={{ emptyText: "暂无用户" }}
-          pagination={pagination}
-        />
-      )}
+      <ListPageBody>
+        {loadError && !rows.length ? (
+          <ListErrorState onRetry={load} />
+        ) : (
+          <ListTable<UserItem>
+            rowKey="id"
+            columns={columns}
+            dataSource={rows}
+            loading={loading}
+            scroll={{ x: 900 }}
+            locale={{ emptyText: "暂无用户" }}
+            pagination={pagination}
+          />
+        )}
+      </ListPageBody>
 
       <Drawer
         title={mode === "create" ? "新建用户" : "编辑用户"}
@@ -359,6 +361,6 @@ export default function UserAdminPage() {
           onChange={(e) => setResetPwd(e.target.value)}
         />
       </Modal>
-    </Card>
+    </ListPageCard>
   );
 }

@@ -5,13 +5,14 @@ import type { OutboundOrderStatus } from "@/lib/outboundOrder";
 
 /**
  * 三态:草稿(可编辑,不扣库存)/ 已出库(确认出库,唯一扣减事件,生成应收)/ 已取消(终态)。
- * 色值遵契约 §4:草稿=灰 / 已出库=绿 / 已取消=中性(草稿与取消同为中性灰,靠文字区分)。
+ * 色遵 DESIGN.md §1.3(状态色唯一源头):草稿=warning 琥珀(未生效)/ 已出库=success 青(正向完成)/
+ * 已取消=default 灰(中性终态,与「停用」同档;红只留给危险动作,不给静止状态)。
  */
 export const OUTBOUND_ORDER_STATUS_META: Record<
   OutboundOrderStatus,
   { label: string; color: string }
 > = {
-  DRAFT: { label: "草稿", color: "default" },
+  DRAFT: { label: "草稿", color: "warning" },
   ISSUED: { label: "已出库", color: "success" },
   CANCELLED: { label: "已取消", color: "default" },
 };

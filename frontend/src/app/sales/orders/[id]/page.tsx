@@ -6,6 +6,7 @@ import type { ColumnsType } from "antd/es/table";
 import { ArrowLeftOutlined, ShoppingCartOutlined } from "@ant-design/icons";
 import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
+import { ProgressCell } from "@/components/common/ProgressCell";
 import { PageLoading } from "@/components/common/PageLoading";
 import { Permissions } from "@/config/permission-matrix";
 import { formatDateTime, formatMoney, formatQty } from "@/lib/format";
@@ -111,7 +112,7 @@ export default function SalesOrderDetailPage() {
             <StatusTag meta={SALES_ORDER_STATUS_META} value={order.status} />
             {/* CANCELLED 隐藏进度徽标:全 PO 已取消会回「未采购」,挂着误导(评审 S4)。 */}
             {order.status === "CONFIRMED" && order.purchase_progress && (
-              <StatusTag meta={PURCHASE_PROGRESS_META} value={order.purchase_progress} />
+              <ProgressCell meta={PURCHASE_PROGRESS_META} value={order.purchase_progress} />
             )}
           </Space>
         }

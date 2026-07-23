@@ -1,12 +1,15 @@
 "use client";
 import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { App, Button, Card, Drawer, Input, Popconfirm, Segmented, Space, Switch, Table } from "antd";
+import { App, Button, Drawer, Input, Popconfirm, Segmented, Space, Switch, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { FileAddOutlined } from "@ant-design/icons";
 import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
+import { ProgressCell } from "@/components/common/ProgressCell";
+import { ListTable } from "@/components/common/ListTable";
 import { ListErrorState } from "@/components/common/ListErrorState";
+import { ListPageCard, ListPageBody } from "@/components/common/ListPageCard";
 import { useListQuery } from "@/hooks/useListQuery";
 import { Permissions } from "@/config/permission-matrix";
 import { useAuthStore } from "@/stores/authStore";
@@ -114,7 +117,7 @@ export default function SalesOrderListPage() {
     { title: "客户", dataIndex: "customer_display", width: 160, ellipsis: true },
     { title: "报价人", dataIndex: "salesperson_display", width: 100 },
     {
-      title: "状态",
+      title: "单据状态",
       dataIndex: "status",
       width: 110,
       render: (s: SalesOrderListItem["status"]) => <StatusTag meta={SALES_ORDER_STATUS_META} value={s} />,
@@ -122,12 +125,12 @@ export default function SalesOrderListPage() {
     {
       title: "采购进度",
       dataIndex: "purchase_progress",
-      width: 110,
+      width: 140,
       filters: PROGRESS_FILTERS,
       filterMultiple: false,
       filteredValue: purchaseProgress ? [purchaseProgress] : null,
       render: (p: SalesOrderListItem["purchase_progress"]) =>
-        p ? <StatusTag meta={PURCHASE_PROGRESS_META} value={p} /> : "—",
+        p ? <ProgressCell meta={PURCHASE_PROGRESS_META} value={p} /> : "—",
     },
     { title: "币种", dataIndex: "currency", width: 70 },
     {
@@ -167,7 +170,7 @@ export default function SalesOrderListPage() {
   );
 
   return (
-    <Card>
+    <ListPageCard>
       <Space style={{ marginBottom: 16, width: "100%", justifyContent: "space-between" }} wrap>
         <Space wrap>
           <Segmented
@@ -205,34 +208,36 @@ export default function SalesOrderListPage() {
           </Button>
         </Can>
       </Space>
-      {loadError && !rows.length ? (
-        <ListErrorState onRetry={load} />
-      ) : (
-        <Table<SalesOrderListItem>
-          rowKey="id"
-          columns={columns}
-          dataSource={rows}
-          loading={loading}
-          scroll={{ x: 1120 }}
-          locale={{ emptyText: "暂无销售单" }}
-          onRow={(r) => ({
-            onClick: () => router.push(`/sales/orders/${r.id}`),
-            style: { cursor: "pointer" },
-          })}
-          pagination={pagination}
-          onChange={(_p, filters, sorter) => {
-            const s = Array.isArray(sorter) ? sorter[0] : sorter;
-            setSort(s?.field === "total_amount" ? "total_amount" : "created_at");
-            setSortDir(s?.order === "ascend" ? "asc" : "desc");
-            // 列头采购进度筛选 → 服务端过滤(单选)。
-            const p = (filters.purchase_progress?.[0] as string) || "";
-            if (p !== purchaseProgress) {
-              setPurchaseProgress(p);
-              setPage(1);
-            }
-          }}
-        />
-      )}
+      <ListPageBody>
+        {loadError && !rows.length ? (
+          <ListErrorState onRetry={load} />
+        ) : (
+          <ListTable<SalesOrderListItem>
+            rowKey="id"
+            columns={columns}
+            dataSource={rows}
+            loading={loading}
+            scroll={{ x: 1120 }}
+            locale={{ emptyText: "暂无销售单" }}
+            onRow={(r) => ({
+              onClick: () => router.push(`/sales/orders/${r.id}`),
+              style: { cursor: "pointer" },
+            })}
+            pagination={pagination}
+            onChange={(_p, filters, sorter) => {
+              const s = Array.isArray(sorter) ? sorter[0] : sorter;
+              setSort(s?.field === "total_amount" ? "total_amount" : "created_at");
+              setSortDir(s?.order === "ascend" ? "asc" : "desc");
+              // 列头采购进度筛选 → 服务端过滤(单选)。
+              const p = (filters.purchase_progress?.[0] as string) || "";
+              if (p !== purchaseProgress) {
+                setPurchaseProgress(p);
+                setPage(1);
+              }
+            }}
+          />
+        )}
+      </ListPageBody>
       <Drawer
         title="从锁档报价生成销售单"
         open={quoteDrawerOpen}
@@ -296,6 +301,6 @@ export default function SalesOrderListPage() {
           })}
         />
       </Drawer>
-    </Card>
+    </ListPageCard>
   );
 }

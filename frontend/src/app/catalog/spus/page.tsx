@@ -1,7 +1,6 @@
 "use client";
 import { useCallback, useState } from "react";
 import {
-  Table,
   Input,
   Segmented,
   Button,
@@ -21,6 +20,8 @@ import { catalogApi, SpuListItem } from "@/lib/catalog";
 import { display } from "@/lib/i18n";
 import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
+import { ListTable } from "@/components/common/ListTable";
+import { ListPageCard, ListPageBody } from "@/components/common/ListPageCard";
 import { ListErrorState } from "@/components/common/ListErrorState";
 import { useListQuery } from "@/hooks/useListQuery";
 import { useAuthStore } from "@/stores/authStore";
@@ -151,9 +152,14 @@ export default function SpuListPage() {
   ];
 
   return (
-    <Row gutter={16}>
+    <Row gutter={16} align="stretch" style={{ height: "100%" }}>
       <Col flex="240px">
-        <Card size="small" title="分类">
+        <Card
+          size="small"
+          title="分类"
+          style={{ height: "100%", display: "flex", flexDirection: "column" }}
+          styles={{ body: { flex: "1 1 auto", minHeight: 0, overflowY: "auto" } }}
+        >
           <CategoryTree
             onSelect={(c, isLeaf) => {
               setCategory(c);
@@ -163,8 +169,8 @@ export default function SpuListPage() {
           />
         </Card>
       </Col>
-      <Col flex="auto" style={{ minWidth: 0 }}>
-        <Card size="small">
+      <Col flex="auto" style={{ minWidth: 0, display: "flex" }}>
+        <ListPageCard size="small" style={{ width: "100%" }}>
           {/* 工具条统一次序(DESIGN §7):状态 → 搜索。 */}
           <Space style={{ marginBottom: 12 }} wrap>
             <Segmented
@@ -205,23 +211,25 @@ export default function SpuListPage() {
               </Button>
             </Can>
           </Space>
-          {loadError && !rows.length ? (
-            <ListErrorState onRetry={load} />
-          ) : (
-            <Table
-              rowKey="id"
-              loading={loading}
-              columns={columns}
-              dataSource={rows}
-              onRow={(r) => ({
-                onClick: () => router.push(`/catalog/spus/${r.id}`),
-                style: { cursor: "pointer" },
-              })}
-              pagination={pagination}
-              locale={{ emptyText: "暂无 SPU" }}
-            />
-          )}
-        </Card>
+          <ListPageBody>
+            {loadError && !rows.length ? (
+              <ListErrorState onRetry={load} />
+            ) : (
+              <ListTable
+                rowKey="id"
+                loading={loading}
+                columns={columns}
+                dataSource={rows}
+                onRow={(r) => ({
+                  onClick: () => router.push(`/catalog/spus/${r.id}`),
+                  style: { cursor: "pointer" },
+                })}
+                pagination={pagination}
+                locale={{ emptyText: "暂无 SPU" }}
+              />
+            )}
+          </ListPageBody>
+        </ListPageCard>
       </Col>
     </Row>
   );

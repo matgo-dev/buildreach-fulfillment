@@ -1,12 +1,15 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Button, Card, Input, Segmented, Select, Space, Table } from "antd";
+import { Button, Input, Segmented, Select, Space } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
+import { ProgressCell } from "@/components/common/ProgressCell";
+import { ListTable } from "@/components/common/ListTable";
 import { ListErrorState } from "@/components/common/ListErrorState";
+import { ListPageCard, ListPageBody } from "@/components/common/ListPageCard";
 import { useListQuery } from "@/hooks/useListQuery";
 import { Permissions } from "@/config/permission-matrix";
 import { PurchaseOrderBuilder } from "@/components/purchasing/PurchaseOrderBuilder";
@@ -96,7 +99,7 @@ export default function PurchaseOrderListPage() {
     },
     { title: "供应商", dataIndex: "supplier_display", width: 180, ellipsis: true },
     {
-      title: "状态",
+      title: "单据状态",
       dataIndex: "status",
       width: 100,
       render: (s: PurchaseOrderListItem["status"]) => (
@@ -115,11 +118,11 @@ export default function PurchaseOrderListPage() {
     {
       title: "收货进度",
       dataIndex: "receipt_progress",
-      width: 150,
+      width: 180,
       render: (p: PurchaseOrderListItem["receipt_progress"], r) => (
         // 收货进度(实收口径的语义徽标)+ 弱化在途信号,后者只回答「有货在路上」。
         <Space size={4}>
-          {p ? <StatusTag meta={RECEIPT_PROGRESS_META} value={p} /> : <span>—</span>}
+          {p ? <ProgressCell meta={RECEIPT_PROGRESS_META} value={p} /> : <span>—</span>}
           <InTransitBadge count={r.in_transit_count} />
         </Space>
       ),
@@ -133,7 +136,7 @@ export default function PurchaseOrderListPage() {
   ];
 
   return (
-    <Card>
+    <ListPageCard>
       {/* 工具条统一次序(DESIGN §7):状态 → 搜索 → 参照维度;标题由面包屑承担,不重复。 */}
       <Space style={{ marginBottom: 16, width: "100%", justifyContent: "space-between" }} wrap>
         <Space wrap>
@@ -181,23 +184,25 @@ export default function PurchaseOrderListPage() {
         </Can>
       </Space>
 
-      {loadError && !rows.length ? (
-        <ListErrorState onRetry={load} />
-      ) : (
-        <Table<PurchaseOrderListItem>
-          rowKey="id"
-          columns={columns}
-          dataSource={rows}
-          loading={loading}
-          scroll={{ x: 1170 }}
-          locale={{ emptyText: "暂无采购单" }}
-          onRow={(r) => ({
-            onClick: () => router.push(`/purchasing/orders/${r.id}`),
-            style: { cursor: "pointer" },
-          })}
-          pagination={pagination}
-        />
-      )}
+      <ListPageBody>
+        {loadError && !rows.length ? (
+          <ListErrorState onRetry={load} />
+        ) : (
+          <ListTable<PurchaseOrderListItem>
+            rowKey="id"
+            columns={columns}
+            dataSource={rows}
+            loading={loading}
+            scroll={{ x: 1200 }}
+            locale={{ emptyText: "暂无采购单" }}
+            onRow={(r) => ({
+              onClick: () => router.push(`/purchasing/orders/${r.id}`),
+              style: { cursor: "pointer" },
+            })}
+            pagination={pagination}
+          />
+        )}
+      </ListPageBody>
 
       {/* pull 入口:选 SO → 打开建单器。采购单恒绑单一 SO,故先选一张。 */}
       <SalesOrderPicker
@@ -218,6 +223,6 @@ export default function PurchaseOrderListPage() {
           load();
         }}
       />
-    </Card>
+    </ListPageCard>
   );
 }

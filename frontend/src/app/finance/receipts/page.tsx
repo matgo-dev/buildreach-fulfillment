@@ -4,7 +4,6 @@ import { useSearchParams } from "next/navigation";
 import {
   App,
   Button,
-  Card,
   DatePicker,
   Descriptions,
   Drawer,
@@ -24,7 +23,9 @@ import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
 import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
+import { ListTable } from "@/components/common/ListTable";
 import { ListErrorState } from "@/components/common/ListErrorState";
+import { ListPageCard, ListPageBody } from "@/components/common/ListPageCard";
 import { useListQuery } from "@/hooks/useListQuery";
 import { Permissions } from "@/config/permission-matrix";
 import { customerApi, type CustomerListItem } from "@/lib/customer";
@@ -299,7 +300,7 @@ export default function ReceiptListPage() {
   const canVoid = r && !r.voided_at;
 
   return (
-    <Card>
+    <ListPageCard>
       {/* 工具条统一次序(DESIGN §7):状态 Segmented → 搜索框 → 参照维度下拉。币种在列头。 */}
       <Space style={{ marginBottom: 16, width: "100%", justifyContent: "space-between" }} wrap>
         <Space wrap>
@@ -341,31 +342,33 @@ export default function ReceiptListPage() {
         </Can>
       </Space>
 
-      {loadError && !rows.length ? (
-        <ListErrorState onRetry={load} />
-      ) : (
-        <Table<ReceiptListItem>
-          rowKey="id"
-          columns={columns}
-          dataSource={rows}
-          loading={loading}
-          scroll={{ x: 1290 }}
-          locale={{ emptyText: "暂无收款单" }}
-          onChange={(_, filters) => {
-            // 列头币种筛选 → 服务端过滤(filters.currency 单选)。
-            const c = (filters.currency?.[0] as string) || undefined;
-            if (c !== currency) {
-              setCurrency(c);
-              setPage(1);
-            }
-          }}
-          onRow={(row) => ({
-            onClick: () => openDetail(row.id),
-            style: { cursor: "pointer" },
-          })}
-          pagination={pagination}
-        />
-      )}
+      <ListPageBody>
+        {loadError && !rows.length ? (
+          <ListErrorState onRetry={load} />
+        ) : (
+          <ListTable<ReceiptListItem>
+            rowKey="id"
+            columns={columns}
+            dataSource={rows}
+            loading={loading}
+            scroll={{ x: 1290 }}
+            locale={{ emptyText: "暂无收款单" }}
+            onChange={(_, filters) => {
+              // 列头币种筛选 → 服务端过滤(filters.currency 单选)。
+              const c = (filters.currency?.[0] as string) || undefined;
+              if (c !== currency) {
+                setCurrency(c);
+                setPage(1);
+              }
+            }}
+            onRow={(row) => ({
+              onClick: () => openDetail(row.id),
+              style: { cursor: "pointer" },
+            })}
+            pagination={pagination}
+          />
+        )}
+      </ListPageBody>
 
       {/* 登记收款:amount/currency/received_at 必填;客户可留空=待认领。 */}
       <Modal
@@ -632,6 +635,6 @@ export default function ReceiptListPage() {
           onChange={(e) => setReverseReason(e.target.value)}
         />
       </Modal>
-    </Card>
+    </ListPageCard>
   );
 }

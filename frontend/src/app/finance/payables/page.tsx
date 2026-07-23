@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import {
   App,
   Button,
-  Card,
   Descriptions,
   Drawer,
   Input,
@@ -18,7 +17,9 @@ import {
 import type { ColumnsType } from "antd/es/table";
 import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
+import { ListTable } from "@/components/common/ListTable";
 import { ListErrorState } from "@/components/common/ListErrorState";
+import { ListPageCard, ListPageBody } from "@/components/common/ListPageCard";
 import { useListQuery } from "@/hooks/useListQuery";
 import { Permissions } from "@/config/permission-matrix";
 import { supplierApi, type SupplierListItem } from "@/lib/supplier";
@@ -204,7 +205,7 @@ export default function PayableListPage() {
 
   return (
     // 标题由面包屑承担(财务/应付款),Card 不重复
-    <Card>
+    <ListPageCard>
       {/* 工具条统一次序(DESIGN §7):状态 Segmented → 搜索框 → 参照维度下拉。币种在列头。 */}
       <Space style={{ marginBottom: 16, width: "100%" }} wrap>
         <Segmented
@@ -239,31 +240,33 @@ export default function PayableListPage() {
         />
       </Space>
 
-      {loadError && !rows.length ? (
-        <ListErrorState onRetry={load} />
-      ) : (
-        <Table<PayableListItem>
-          rowKey="id"
-          columns={columns}
-          dataSource={rows}
-          loading={loading}
-          scroll={{ x: 1290 }}
-          locale={{ emptyText: "暂无应付款" }}
-          onChange={(_, filters) => {
-            // 列头币种筛选 → 服务端过滤(filters.currency 单选)。
-            const c = (filters.currency?.[0] as string) || undefined;
-            if (c !== currency) {
-              setCurrency(c);
-              setPage(1);
-            }
-          }}
-          onRow={(row) => ({
-            onClick: () => openDetail(row),
-            style: { cursor: "pointer" },
-          })}
-          pagination={pagination}
-        />
-      )}
+      <ListPageBody>
+        {loadError && !rows.length ? (
+          <ListErrorState onRetry={load} />
+        ) : (
+          <ListTable<PayableListItem>
+            rowKey="id"
+            columns={columns}
+            dataSource={rows}
+            loading={loading}
+            scroll={{ x: 1290 }}
+            locale={{ emptyText: "暂无应付款" }}
+            onChange={(_, filters) => {
+              // 列头币种筛选 → 服务端过滤(filters.currency 单选)。
+              const c = (filters.currency?.[0] as string) || undefined;
+              if (c !== currency) {
+                setCurrency(c);
+                setPage(1);
+              }
+            }}
+            onRow={(row) => ({
+              onClick: () => openDetail(row),
+              style: { cursor: "pointer" },
+            })}
+            pagination={pagination}
+          />
+        )}
+      </ListPageBody>
 
       {/* 行下钻抽屉:账头 + 核销记录(哪笔付款冲了多少)+ 用余额核销一键入口。🔴红线域。 */}
       <Drawer
@@ -347,6 +350,6 @@ export default function PayableListPage() {
           </>
         )}
       </Drawer>
-    </Card>
+    </ListPageCard>
   );
 }
