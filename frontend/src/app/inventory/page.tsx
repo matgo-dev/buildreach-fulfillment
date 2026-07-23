@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Empty, Input, Space, Switch } from "antd";
+import { Button, Empty, Input, Space, Switch, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Can } from "@/components/common/Can";
 import { ListTable } from "@/components/common/ListTable";
@@ -16,7 +16,9 @@ export default function InventoryListPage() {
   const router = useRouter();
 
   const [keyword, setKeyword] = useState("");
-  // 含已履约:关(默认)= available>0 在库视角;开 = scope=history,含已发完/未到货行(契约 §2/§5)。
+  // 含已发完行:关(默认)= available>0 在库视角;开 = scope=history(inbound>0 OR outbound>0,
+  // 履约史)——相对默认视图的增量只有「已全部发完」的行;未入库行按契约 §2/§5 不进本页
+  // (其对照视图在 SO 详情 stock_balances 块,内部 ALL 口径)。
   const [includeHistory, setIncludeHistory] = useState(false);
 
   const fetcher = useCallback(
@@ -113,7 +115,9 @@ export default function InventoryListPage() {
                 setPage(1);
               }}
             />{" "}
-            含已履约
+            <Tooltip title="同时显示货已全部发完(可发量归 0)的历史行;尚未入库的行不在本页,见销售单详情">
+              含已发完行
+            </Tooltip>
           </span>
         </Space>
       </Space>

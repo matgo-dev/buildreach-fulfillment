@@ -35,7 +35,7 @@ export interface InventoryListFilters {
   sales_order_id?: number;
   sku_id?: number;
   q?: string;
-  /** 默认口径省略 = available_qty>0(在库);传 "history" = 含已履约行(契约 §2/§5)。 */
+  /** 默认口径省略 = available_qty>0(在库);传 "history" = 加显已发完行(履约史 inbound>0 OR outbound>0;未入库行不进本页,契约 §2/§5)。 */
   scope?: "history";
   page?: number;
   size?: number;
