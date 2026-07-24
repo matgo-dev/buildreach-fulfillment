@@ -348,22 +348,26 @@ export function guideNodeById(id: string): GuideNode | undefined {
 export const GUIDE_CATEGORY_META: {
   id: GuideCategory;
   label: string;
-  colorToken: "brand" | "info" | "success" | "muted";
+  colorToken: "brand" | "info" | "brandAccent" | "muted";
 }[] = [
   { id: "DOCUMENT", label: "业务单据", colorToken: "brand" },
-  { id: "GOODS", label: "货 · 库存", colorToken: "info" },
-  { id: "MONEY", label: "钱 · 财务", colorToken: "success" },
+  { id: "GOODS", label: "货 · 实物", colorToken: "info" },
+  { id: "MONEY", label: "钱 · 财务", colorToken: "brandAccent" },
   { id: "MASTER_DATA", label: "基础资料", colorToken: "muted" },
 ];
 
+/** 主链里「还没有实物、纯纸面」的单据节点。其余主链节点都在处理实物 = 货。 */
+const DOCUMENT_MAIN_IDS = new Set(["quotation", "salesOrder", "purchaseOrder"]);
+
 /**
  * 节点语义域派生(单一口径,不给每个节点塞字段):
- * 主数据层=基础资料;资金流层=钱;主链里库存=货,其余单据=业务单据。
- * 将来若新增「货」类节点(如盘点),在此扩判定即可。
+ * 主数据层=基础资料;资金流层=钱;主链里报价/销售单/采购单=纸面单据,
+ * 其余(入库/库存/出库/开柜/封柜离港/物流/报关)都在流转实物 = 货。
+ * 分界=实物是否已存在:入库前无实物走单据,入库起有实物走货。
  */
 export function nodeCategory(node: GuideNode): GuideCategory {
   if (node.layer === "MASTER") return "MASTER_DATA";
   if (node.layer === "MONEY") return "MONEY";
-  if (node.id === "inventory") return "GOODS";
-  return "DOCUMENT";
+  if (DOCUMENT_MAIN_IDS.has(node.id)) return "DOCUMENT";
+  return "GOODS";
 }
