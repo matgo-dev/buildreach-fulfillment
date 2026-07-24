@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Checkbox, Segmented, Space, Typography } from "antd";
 import { RouteGuard } from "@/components/auth/RouteGuard";
 import { GuideChart } from "@/components/guide/GuideChart";
+import { GuideDrawer } from "@/components/guide/GuideDrawer";
 import { GUIDE_ROLE_OPTIONS } from "@/config/guideFlow";
 import type { GuideNode, GuideRole } from "@/config/guideFlow";
 
@@ -53,6 +54,7 @@ export default function GuidePage() {
           activeId={activeNode?.id ?? null}
           onNodeClick={setActiveNode}
         />
+        <GuideDrawer node={activeNode} onClose={() => setActiveNode(null)} />
       </div>
     </RouteGuard>
   );
