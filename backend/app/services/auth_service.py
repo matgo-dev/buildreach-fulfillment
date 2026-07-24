@@ -5,7 +5,6 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from jose import JWTError
 from sqlalchemy import delete, exists, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
@@ -25,6 +24,7 @@ from app.core.exceptions import (
 from app.core.request_ip import get_client_ip
 from app.core.security import (
     PASSWORD_RULE_MESSAGE,
+    TokenError,
     create_access_token,
     create_refresh_token,
     decode_token,
@@ -312,7 +312,7 @@ async def refresh(
         raise NotAuthenticatedError("Missing refresh token")
     try:
         payload = decode_token(refresh_token, expected_type="refresh")
-    except JWTError:
+    except TokenError:
         raise NotAuthenticatedError("Invalid refresh token")
 
     try:
@@ -472,7 +472,7 @@ async def logout(
     if refresh_token:
         try:
             payload = decode_token(refresh_token, expected_type="refresh")
-        except JWTError:
+        except TokenError:
             payload = None
         jti = payload.get("jti") if payload else None
         if jti:

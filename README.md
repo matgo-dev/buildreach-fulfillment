@@ -493,10 +493,18 @@ cookie,被复制走的 cookie 也续不了命)+ 清 cookie(幂等,带有效 acce
 > 早期 M0 的 `/api/v1/attachments` 最小上传端点(无类型/大小校验、无业务 RBAC、无任何消费方)
 > 已下线;对象存储层与商品图直传(`/api/v1/uploads`,守 `product:manage`)不受影响。
 
-**依赖漏洞审计**:CI(`ci.yml`)前端跑 `pnpm audit --prod`,**critical 阻断合并**(门槛为何不是 high
-见《后续演进》Next 15 一行);本地 `.npmrc` 指向 npmmirror 没有 audit 端点,CI 里显式打官方 registry。
-`.github/dependabot.yml` 每周检查前端 npm 与 GitHub Actions 版本(小版本合并成一个 PR);
-**Dependabot 不支持 uv**,后端 Python 依赖不在它的覆盖内。
+**依赖漏洞审计**(CI `ci.yml`,前后端各一道):
+
+- **前端** `pnpm audit --prod`,**critical 阻断合并**(门槛为何不是 high,见《后续演进》Next 15 一行)。
+  本地 `.npmrc` 指向 npmmirror 没有 audit 端点,CI 里显式打官方 registry。
+- **后端** `uv export --no-dev` → `pip-audit`(查 OSV 库),**有漏洞即阻断**,当前为零。
+  Dependabot 不支持 uv 读不了 `uv.lock`,所以后端靠这一步而不是 Dependabot。
+- JWT 用 **PyJWT**(仅 HS256)。原先的 `python-jose` 已停更,还拖来一个上游明确不修的
+  `ecdsa` 漏洞,已整包换掉;`app/core/security.py` 是全仓唯一接触 JWT 库的地方,
+  对外只暴露 `TokenError`。
+- `.github/dependabot.yml` 每周检查前端 npm 与 GitHub Actions 版本(小版本合并成一个 PR)。
+  **"有漏洞自动开修复 PR"需在 GitHub 仓库 Settings 里另外打开 Dependabot alerts / security updates**,
+  配置文件管不了。
 
 ### 公网部署安全约束
 

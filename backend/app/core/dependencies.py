@@ -8,12 +8,11 @@ from dataclasses import dataclass, field
 
 from fastapi import Depends
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AccountDeactivatedError, AccountDisabledError, NotAuthenticatedError
-from app.core.security import decode_token
+from app.core.security import TokenError, decode_token
 from app.db.models.permission import Permission
 from app.db.models.role import Role
 from app.db.models.role_permission import RolePermission
@@ -68,7 +67,7 @@ async def get_current_user(
         raise NotAuthenticatedError()
     try:
         payload = decode_token(token, expected_type="access")
-    except JWTError:
+    except TokenError:
         raise NotAuthenticatedError("Invalid token")
 
     user_id_raw = payload.get("sub")

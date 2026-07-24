@@ -13,7 +13,9 @@ dependencies = [
     "alembic>=1.13.0",
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",
-    "python-jose[cryptography]>=3.3.0",
+    # JWT 用 PyJWT 不用 python-jose:后者基本停更,且拖来的 ecdsa 有上游不修的漏洞
+    # (PYSEC-2026-1325)。仅用 HS256,不需要 cryptography 后端。
+    "pyjwt>=2.10.0",
     "passlib[bcrypt]>=1.7.4",
     "bcrypt<4.1",
     "python-multipart>=0.0.9",
