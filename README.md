@@ -574,7 +574,6 @@ docker compose build backend    # 或 frontend
 
 | 项 | 为什么要做 | 备注 |
 |---|---|---|
-| **前端升 Next 15 + React 19** | Next 14.x 上有 9 条 high 漏洞(拒绝服务 / SSRF 类),官方**只在 15.5.21 以后修**,14.x 永远修不掉。CI 的前端审计门因此只能暂时设成 critical | 迁移面已经实测过,比想象中小:动态路由全都走 `useParams()` 这个客户端 hook、没用 `next/headers`、没有 middleware / Server Actions / `next/image`,48 个 app 文件里 46 个是 `use client` —— Next 15 那些破坏性改动(`params` / `cookies()` 变异步)基本打不到我们。真正的工作量在 React 18→19 之后把所有页面回归一遍。做完把 CI 门槛提回 high |
 | 后端请求耗时观测 | 现在没有任何耗时数据,导致所有「等它变慢再优化」的判断都无从做起 | 至少要有请求耗时日志(带路由和分位数)。这是曾经那条「等 p95>300ms 再优化」决策能成立的前提 |
 
 ## 待接
