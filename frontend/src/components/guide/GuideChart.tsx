@@ -2,9 +2,31 @@
 
 import { Fragment } from "react";
 import { ArrowRightOutlined } from "@ant-design/icons";
-import { GUIDE_BANDS, GUIDE_NODES, type GuideNode, type GuideRole } from "@/config/guideFlow";
+import {
+  GUIDE_BANDS,
+  GUIDE_CATEGORY_META,
+  GUIDE_NODES,
+  type GuideNode,
+  type GuideRole,
+} from "@/config/guideFlow";
 import { colors } from "@/lib/tokens";
 import { GuideNodeCard } from "./GuideNodeCard";
+
+/** 语义域图例:每类一个色条 + 名称。颜色取自 GUIDE_CATEGORY_META 的 token,不另立色板。 */
+function CategoryLegend() {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
+      {GUIDE_CATEGORY_META.map((m) => (
+        <span key={m.id} style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <span
+            style={{ width: 4, height: 16, borderRadius: 2, background: colors[m.colorToken] }}
+          />
+          <span style={{ fontSize: 12, color: colors.muted }}>{m.label}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
 
 interface Props {
   /** Task 3 起生效:展开资金流支线 */
@@ -22,6 +44,7 @@ export function GuideChart(props: Props) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <CategoryLegend />
       {props.showMaster && (
         <section style={{ padding: "12px 16px", borderRadius: 8, background: colors.bg }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: colors.muted, marginBottom: 12 }}>
@@ -122,7 +145,7 @@ function ChainArrow({ label }: { label?: string }) {
     <div
       style={{
         display: "flex", flexDirection: "column", alignItems: "center",
-        width: 92, gap: 4, marginTop: 24,
+        width: 76, gap: 4, marginTop: 24,
       }}
     >
       <div style={{ fontSize: 12, color: colors.muted, textAlign: "center", lineHeight: 1.3 }}>

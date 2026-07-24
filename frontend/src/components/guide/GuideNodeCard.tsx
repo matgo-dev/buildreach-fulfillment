@@ -1,9 +1,15 @@
 "use client";
 
 import { Tooltip } from "antd";
-import type { GuideNode } from "@/config/guideFlow";
+import { GUIDE_CATEGORY_META, nodeCategory, type GuideNode } from "@/config/guideFlow";
 import { colors } from "@/lib/tokens";
 import { GUIDE_ICONS } from "./guideIcons";
+
+/** 分类 → 左边色条颜色。取自 GUIDE_CATEGORY_META 的 colorToken,不另立色板。 */
+function categoryColor(node: GuideNode): string {
+  const meta = GUIDE_CATEGORY_META.find((m) => m.id === nodeCategory(node));
+  return colors[meta?.colorToken ?? "muted"];
+}
 
 interface Props {
   node: GuideNode;
@@ -31,6 +37,7 @@ export function GuideNodeCard({ node, dimmed, active, onClick }: Props) {
           cursor: "pointer",
           background: isMaster ? colors.bg : colors.white,
           border: `1px solid ${active ? colors.brand : colors.line}`,
+          borderLeft: `4px solid ${categoryColor(node)}`,
           boxShadow: active ? `0 0 0 4px ${colors.brand}22` : "none",
           opacity: dimmed ? 0.3 : 1,
           transition: "opacity .2s, box-shadow .2s, border-color .2s",

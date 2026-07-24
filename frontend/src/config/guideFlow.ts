@@ -12,6 +12,12 @@ export type GuideLayer = "MAIN" | "MONEY" | "MASTER";
 /** 主链两行蛇形的分区带。 */
 export type GuideBand = "SOURCING" | "DELIVERY";
 
+/**
+ * 节点语义域(左边色条 + 图例用):基础资料 / 业务单据 / 货(库存)/ 钱(财务)。
+ * 颜色只引用现有 tokens(colorToken),不发明新色值、不铺满卡片——遵 DESIGN.md「绿点睛非铺满」。
+ */
+export type GuideCategory = "MASTER_DATA" | "DOCUMENT" | "GOODS" | "MONEY";
+
 export type GuideIconKey =
   | "quotation" | "salesOrder" | "purchaseOrder" | "inbound" | "inventory"
   | "outbound" | "shipmentOpen" | "shipment" | "logistics" | "customs"
@@ -130,7 +136,7 @@ export const GUIDE_NODES: GuideNode[] = [
     role: "PURCHASER",
     layer: "MAIN",
     band: "SOURCING",
-    inEdgeLabel: "照着销售单的需求去订货",
+    inEdgeLabel: "照销售单去订货",
     tooltip: "采购员按销售单上的需求,向供应商下采购单。",
     what: "我们是「按单采购」—— 先有销售单才有采购单,不提前囤货。采购单的每一行都挂在销售单的某一行下面,系统会挡住订超量。",
     fromTo: "上一步:已成立的销售单。下一步:供应商发货后登记入库单。在左侧菜单「采购」→「采购单」里操作。",
@@ -333,4 +339,31 @@ export const GUIDE_ROLE_OPTIONS = (Object.keys(ROLE_META) as GuideRole[])
 
 export function guideNodeById(id: string): GuideNode | undefined {
   return GUIDE_NODES.find((n) => n.id === id);
+}
+
+/**
+ * 语义域图例(顺序即图例展示顺序)。`colorToken` 是 `@/lib/tokens` colors 的键名——
+ * 组件层用 `colors[colorToken]` 取值,数据层不 import 颜色,保持无 UI 依赖。
+ */
+export const GUIDE_CATEGORY_META: {
+  id: GuideCategory;
+  label: string;
+  colorToken: "brand" | "info" | "success" | "muted";
+}[] = [
+  { id: "DOCUMENT", label: "业务单据", colorToken: "brand" },
+  { id: "GOODS", label: "货 · 库存", colorToken: "info" },
+  { id: "MONEY", label: "钱 · 财务", colorToken: "success" },
+  { id: "MASTER_DATA", label: "基础资料", colorToken: "muted" },
+];
+
+/**
+ * 节点语义域派生(单一口径,不给每个节点塞字段):
+ * 主数据层=基础资料;资金流层=钱;主链里库存=货,其余单据=业务单据。
+ * 将来若新增「货」类节点(如盘点),在此扩判定即可。
+ */
+export function nodeCategory(node: GuideNode): GuideCategory {
+  if (node.layer === "MASTER") return "MASTER_DATA";
+  if (node.layer === "MONEY") return "MONEY";
+  if (node.id === "inventory") return "GOODS";
+  return "DOCUMENT";
 }

@@ -47,7 +47,7 @@ export default function GuidePage() {
 
   return (
     <RouteGuard>
-      <div style={{ padding: 24, maxWidth: 1280 }}>
+      <div style={{ padding: 24, maxWidth: 1400 }}>
         <Typography.Title level={4} style={{ marginTop: 0 }}>
           平台导览
         </Typography.Title>

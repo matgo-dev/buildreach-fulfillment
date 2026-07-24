@@ -26,7 +26,7 @@ export function GuideTour({ stepIndex, onStart, onPrev, onNext, onExit }: Props)
   const total = TOUR_SEQUENCE.length;
 
   return (
-    <Card size="small" style={{ marginBottom: 16 }}>
+    <Card size="small" style={{ marginBottom: 16, position: "sticky", top: 0, zIndex: 10 }}>
       <Space direction="vertical" size={8} style={{ width: "100%" }}>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           第 {stepIndex + 1} / {total} 步 · {node?.action}
