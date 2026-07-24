@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Checkbox, Segmented, Space, Typography } from "antd";
 import { RouteGuard } from "@/components/auth/RouteGuard";
 import { GuideChart } from "@/components/guide/GuideChart";
 import { GuideDrawer } from "@/components/guide/GuideDrawer";
-import { GUIDE_ROLE_OPTIONS } from "@/config/guideFlow";
+import { GuideTour } from "@/components/guide/GuideTour";
+import { GUIDE_ROLE_OPTIONS, TOUR_SEQUENCE, guideNodeById } from "@/config/guideFlow";
 import type { GuideNode, GuideRole } from "@/config/guideFlow";
 
 export default function GuidePage() {
@@ -13,6 +14,17 @@ export default function GuidePage() {
   const [highlightRole, setHighlightRole] = useState<GuideRole | null>(null);
   const [showMoney, setShowMoney] = useState(false);
   const [showMaster, setShowMaster] = useState(false);
+  const [tourStep, setTourStep] = useState<number | null>(null);
+
+  const tourNodeId = tourStep === null ? null : TOUR_SEQUENCE[tourStep];
+
+  // 叙事走到资金流节点时自动展开资金流层,否则该节点不在 DOM 里,点亮不到。
+  useEffect(() => {
+    if (tourNodeId && guideNodeById(tourNodeId)?.layer === "MONEY") setShowMoney(true);
+  }, [tourNodeId]);
+
+  const startTour = () => setTourStep(0);
+  const exitTour = () => setTourStep(null);
 
   return (
     <RouteGuard>
@@ -47,11 +59,21 @@ export default function GuidePage() {
           </div>
         </div>
 
+        <GuideTour
+          stepIndex={tourStep}
+          onStart={startTour}
+          onPrev={() => setTourStep((s) => (s === null ? s : Math.max(0, s - 1)))}
+          onNext={() =>
+            setTourStep((s) => (s === null ? s : Math.min(TOUR_SEQUENCE.length - 1, s + 1)))
+          }
+          onExit={exitTour}
+        />
+
         <GuideChart
           showMoney={showMoney}
           showMaster={showMaster}
           highlightRole={highlightRole}
-          activeId={activeNode?.id ?? null}
+          activeId={tourNodeId ?? activeNode?.id ?? null}
           onNodeClick={setActiveNode}
         />
         <GuideDrawer node={activeNode} onClose={() => setActiveNode(null)} />
