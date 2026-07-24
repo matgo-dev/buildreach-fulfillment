@@ -5,14 +5,14 @@
 from app.rbac.redaction import (
     PO_COST_FIELDS,
     PO_LINE_COST_FIELDS,
-    redact_cost,
+    redact_fields,
 )
 
 
 def test_redact_nulls_cost_fields_when_no_permission():
     """无 read_cost:payload 中的成本字段被置 null,其它字段原样。"""
     payload = {"id": 1, "no": "PO2026070001", "total_amount": 999.5, "currency": "USD"}
-    out = redact_cost(payload, PO_COST_FIELDS, can_see_cost=False)
+    out = redact_fields(payload, PO_COST_FIELDS, visible=False)
     assert out["total_amount"] is None
     assert out["id"] == 1 and out["no"] == "PO2026070001" and out["currency"] == "USD"
 
@@ -20,14 +20,14 @@ def test_redact_nulls_cost_fields_when_no_permission():
 def test_redact_passthrough_when_permitted():
     """有 read_cost:payload 原样返回,成本字段保留真值。"""
     payload = {"id": 1, "total_amount": 999.5}
-    out = redact_cost(payload, PO_COST_FIELDS, can_see_cost=True)
+    out = redact_fields(payload, PO_COST_FIELDS, visible=True)
     assert out["total_amount"] == 999.5
 
 
 def test_redact_line_cost_fields():
     """行级成本字段集:unit_price / line_total 一起脱敏。"""
     line = {"id": 7, "sku_id": 3, "unit_price": 12.5, "qty": 4, "line_total": 50.0}
-    out = redact_cost(line, PO_LINE_COST_FIELDS, can_see_cost=False)
+    out = redact_fields(line, PO_LINE_COST_FIELDS, visible=False)
     assert out["unit_price"] is None and out["line_total"] is None
     assert out["qty"] == 4  # 数量非红线,保留
 
@@ -35,13 +35,13 @@ def test_redact_line_cost_fields():
 def test_redact_does_not_mutate_input():
     """脱敏返回新 dict,不就地改传入 payload(防调用方复用同一 dict 泄露)。"""
     payload = {"total_amount": 100.0}
-    redact_cost(payload, PO_COST_FIELDS, can_see_cost=False)
+    redact_fields(payload, PO_COST_FIELDS, visible=False)
     assert payload["total_amount"] == 100.0
 
 
 def test_redact_ignores_absent_fields():
     """字段不在 payload 时不报错(投影可能不含某成本键)。"""
-    out = redact_cost({"id": 1}, PO_COST_FIELDS, can_see_cost=False)
+    out = redact_fields({"id": 1}, PO_COST_FIELDS, visible=False)
     assert out == {"id": 1}
 
 

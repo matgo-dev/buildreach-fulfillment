@@ -23,6 +23,11 @@ from app.core.exceptions import (
     SourceHasActiveAllocationsError,
     SourceVoidedError,
 )
+from app.db.models._settlement import (
+    is_fully_settled,
+    is_partially_settled,
+    is_unsettled,
+)
 from app.db.models.customer import Customer
 from app.db.models.outbound_order import OutboundOrder
 from app.db.models.receipt import Receipt, ReceiptStatus, derive_receipt_status
@@ -33,15 +38,17 @@ from app.services.allocation_engine import RECEIPT_SPEC
 from app.services.numbering import allocate
 from app.services.repo import paginate
 
-# 派生状态 → SQL 谓词(镜像 derive_receipt_status 判序;UNCLAIMED 由 customer_id 空判,独立)。
+# 派生状态 → SQL 谓词(进度边界共用 _settlement,与 derive_receipt_status 同源不双写;
+# UNCLAIMED 由 customer_id 空判,独立于金额;其余三态在「已认领」前提上叠加结算边界)。
+# UNALLOCATED 经此获得 `& amount>0` 守卫,不再靠 amount>0 CHECK 掩盖。
 _STATUS_CONDS = {
     ReceiptStatus.UNCLAIMED: Receipt.customer_id.is_(None),
     ReceiptStatus.FULLY_ALLOCATED: Receipt.customer_id.isnot(None)
-    & (Receipt.amount_allocated >= Receipt.amount),
+    & is_fully_settled(Receipt.amount, Receipt.amount_allocated),
     ReceiptStatus.UNALLOCATED: Receipt.customer_id.isnot(None)
-    & (Receipt.amount_allocated <= 0),
+    & is_unsettled(Receipt.amount, Receipt.amount_allocated),
     ReceiptStatus.PARTIALLY_ALLOCATED: Receipt.customer_id.isnot(None)
-    & (Receipt.amount_allocated > 0) & (Receipt.amount_allocated < Receipt.amount),
+    & is_partially_settled(Receipt.amount, Receipt.amount_allocated),
 }
 
 

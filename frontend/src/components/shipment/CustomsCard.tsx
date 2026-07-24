@@ -6,10 +6,10 @@ import {
   Card,
   DatePicker,
   Descriptions,
+  Drawer,
   Empty,
   Form,
   Input,
-  Modal,
   Popconfirm,
   Space,
   Tag,
@@ -52,7 +52,7 @@ import {
 // customs_status===null(OPEN/CANCELLED 柜)不适用 —— 由详情页据此决定不挂本卡。
 
 /**
- * 附件区(受控列表):Modal 内暂存编辑 + 详情卡就地增删两用。
+ * 附件区(受控列表):抽屉内暂存编辑 + 详情卡就地增删两用。
  * 自身只负责上传/下载/移除交互,不管持久化 —— 由父组件决定(暂存 or 立即 PATCH)。
  */
 function CustomsAttachments({
@@ -353,17 +353,24 @@ export function CustomsCard({
     >
       {body}
 
-      <Modal
+      <Drawer
         title={declaration ? "编辑报关" : "录入报关"}
         open={modalOpen}
-        okText="保存"
-        confirmLoading={busy}
-        onCancel={closeModalDiscard}
-        onOk={onSubmit}
-        width={560}
+        width="min(560px, 92vw)"
         destroyOnClose
+        onClose={closeModalDiscard}
+        footer={
+          <Space style={{ width: "100%", justifyContent: "flex-end" }}>
+            <Button onClick={closeModalDiscard} disabled={busy}>
+              取消
+            </Button>
+            <Button type="primary" loading={busy} onClick={onSubmit}>
+              保存
+            </Button>
+          </Space>
+        }
       >
-        <Form form={form} layout="vertical" style={{ marginTop: 12 }}>
+        <Form form={form} layout="vertical">
           <Form.Item
             name="declaration_no"
             label="报关单号"
@@ -414,7 +421,7 @@ export function CustomsCard({
             />
           </Form.Item>
         </Form>
-      </Modal>
+      </Drawer>
     </Card>
   );
 }

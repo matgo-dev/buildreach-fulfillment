@@ -23,6 +23,11 @@ from app.core.exceptions import (
     SourceVoidedError,
     SupplierNotFoundError,
 )
+from app.db.models._settlement import (
+    is_fully_settled,
+    is_partially_settled,
+    is_unsettled,
+)
 from app.db.models.inbound_order import InboundOrder
 from app.db.models.payable import Payable
 from app.db.models.payment import Payment, PaymentStatus, derive_payment_status
@@ -33,11 +38,13 @@ from app.services.allocation_engine import PAYMENT_SPEC
 from app.services.numbering import allocate
 from app.services.repo import paginate
 
+# 派生状态 → SQL 谓词(边界共用 _settlement,与 derive_payment_status 同源不双写。
+# UNALLOCATED 经此获得 `& amount>0` 守卫,与 payable/receivable 一致——不再靠 amount>0 CHECK 掩盖)。
 _STATUS_CONDS = {
-    PaymentStatus.FULLY_ALLOCATED: Payment.amount_allocated >= Payment.amount,
-    PaymentStatus.UNALLOCATED: Payment.amount_allocated <= 0,
-    PaymentStatus.PARTIALLY_ALLOCATED: (Payment.amount_allocated > 0)
-    & (Payment.amount_allocated < Payment.amount),
+    PaymentStatus.FULLY_ALLOCATED: is_fully_settled(Payment.amount, Payment.amount_allocated),
+    PaymentStatus.UNALLOCATED: is_unsettled(Payment.amount, Payment.amount_allocated),
+    PaymentStatus.PARTIALLY_ALLOCATED: is_partially_settled(
+        Payment.amount, Payment.amount_allocated),
 }
 
 

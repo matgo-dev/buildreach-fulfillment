@@ -356,6 +356,14 @@ class PurchaseOrderHasActiveInboundError(BusinessError):
                          message_key=MessageKey.PURCHASE_ORDER_HAS_ACTIVE_INBOUND)
 
 
+class PurchaseOrderDuplicateLineError(BusinessError):
+    """采购单 payload 同一 SO 行重复出现(一 SO 行一采购行,DB UNIQUE(po, so_line) 兜底,
+    service 前置拒绝——否则打穿到约束成 500。镜像出/入库 41909/41711)。"""
+
+    def __init__(self, message: str = "Duplicate sales order line in purchase order payload"):
+        super().__init__(status.HTTP_400_BAD_REQUEST, 41610, message)
+
+
 # 模块段 17 = 入库单 / 应付款。见 db/models/inbound_order.py、db/models/payable.py。
 class InboundOrderNotFoundError(BusinessError):
     def __init__(self, message: str = "Inbound order not found"):

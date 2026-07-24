@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import { App, Button, Empty, Form, Input, Modal, Segmented, Select, Space } from "antd";
+import { App, Button, Drawer, Empty, Form, Input, Segmented, Select, Space } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { Can } from "@/components/common/Can";
@@ -240,19 +240,34 @@ export default function ShipmentListPage() {
         )}
       </ListPageBody>
 
-      {/* 新建柜:柜号/柜型/封条组柜期均可空,后续在工作台补齐。 */}
-      <Modal
+      {/* 新建柜:柜号/柜型/封条组柜期均可空,后续在工作台补齐。表单走抽屉(DESIGN §5/§11.7)。 */}
+      <Drawer
         title="新建发运柜"
         open={createOpen}
-        okText="新建并组柜"
-        confirmLoading={creating}
-        onCancel={() => {
+        width="min(480px, 92vw)"
+        destroyOnClose
+        onClose={() => {
           setCreateOpen(false);
           form.resetFields();
         }}
-        onOk={onCreate}
+        footer={
+          <Space style={{ width: "100%", justifyContent: "flex-end" }}>
+            <Button
+              onClick={() => {
+                setCreateOpen(false);
+                form.resetFields();
+              }}
+              disabled={creating}
+            >
+              取消
+            </Button>
+            <Button type="primary" loading={creating} onClick={onCreate}>
+              新建并组柜
+            </Button>
+          </Space>
+        }
       >
-        <Form form={form} layout="vertical" style={{ marginTop: 12 }}>
+        <Form form={form} layout="vertical">
           <Form.Item name="container_no" label="柜号">
             <Input placeholder="选填,组柜期可留空,后续再填" />
           </Form.Item>
@@ -263,7 +278,7 @@ export default function ShipmentListPage() {
             <Input placeholder="选填" />
           </Form.Item>
         </Form>
-      </Modal>
+      </Drawer>
     </ListPageCard>
   );
 }

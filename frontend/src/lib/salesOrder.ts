@@ -1,6 +1,7 @@
 // 销售单前端类型 + API。对齐后端 schemas/sales_order.py。创建走报价 convert;写面 = 整单取消。
 import { api } from "./api";
 import type { Page } from "./catalog";
+import { formatMoney } from "./format";
 import type { PurchaseProgress, RelatedPurchaseOrder } from "./purchaseOrder";
 import type { StockBalanceLine } from "./inventory";
 import type { RelatedOutboundOrder } from "./outboundOrder";
@@ -18,9 +19,10 @@ export interface SalesOrderLineOut {
   name_snapshot: string;
   spec_text_snapshot: string;
   unit_snapshot: string;
-  unit_price: number | string;
+  // 🔴 客户售价红线:无 receivable:read 者后端置 null(PURCHASER / LOGISTICS)。渲染走 formatPrice。
+  unit_price: number | string | null;
   qty: number | string;
-  line_total: number | string;
+  line_total: number | string | null;
   remark: string | null;
   language: string;
   sort_order: number;
@@ -37,7 +39,7 @@ export interface SalesOrderOut {
   language: string;
   currency: string;
   status: SalesOrderStatus;
-  total_amount: number | string;
+  total_amount: number | string | null;  // 🔴 同上,无 receivable:read → null
   summary: string | null;
   remark: string | null;
   cancelled_at: string | null;
@@ -66,11 +68,16 @@ export interface SalesOrderListItem {
   salesperson_display: string;
   status: SalesOrderStatus;
   currency: string;
-  total_amount: number | string;
+  total_amount: number | string | null;  // 🔴 同上,无 receivable:read → null
   line_count: number;
   created_at: string;
   // 采购增量扩展:采购进度徽标(列表附带)。
   purchase_progress?: PurchaseProgress;
+}
+
+/** 🔴 售价红线渲染:null(无 receivable:read)→ 静音「—」,绝不显示 0。镜像采购侧 formatCost。 */
+export function formatPrice(v: number | string | null | undefined): string {
+  return v === null || v === undefined ? "—" : formatMoney(v);
 }
 
 export interface SalesOrderListFilters {

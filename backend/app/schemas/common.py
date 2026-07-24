@@ -1,12 +1,20 @@
 """通用响应包装。"""
 from __future__ import annotations
 
-from typing import Generic, Literal, TypeVar
+from decimal import Decimal
+from typing import Annotated, Generic, Literal, TypeVar
 
 from fastapi import Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 T = TypeVar("T")
+
+# 单据行「数量 / 单价」受控 Decimal 类型(单一源头,对齐 DB 列精度,拒 inf/nan/超精度脏输入)。
+# 报价 / 采购 / 入库 / 出库 的写入 schema 一律用这两个,不裸用 float ——
+# float 会静默收 inf / 1e100,下游 Decimal(str(...)) 撞 Numeric 溢出成 500(与收付款 Decimal 强校验对齐)。
+# 数量 = Numeric(18,3) 恒 > 0;单价 = Numeric(18,2) 允许 0(赠品 / 占位行)。
+LineQty = Annotated[Decimal, Field(gt=0, max_digits=18, decimal_places=3, allow_inf_nan=False)]
+LineUnitPrice = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=2, allow_inf_nan=False)]
 
 
 class Page(BaseModel, Generic[T]):

@@ -30,14 +30,16 @@ class PaymentStatus:
 
 
 def derive_payment_status(amount, amount_allocated) -> str:
-    """单一派生口径(镜像 derive_receipt_status 的进度三态,无 UNCLAIMED):
-    先判分配完(allocated>=amount,含 0 金额边界),再判未分配(<=0),之间→部分分配。判序不可倒。"""
+    """单一派生口径(边界共用 _settlement,与 payment_service._STATUS_CONDS 同源不双写):
+    进度三态,无 UNCLAIMED。先判分配完(含 0 金额边界),再判未分配,之间→部分分配。"""
     from decimal import Decimal
+
+    from app.db.models._settlement import is_fully_settled, is_unsettled
     amt = Decimal(str(amount))
     alloc = Decimal(str(amount_allocated))
-    if alloc >= amt:
+    if is_fully_settled(amt, alloc):
         return PaymentStatus.FULLY_ALLOCATED
-    if alloc <= 0:
+    if is_unsettled(amt, alloc):
         return PaymentStatus.UNALLOCATED
     return PaymentStatus.PARTIALLY_ALLOCATED
 

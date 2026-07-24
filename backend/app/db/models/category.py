@@ -26,7 +26,7 @@ class Category(Base, TimestampUpdateMixin):
     # "no unique constraint matching given keys"。
     code: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     parent_code: Mapped[str | None] = mapped_column(
-        String(50), ForeignKey("categories.code"), nullable=True, index=True
+        String(50), ForeignKey("categories.code", ondelete="RESTRICT"), nullable=True, index=True
     )
     name_i18n: Mapped[dict] = mapped_column(JSONB, nullable=False)
     level: Mapped[int] = mapped_column(Integer, nullable=False)

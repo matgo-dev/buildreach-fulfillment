@@ -77,7 +77,7 @@ class PurchaseOrder(Base, TimestampUpdateMixin):
     remark: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 建单采购员(审计归属)。
     created_by: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
 
 
 class PurchaseOrderLine(Base, TimestampUpdateMixin):

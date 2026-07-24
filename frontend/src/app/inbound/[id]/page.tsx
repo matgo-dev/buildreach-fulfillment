@@ -19,6 +19,7 @@ import dayjs from "dayjs";
 import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
 import { PageLoading } from "@/components/common/PageLoading";
+import { ListErrorState } from "@/components/common/ListErrorState";
 import { Permissions } from "@/config/permission-matrix";
 import { formatDateTime, formatQty } from "@/lib/format";
 import { ApiError } from "@/lib/api";
@@ -64,6 +65,7 @@ export default function InboundOrderDetailPage() {
 
   const [detail, setDetail] = useState<InboundOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
   // 确认入库对话框:到货日默认今天。
@@ -75,9 +77,11 @@ export default function InboundOrderDetailPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(false);
     try {
       setDetail(await inboundOrderApi.get(id));
     } catch (e) {
+      setLoadError(true);
       message.error(resolveBizError(e, "加载失败"));
     } finally {
       setLoading(false);
@@ -130,6 +134,7 @@ export default function InboundOrderDetailPage() {
     [],
   );
 
+  if (loadError && !detail) return <ListErrorState onRetry={load} />;
   if (loading || !detail) return <PageLoading />;
 
   const { order, lines, payable } = detail;

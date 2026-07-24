@@ -15,6 +15,7 @@ import { ArrowLeftOutlined } from "@ant-design/icons";
 import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
 import { PageLoading } from "@/components/common/PageLoading";
+import { ListErrorState } from "@/components/common/ListErrorState";
 import { Permissions } from "@/config/permission-matrix";
 import { QuotationEditor } from "@/components/quotation/QuotationEditor";
 import { formatMoney } from "@/lib/format";
@@ -46,10 +47,12 @@ export default function QuotationDetailPage() {
   const [customerName, setCustomerName] = useState("");
   const [salespersonName, setSalespersonName] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(false);
     try {
       const { order: o, lines: ls } = await quotationApi.get(id);
       setOrder(o);
@@ -58,6 +61,7 @@ export default function QuotationDetailPage() {
       setCustomerName(o.customer_display ?? `#${o.customer_id}`);
       setSalespersonName(o.salesperson_display ?? `#${o.salesperson_id}`);
     } catch (e) {
+      setLoadError(true);
       message.error(resolveBizError(e, "加载失败"));
     } finally {
       setLoading(false);
@@ -109,6 +113,7 @@ export default function QuotationDetailPage() {
   );
 
   if (isEdit) return <QuotationEditor mode="edit" orderId={id} />;
+  if (loadError && !order) return <ListErrorState onRetry={load} />;
   if (loading || !order) return <PageLoading />;
 
   return (

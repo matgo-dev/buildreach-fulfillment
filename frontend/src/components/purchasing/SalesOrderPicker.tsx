@@ -4,8 +4,9 @@ import { Input, Segmented } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { PickerDrawer } from "@/components/common/PickerDrawer";
 import { ProgressCell } from "@/components/common/ProgressCell";
-import { formatMoney } from "@/lib/format";
-import { salesOrderApi, type SalesOrderListItem } from "@/lib/salesOrder";
+import { Permissions } from "@/config/permission-matrix";
+import { useAuthStore } from "@/stores/authStore";
+import { formatPrice, salesOrderApi, type SalesOrderListItem } from "@/lib/salesOrder";
 import { PURCHASE_PROGRESS_META } from "@/lib/purchaseOrderStatus";
 
 // 采购进度筛选(采购台常问「哪些 SO 还没下齐」)。复用 GET /sales-orders?purchase_progress=。
@@ -30,6 +31,7 @@ export function SalesOrderPicker({
 }) {
   const [progress, setProgress] = useState("");
   const [soNo, setSoNo] = useState("");
+  const canSeePrice = useAuthStore((s) => s.hasPermission(Permissions.RECEIVABLE_READ));
 
   const fetcher = useCallback(
     ({ page, size }: { page: number; size: number }) =>
@@ -47,13 +49,19 @@ export function SalesOrderPicker({
   const columns: ColumnsType<SalesOrderListItem> = [
     { title: "销售单号", dataIndex: "no", width: 150 },
     { title: "客户", dataIndex: "customer_display", width: 160, ellipsis: true },
-    {
-      title: "金额",
-      dataIndex: "total_amount",
-      width: 130,
-      align: "right",
-      render: (v: number | string, r) => `${r.currency} ${formatMoney(v)}`,
-    },
+    // 🔴 售价红线:采购员正是无 receivable:read 那一方,整列不渲染(DESIGN.md §9)。
+    ...((canSeePrice
+      ? [
+          {
+            title: "金额",
+            dataIndex: "total_amount",
+            width: 130,
+            align: "right",
+            render: (v: number | string | null, r: SalesOrderListItem) =>
+              `${r.currency} ${formatPrice(v)}`,
+          },
+        ]
+      : []) as ColumnsType<SalesOrderListItem>),
     {
       title: "采购进度",
       dataIndex: "purchase_progress",

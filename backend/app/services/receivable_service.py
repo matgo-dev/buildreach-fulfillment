@@ -10,6 +10,11 @@ from sqlalchemy import distinct, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError
+from app.db.models._settlement import (
+    is_fully_settled,
+    is_partially_settled,
+    is_unsettled,
+)
 from app.db.models.customer import Customer
 from app.db.models.outbound_order import OutboundOrder
 from app.db.models.receipt import Receipt
@@ -18,13 +23,14 @@ from app.db.models.receivable import Receivable, ReceivableStatus, derive_receiv
 from app.db.models.sales_order import SalesOrder
 from app.services.repo import paginate
 
-# 派生状态 → SQL 谓词(**镜像 derive_receivable_status 判序**:先收清含 0 金额单,勿倒序改)。
+# 派生状态 → SQL 谓词(边界共用 _settlement,与 derive_receivable_status 同源不双写)。
 _STATUS_CONDS = {
-    ReceivableStatus.PAID: Receivable.amount_allocated >= Receivable.amount_original,
-    ReceivableStatus.UNPAID: (Receivable.amount_allocated <= 0)
-    & (Receivable.amount_original > 0),
-    ReceivableStatus.PARTIALLY_PAID: (Receivable.amount_allocated > 0)
-    & (Receivable.amount_allocated < Receivable.amount_original),
+    ReceivableStatus.PAID: is_fully_settled(
+        Receivable.amount_original, Receivable.amount_allocated),
+    ReceivableStatus.UNPAID: is_unsettled(
+        Receivable.amount_original, Receivable.amount_allocated),
+    ReceivableStatus.PARTIALLY_PAID: is_partially_settled(
+        Receivable.amount_original, Receivable.amount_allocated),
 }
 
 

@@ -22,6 +22,7 @@ from app.audit.logger import write_audit
 from app.core.codegen import NumberScope, format_code
 from app.core.statemachine import assert_transition
 from app.core.exceptions import (
+    PurchaseOrderDuplicateLineError,
     PurchaseOrderEditConflictError,
     PurchaseOrderEmptyError,
     PurchaseOrderInvalidTransitionError,
@@ -205,6 +206,18 @@ async def _assert_supplier_active(db: AsyncSession, supplier_id: int) -> Supplie
     return sup
 
 
+def _assert_no_dup_source_lines(lines: list[dict]) -> None:
+    """一 SO 行一采购行:payload 内 source_sales_order_line_id 不得重复。
+    前置拒绝给友好 41610——否则第二行打穿 DB 复合 UNIQUE(po, so_line) 成 500(错题集 A5)。
+    与出/入库同构守卫(OutboundDuplicateLineError / InboundDuplicateLineError)对齐。"""
+    seen: set[int] = set()
+    for ln in lines:
+        sid = ln["source_sales_order_line_id"]
+        if sid in seen:
+            raise PurchaseOrderDuplicateLineError(f"SO 行 {sid} 在 payload 中重复")
+        seen.add(sid)
+
+
 def _payload_qty_by_soline(lines) -> dict[int, Decimal]:
     """按 so_line 聚合本 payload 的采购量(挡「逐行不超但合计超采」;PO 内结构性单行由 DB 复合 UNIQUE 兜底)。
 
@@ -223,6 +236,7 @@ async def create_order(db: AsyncSession, *, source_sales_order_id, supplier_id, 
     """基于 CONFIRMED SO 建一张 DRAFT PO(单一供应商),平移 SO 行快照,采购价全新录入。"""
     if not lines:
         raise PurchaseOrderEmptyError()
+    _assert_no_dup_source_lines(lines)
     so_lines = await _load_source_so_lines(db, source_sales_order_id)
     await _assert_supplier_active(db, supplier_id)
     # 每行 so_line 必须属于该 SO
@@ -283,6 +297,7 @@ async def save_order(db: AsyncSession, *, order_id, supplier_id, currency, remar
     assert_no_edit_conflict(po, expected_updated_at, PurchaseOrderEditConflictError)
     if not lines:
         raise PurchaseOrderEmptyError()
+    _assert_no_dup_source_lines(lines)
 
     so_lines = await _load_source_so_lines(db, po.source_sales_order_id)
     for ln in lines:
@@ -353,6 +368,10 @@ async def cancel_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_
 
 async def _transition(db: AsyncSession, po: PurchaseOrder, target: str, audit_action: AuditAction,
                       *, actor_user_id, actor_user_email, request: Request | None) -> PurchaseOrder:
+    # 矩阵校验内置于唯一写点(与报价 _transition 对齐):新增调用点无法绕过转移矩阵直接赋值 status。
+    # 调用方(confirm/cancel)仍各自早断以 fail-fast,此处是单一强制点,非第二源头——矩阵常量唯一。
+    assert_transition(PURCHASE_ORDER_TRANSITIONS, po.status, target,
+                      PurchaseOrderInvalidTransitionError)
     po.status = target
     await db.flush()
     await write_audit(db, resource_type=AuditResourceType.PURCHASE_ORDER, action=audit_action,
