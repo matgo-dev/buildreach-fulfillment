@@ -493,6 +493,11 @@ cookie,被复制走的 cookie 也续不了命)+ 清 cookie(幂等,带有效 acce
 > 早期 M0 的 `/api/v1/attachments` 最小上传端点(无类型/大小校验、无业务 RBAC、无任何消费方)
 > 已下线;对象存储层与商品图直传(`/api/v1/uploads`,守 `product:manage`)不受影响。
 
+**依赖漏洞审计**:CI(`ci.yml`)前端跑 `pnpm audit --prod`,**critical 阻断合并**(门槛为何不是 high
+见《后续演进》Next 15 一行);本地 `.npmrc` 指向 npmmirror 没有 audit 端点,CI 里显式打官方 registry。
+`.github/dependabot.yml` 每周检查前端 npm 与 GitHub Actions 版本(小版本合并成一个 PR);
+**Dependabot 不支持 uv**,后端 Python 依赖不在它的覆盖内。
+
 ### 公网部署安全约束
 
 - **登录 IP 限流是进程内存态** → `uvicorn` **workers 必须 = 1**(多 worker/多实例各自计数,
@@ -534,6 +539,20 @@ cookie,被复制走的 cookie 也续不了命)+ 清 cookie(幂等,带有效 acce
 ```bash
 docker compose build backend    # 或 frontend
 ```
+
+## 后续演进(触发式登记,非遗漏)
+
+以下都是**已判断、有意不做**的项——遵「按真实需求 / 实测触发再做,不提前建」。完整台账(含方案与量化指标)见
+[`docs/分析/工程约定与遗留待办.md`](docs/分析/工程约定与遗留待办.md)。
+
+| 项 | 现状 | 触发条件 |
+|---|---|---|
+| **RBAC 数据范围(行级 scope)** | 权限只到**功能级**(能否进模块 / 能否见红线字段);**行级范围未启用**——`get_scope` 机制在位但范围清单为空,即持有功能权限即可见**该域全量数据行**(同为 SALES,张三能看到李四的客户与订单)。这是 M0 的有意取舍,不是漏做 | 出现「同角色、不同人只该看自己那部分」的真实业务需求(已现苗头:东非股东只读)。届时**先定归属模型**(订单 / 客户按销售员?区域?公司主体?业务方尚未定义)**再实现**——归属维度没定就造 scope,等于为不存在的场景预设,推翻成本高于现状 |
+| **前端升 Next 15 + React 19** | 现 Next 14.2.35 / React 18.3.1。14.x 上有 9 条 high 漏洞(DoS / SSRF 类)**只在 Next ≥ 15.5.21 修复**,14.x 永远修不掉,CI 审计门因此暂设 critical | 尽快单独立项(不夹带业务增量)。迁移面已实测很小:动态路由全走 `useParams()` 客户端 hook、无 `next/headers`、无 middleware / Server Actions / `next/image`、48 个 app 文件里 46 个是 `use client` —— Next 15 的异步 `params` / `cookies()` 等破坏性改动都打不到;真正成本在 React 18→19 与 antd v6 的全页面回归。完成后把 CI 门槛提回 high |
+| 库 / 对象存储切托管 | 自建容器(`db` + `minio`) | OVH 上线、灌真实财务数据前 —— 见上文《库 / 对象存储》 |
+| 登录限流迁共享存储 | 进程内内存态,`workers` 必须 = 1 | 多 worker / 多实例横向扩展 —— 见上文《公网部署安全约束》 |
+| `REFRESH_COOKIE_SECURE` / `ENABLE_HSTS` | 默认 false(纯 HTTP 阶段无效) | HTTPS 接入完成后一起打开 —— 同上 |
+| 采购台「可发起采购」选单绕 DB 分页 | 千级毫秒可接受,不提前物化 | `GET /sales-orders?purchasable_only=true` p95 > 300ms,或 CONFIRMED 未全采 SO 稳定超 ~2000 行 |
 
 ## 待接
 
