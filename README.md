@@ -14,7 +14,7 @@
 - **商品管理做完整(已完成,分支 `feat/product-management`)**:M1 遗留的目录能力补齐。
   - **RBAC 细分**:权限点 `product:read`/`product:manage`(商品 SPU/SKU;`category:*`/`unit:*` 预留给将来
     品类树/单位维护写端点,职责分离),新增角色 `PRODUCT_OPERATOR`(商品运营,持 read+manage);`ADMIN`
-    只保留 `product:read` 作职责分离过渡桥,不再持 `product:manage`(商品增改上下架收口给 `PRODUCT_OPERATOR`)。
+    只保留 `product:read`,作为职责分离期间的过渡,不再持有 `product:manage`(商品的新增 / 修改 / 启停统一交给 `PRODUCT_OPERATOR`)。
   - **SPU 中性编码**:`spus.spu_code`(`SPU00000042`,复用统一编号服务)。
   - **创建人归属**:`spus`/`skus` 加 `created_by`(FK→users,NOT NULL,建索引),记商品运营录入归属,
     供"展示创建人/筛我的/按人统计录入量";非红线,`SpuOut`/`SkuOut` 下发。审计归属约定见 `app/db/base.py`。
@@ -126,7 +126,7 @@
   - **SO 整单取消(回补增量,契约 `docs/契约/2026-07-16-0707`)**:`POST /sales-orders/{id}/cancel`(守 `sales:manage`,
     段 18:41801 非法转移 / 41802 存在活动 PO)。范式 = SAP/NetSuite/Odoo 共性:下游活动单据硬拦、**不级联**、解链
     人工自下而上。单事务:锁 SO 头 → 41802 守卫 → 置 `CANCELLED`(留痕 `cancelled_at/by/reason` + 一致性 CHECK)→
-    报价 `CONVERTED→LOCKED` 回退可改可重转;审计两行 extra 互指(`CANCEL`/SO + `UNCONVERT`/报价)。配套收紧:公开
+    报价 `CONVERTED→LOCKED` 回退可改可重转;审计写两行,两行在 extra 里互相指向对方(`CANCEL` 记在销售单 + `UNCONVERT` 记在报价)。配套收紧:公开
     lock 端点仅 DRAFT(41401);报价删行/删单被 SO 行引用 → 41411(改量/价放行);建 PO 锁 SO 头防 TOCTOU;
     `purchasable_only` 服务端排除 CANCELLED。前端:详情「取消销售单」危险确认(原因留痕)+ 已取消隐藏进度徽标与
     发起采购;列表加「已取消」tab。迁移 `0021_so_cancel`(downgrade 前提:无取消+重转数据)。
@@ -139,7 +139,7 @@
   - **SO:PO = 1:N**(按供应商拆单):`purchase_orders.source_sales_order_id`(FK RESTRICT,index,**不 UNIQUE**);PO 行
     `source_sales_order_line_id`(FK RESTRICT,**不单列 UNIQUE**,入复合 `UNIQUE(purchase_order_id, source_sales_order_line_id)`
     = PO 内唯一,跨 PO 允许分批/换供应商/取消重下)。
-  - **超采守卫(单一口径)**:`compute_covered_qty`(SO 行 covered = Σ 非 CANCELLED PO 行 qty,**含 DRAFT**)被守卫/列表进度/
+  - **超采守卫(全仓只有这一个函数算这个数)**:`compute_covered_qty`(SO 行 covered = Σ 非 CANCELLED PO 行 qty,**含 DRAFT**)被守卫/列表进度/
     详情三处共用;`assert_within_so_line_quota` 同事务内 `SELECT ... FOR UPDATE` 锁 SO 行再读聚合再写入(并发双草稿不能合计超额,
     否则 `41603`)。金额走 `Decimal(str())` 精度(镜像报价)。
   - **红线(全仓首个字段级脱敏)**:采购价 `unit_price` / 行额 `line_total` / 单头金额 `total_amount` = 成本红线,对无
@@ -210,7 +210,7 @@
     后端脱敏非前端隐藏)。无写端点(无手工调整/盘点)。
   - **性能冒烟**(`scripts/inventory_perf_smoke.py`,一次性库,手动跑 `python -m scripts.inventory_perf_smoke [N]`):
     10 万级 RECEIVED 入库行下,① 单 SO 派生路径全走 FK 索引 `EXPLAIN` 恒定 **0.6ms**(不随总量增长,出库锁内校验/
-    SO 详情块的性能基线);② 全量默认口径(整表聚合 + top-N)**≈277ms**(远超可见的千级规模;可见规模为亚毫秒)。
+    SO 详情块的性能基线);② 默认的全量算法(整表聚合 + 取前 N)**≈277ms**(远超可见的千级规模;可见规模为亚毫秒)。
     衰老方式=变慢(可见、有界),非变错——契约 §6.2 物化期权随时可行使,触发前不建。
 
 - **出库 + 发运骨架 + 应收款(主流程第六步,分支 `feat/outbound-increment`)**:出库单 = **销售单 N:1 × 发运单(柜)N:1**
@@ -221,10 +221,10 @@
     =「一柜内每来源 SO 各一张」落 DB;取消退出偏唯一可重开。
   - **库存 outbound 臂接入**:`compute_stock_balance` 第三臂 = `Σ(qty) FROM outbound_order_lines JOIN outbound_orders
     WHERE status='ISSUED' GROUP BY (sales_order_id, sku_id)`,`available = 入库 − 出库`(草稿不计,撤销回 DRAFT 自然恢复)。
-    锁内校验/穿仓守卫经 `available_by_sku()` **复用同一 `_balance_subquery`**(单一口径,不另写聚合)。
-  - **并发 = 悲观锁(收紧型写入口仅两处,同锁序 `SO 头 → 出库单头`)**:① 确认出库:无锁预读身份链 → 锁 SO 头
-    `FOR UPDATE` → 锁出库单头 → 转移守卫 → **锁内单一库存闸**(Σ本单该 sku qty ≤ available,不足 `41902` 带逐 sku 明细)
-    → 同事务建 receivable(偏唯一保幂等)。② **unreceive 穿仓守卫补全(还库存契约的债)**:撤销入库先锁受影响 SO 头
+    锁内校验和穿仓守卫(防止库存被扣成负数)都经 `available_by_sku()`,**复用同一个 `_balance_subquery`**——不另写一份聚合。
+  - **并发 = 悲观锁(需要严格串行的写入口只有两处,加锁顺序都是 `SO 头 → 出库单头`)**:① 确认出库:先不加锁预读身份链 → 锁 SO 头
+    `FOR UPDATE` → 锁出库单头 → 转移守卫 → **在锁里做唯一一次库存校验**(本单该 sku 的合计 ≤ available,不够就报 `41902`,带每个 sku 的明细)
+    → 同事务建 receivable(偏唯一保幂等)。② **unreceive 补上穿仓守卫(补齐库存契约里欠的一项)**:撤销入库先锁受影响 SO 头
     (按 id 排序)→ 锁入库头 → 翻转后锁内派生校验受影响每 `(so,sku)` available ≥ 0,违反 `41710`(货已被出库,先撤销出库)。
   - **零金额出库单据(红线天然隔离)**:出库单/行/柜**无任何价格/成本/售价列**(纯仓单),读投影天然无红线;
     行不复制快照(经 join SO 行展示,SO 行冻结单一源头)。**应收 = 客户售价** → 整表 `receivable:read` 端点级门控
@@ -259,10 +259,10 @@
     日期不加 CHECK(`atd` 早于 `etd` = 提前离港,合法)。柜量月十位数级,100× 后仍小表,不预设索引。
   - **封柜守卫 + 编辑门禁**:封柜确认(`load`)要求柜内 **≥1 非 CANCELLED 出库单**(空柜 `42004`)且**全部 ISSUED**
     (存在草稿 `42003` 带草稿单号列表)。编辑门禁单一源头 = `SHIPMENT_EDITABLE_FIELDS_BY_STATUS`(status→可编辑字段集):
-    OPEN 全开 / LOADED 锁柜物理组(船务组仍可改)/ DEPARTED 仅 `{bl_no,eta,note}` / CANCELLED 空。门禁 = **diff 式**
-    (提交值≠库中值 且 字段∉可编辑集 → `42005` 带字段名;值未变即放行,对全量 payload 稳健)+ 乐观锁 `expected_updated_at`(冲突 `42006`)。
-  - **出库撤销收紧(兑现出库契约预留)**:`revert_order`(ISSUED→DRAFT)锁序末尾追加**柜头 `FOR UPDATE`**
-    (SO 头→出库单头→柜头,叶子锁),柜 `status≠OPEN` → 拒 `41910`(封柜后冻结,须先撤封柜);锁读防 TOCTOU。
+    OPEN 全开 / LOADED 锁柜物理组(船务组仍可改)/ DEPARTED 仅 `{bl_no,eta,note}` / CANCELLED 空。编辑门禁按**差异比对**判定
+    (提交的值和库里不一样、且这个字段不在可编辑集合里 → `42005` 并带上字段名;值没变就放行,所以前端整包提交也不会误伤)+ 乐观锁 `expected_updated_at`(冲突 `42006`)。
+  - **出库撤销加严(兑现出库契约里预先说好的做法)**:`revert_order`(ISSUED→DRAFT)在加锁顺序的最后追加**柜头 `FOR UPDATE`**
+    (SO 头→出库单头→柜头,柜头放在最末),柜 `status≠OPEN` → 拒 `41910`(封柜后冻结,须先撤封柜);锁读防 TOCTOU。
     所有触柜写入口单向同序(发运侧只锁柜头),无环无死锁。
   - **RBAC**:**零新增权限点**,复用 `shipment:read`/`shipment:manage`(封柜/离港/撤销均 manage;LOGISTICS 出库/发运/物流/报关
     同一操作者)。审计加 `LOAD`/`UNLOAD`/`DEPART`/`UNDEPART` 四动词(`depart` extra 记 `atd`、`undepart` 记被清 atd)。
@@ -315,7 +315,7 @@
     排除已结清行,翻量不退化)。
   - **核销引擎(收付泛型共用)**:自动核销(登记已认领/认领后同事务,按 `(due_at, created_at, id)` 账龄序取满
     `min`)/ 人工核销(选账取满 `min`,不自填欠额 D8)/ 反核销(软删退回双侧)。全写入口锁**源行先、账行后**
-    FOR UPDATE,自动核销多账行固定序取锁,无死锁环;偏唯一兜底并发重复核销转 `409`。全程 Decimal。
+    FOR UPDATE,自动核销多账行固定序取锁,无死锁环;并发下的重复核销由偏唯一索引兜住,转成 `409`。全程 Decimal。
   - **D2 撤账×核销联动加固**:核销引擎建成后 `41708`(撤入库)/`41907`(撤出库)守卫才真正生效;撤账路径
     活动账行读改 `FOR UPDATE` 重判(`_get_active_receivable`/`get_active_payable` 传 `for_update=True`),与核销串行化。
   - **RBAC**:新增角色 **`FINANCE`(财务)** = `receipt:*` + `payment:*`(🔴)+ `receivable:read`/`payable:read`
@@ -325,7 +325,7 @@
   - **端点**:`/receipts`(列表/登记/详情/`claim`/`void`/`allocations`)+ `DELETE /receipt-allocations/{id}`
     (反核销,`reverse_reason` 走 query);`/payments` 同构(🔴 无 `claim`)+ `/payment-allocations`;新增
     `GET /receivables/{id}`、`GET /payables/{id}`(嵌活动核销记录);账层列表加 `counterparty_has_unallocated`
-    提示标志(D10:提示 + 一键,不自动吃存量余额)。单号 `NumberScope.RECEIPT`(`RC{YYYYMM}####`）/`PAYMENT`
+    提示标志(只做提示 + 一键核销,不自动拿账上已有的余额去冲)。单号 `NumberScope.RECEIPT`(`RC{YYYYMM}####`）/`PAYMENT`
     (`PM{YYYYMM}####`);核销记录内部无单号。错误码段 22(财务 `422xx`:核销超额/跨币种/跨对手方/反核销幂等/
     作废守卫)。
 
