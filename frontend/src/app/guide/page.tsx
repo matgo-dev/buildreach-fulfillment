@@ -23,6 +23,15 @@ export default function GuidePage() {
     if (tourNodeId && guideNodeById(tourNodeId)?.layer === "MONEY") setShowMoney(true);
   }, [tourNodeId]);
 
+  // 叙事推进时把当前节点滚动到可见 —— 否则点亮的节点可能在视口外,看着像没反应。
+  // 依赖 showMoney/showMaster:折叠层刚被上一个 effect 展开后,节点才进 DOM,这里才滚得到。
+  useEffect(() => {
+    if (!tourNodeId) return;
+    document
+      .getElementById(`guide-node-${tourNodeId}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [tourNodeId, showMoney, showMaster]);
+
   // 选中的岗位如果全部节点都不在主链层,说明它挂在某个默认折叠的支线层上,
   // 不展开就整图全灰、点不亮任何节点。只做展开,不自动收起用户已打开的层。
   useEffect(() => {

@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import {
   AppstoreOutlined, TeamOutlined, ShopOutlined, FileTextOutlined, ProfileOutlined,
   ShoppingCartOutlined, InboxOutlined, DatabaseOutlined, ExportOutlined,
-  ContainerOutlined, AccountBookOutlined, CompassOutlined, AuditOutlined,
+  ContainerOutlined, SendOutlined, AccountBookOutlined, CompassOutlined, AuditOutlined,
 } from "@ant-design/icons";
 import type { GuideIconKey } from "@/config/guideFlow";
 
@@ -17,7 +17,8 @@ export const GUIDE_ICONS: Record<GuideIconKey, ReactNode> = {
   inbound: <InboxOutlined />,
   inventory: <DatabaseOutlined />,
   outbound: <ExportOutlined />,
-  shipment: <ContainerOutlined />,
+  shipmentOpen: <ContainerOutlined />,
+  shipment: <SendOutlined />,
   logistics: <CompassOutlined />,
   customs: <AuditOutlined />,
   receivable: <AccountBookOutlined />,

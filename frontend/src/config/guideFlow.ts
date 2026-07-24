@@ -14,7 +14,7 @@ export type GuideBand = "SOURCING" | "DELIVERY";
 
 export type GuideIconKey =
   | "quotation" | "salesOrder" | "purchaseOrder" | "inbound" | "inventory"
-  | "outbound" | "shipment" | "logistics" | "customs"
+  | "outbound" | "shipmentOpen" | "shipment" | "logistics" | "customs"
   | "receivable" | "receipt" | "payable" | "payment"
   | "product" | "customer" | "supplier";
 
@@ -170,34 +170,49 @@ export const GUIDE_NODES: GuideNode[] = [
 
   // ---------- 主链:第二段 发货与出运 ----------
   {
-    id: "outbound",
-    iconKey: "outbound",
-    action: "从仓库取货,准备发",
-    docName: "出库单",
-    role: "LOGISTICS",
-    layer: "MAIN",
-    band: "DELIVERY",
-    inEdgeLabel: "要发货了",
-    tooltip: "从某张销售单的库存里取货,挂到一个发运柜上。",
-    what: "出库单刚建出来是草稿,可以改;「确认出库」之后货就从库存里扣掉了。出库单必须挂在一个发运柜上 —— 因为我们是整柜出运。",
-    fromTo: "上一步:库存里有可发的货。下一步:柜子装满后封柜。在左侧菜单「仓储物流」→「出库单」里操作。",
-    effect: "确认出库的那一刻库存减少,同时系统自动记下「客户欠我们这笔钱」。发错了可以撤销,但客户已经付过款的那笔不让撤。",
-    narration: "要发货了,仓库开一张出库单,把 200 套瓷砖从库存取出,挂到本月去坦桑的那个柜子上。",
-  },
-  {
-    id: "shipment",
-    iconKey: "shipment",
-    action: "装柜、封柜",
+    id: "shipmentOpen",
+    iconKey: "shipmentOpen",
+    action: "先开一个发运柜",
     docName: "发运柜",
     role: "LOGISTICS",
     layer: "MAIN",
     band: "DELIVERY",
-    inEdgeLabel: "货装进柜子",
-    tooltip: "一个柜子装多张出库单,装满封柜,然后确认离港。",
-    what: "柜子是装货的容器,一个柜子可以装多张出库单。三步走:开柜 → 封柜 → 确认离港,填上船名航次这些船务信息。",
-    fromTo: "上一步:出库单挂到柜上。下一步:离港后开始跟踪物流、办报关。在左侧菜单「仓储物流」→「发运柜」里操作。",
-    effect: "一旦封柜,柜里的出库单就冻住了 —— 不能改、不能撤、也不能再往里加新的。要动就得先撤封柜。",
-    narration: "柜子装满了,货代封柜,填上船名航次,确认离港。",
+    inEdgeLabel: "货齐了,准备出运",
+    tooltip: "出货前先开一个空柜,后面出库的货往里装。",
+    what: "我们是整柜出运,所以出货前要先开一个发运柜(集装箱)当容器。柜子刚开出来是「组柜中」,空的,等着出库的货往里装。一个柜可以装多张出库单 —— 不同销售单的货可以拼一个柜。",
+    fromTo: "上一步:库存里有可发的货。下一步:开好柜后,建出库单把货取出来挂到这个柜上。在左侧菜单「仓储物流」→「发运柜」里操作。",
+    effect: "开出来的空柜处于「组柜中」,可以往里挂出库单。只要还没装东西,这个柜可以直接取消。",
+    narration: "要发货了。货代先开一个去坦桑的发运柜(空柜),准备组货。",
+  },
+  {
+    id: "outbound",
+    iconKey: "outbound",
+    action: "从仓库取货,装进柜",
+    docName: "出库单",
+    role: "LOGISTICS",
+    layer: "MAIN",
+    band: "DELIVERY",
+    inEdgeLabel: "往柜里装货",
+    tooltip: "从某张销售单的库存里取货,挂到已开好的发运柜上。",
+    what: "出库单刚建出来是草稿,可以改;「确认出库」之后货就从库存里扣掉了。出库单必须挂在一个已经开好的发运柜上 —— 因为我们是整柜出运,得先有柜才能装。",
+    fromTo: "上一步:已经开好一个「组柜中」的发运柜。下一步:柜子装满后封柜离港。在左侧菜单「仓储物流」→「出库单」里操作。",
+    effect: "确认出库的那一刻库存减少,同时系统自动记下「客户欠我们这笔钱」。发错了可以撤销,但客户已经付过款的那笔不让撤。",
+    narration: "仓库开一张出库单,把 200 套瓷砖从库存取出,装进刚开好的那个柜子。",
+  },
+  {
+    id: "shipment",
+    iconKey: "shipment",
+    action: "封柜、离港",
+    docName: "发运柜",
+    role: "LOGISTICS",
+    layer: "MAIN",
+    band: "DELIVERY",
+    inEdgeLabel: "柜装满了",
+    tooltip: "柜子装满,封柜,然后确认离港。",
+    what: "柜里的货够了就「封柜确认」,填上船名航次这些船务信息;然后确认离港,货正式发出。封柜要求柜里至少有一张已确认的出库单 —— 空柜不让封。",
+    fromTo: "上一步:出库单把货装进了柜。下一步:离港后开始跟踪物流、办报关。在左侧菜单「仓储物流」→「发运柜」里操作(和开柜是同一个页面,只是柜到了封柜这一步)。",
+    effect: "一旦封柜,柜里的出库单就冻住了 —— 不能改、不能撤、也不能再往里加新的。要动就得先撤封柜。封柜后确认离港,这一柜就发出去了。",
+    narration: "柜子装满了,货代封柜、填船名航次,确认离港。",
   },
   {
     id: "logistics",
@@ -293,7 +308,7 @@ export const GUIDE_NODES: GuideNode[] = [
   },
 ];
 
-/** 「跟一单货走一遍」的节点顺序:主链 9 步,穿插资金流在其自然发生的位置。 */
+/** 「跟一单货走一遍」的节点顺序:主链 10 步,穿插资金流在其自然发生的位置。 */
 export const TOUR_SEQUENCE: string[] = [
   "quotation",
   "salesOrder",
@@ -301,6 +316,7 @@ export const TOUR_SEQUENCE: string[] = [
   "inbound",
   "payable",
   "inventory",
+  "shipmentOpen",
   "outbound",
   "receivable",
   "shipment",

@@ -20,6 +20,7 @@ export function GuideNodeCard({ node, dimmed, active, onClick }: Props) {
     <Tooltip title={node.tooltip} mouseEnterDelay={0.3}>
       <button
         type="button"
+        id={`guide-node-${node.id}`}
         onClick={() => onClick?.(node)}
         style={{
           width: 148,
