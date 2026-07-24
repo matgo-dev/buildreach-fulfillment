@@ -6,7 +6,7 @@ import { RouteGuard } from "@/components/auth/RouteGuard";
 import { GuideChart } from "@/components/guide/GuideChart";
 import { GuideDrawer } from "@/components/guide/GuideDrawer";
 import { GuideTour } from "@/components/guide/GuideTour";
-import { GUIDE_ROLE_OPTIONS, TOUR_SEQUENCE, guideNodeById } from "@/config/guideFlow";
+import { GUIDE_NODES, GUIDE_ROLE_OPTIONS, TOUR_SEQUENCE, guideNodeById } from "@/config/guideFlow";
 import type { GuideNode, GuideRole } from "@/config/guideFlow";
 
 export default function GuidePage() {
@@ -22,6 +22,16 @@ export default function GuidePage() {
   useEffect(() => {
     if (tourNodeId && guideNodeById(tourNodeId)?.layer === "MONEY") setShowMoney(true);
   }, [tourNodeId]);
+
+  // 选中的岗位如果全部节点都不在主链层,说明它挂在某个默认折叠的支线层上,
+  // 不展开就整图全灰、点不亮任何节点。只做展开,不自动收起用户已打开的层。
+  useEffect(() => {
+    if (!highlightRole) return;
+    const roleNodes = GUIDE_NODES.filter((n) => n.role === highlightRole);
+    if (roleNodes.some((n) => n.layer === "MAIN")) return;
+    if (roleNodes.some((n) => n.layer === "MONEY")) setShowMoney(true);
+    if (roleNodes.some((n) => n.layer === "MASTER")) setShowMaster(true);
+  }, [highlightRole]);
 
   const startTour = () => setTourStep(0);
   const exitTour = () => setTourStep(null);
@@ -45,17 +55,15 @@ export default function GuidePage() {
               看基础资料从哪来
             </Checkbox>
           </Space>
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
-            <div style={{ flex: 1 }}>
-              <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
-                按岗位看:选一个岗位,和它相关的步骤会亮起来,其余变淡(不隐藏 —— 你需要知道自己这步的上下游是谁)。
-              </Typography.Text>
-              <Segmented
-                value={highlightRole ?? "ALL"}
-                onChange={(v) => setHighlightRole(v === "ALL" ? null : (v as GuideRole))}
-                options={[{ value: "ALL", label: "全部" }, ...GUIDE_ROLE_OPTIONS]}
-              />
-            </div>
+          <div>
+            <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
+              按岗位看:选一个岗位,和它相关的步骤会亮起来,其余变淡(不隐藏 —— 你需要知道自己这步的上下游是谁)。
+            </Typography.Text>
+            <Segmented
+              value={highlightRole ?? "ALL"}
+              onChange={(v) => setHighlightRole(v === "ALL" ? null : (v as GuideRole))}
+              options={[{ value: "ALL", label: "全部" }, ...GUIDE_ROLE_OPTIONS]}
+            />
           </div>
         </div>
 
