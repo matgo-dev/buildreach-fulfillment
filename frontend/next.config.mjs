@@ -1,3 +1,10 @@
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+// import.meta.dirname 要 Node ≥20.11,但 engines 允许 ≥20.10,低版本会得 undefined
+// 令 outputFileTracingRoot 静默失效;用可移植写法,任意 Node 版本都拿得到本文件目录。
+const projectRoot = dirname(fileURLToPath(import.meta.url));
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -7,7 +14,7 @@ const nextConfig = {
   // 钉死 file-tracing 根为本项目目录:Next 15 会因机器上存在其它 lockfile
   // (如家目录 package-lock.json)把 workspace root 推断到别处,导致 standalone
   // 产物 tracing 错位。显式声明消除该不确定性。
-  outputFileTracingRoot: import.meta.dirname,
+  outputFileTracingRoot: projectRoot,
   // API_BASE_URL 非 NEXT_PUBLIC_ 前缀,需在此显式声明才能被内联进浏览器 bundle。
   env: {
     API_BASE_URL: process.env.API_BASE_URL,
