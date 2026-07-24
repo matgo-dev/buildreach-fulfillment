@@ -1,8 +1,9 @@
-"""0035 covered_qty 回填 data 步骤验证 —— 隔离临时库,绝不碰 fulfillment_dev/test 数据。
+"""0035 covered_qty 迁移验证 —— 隔离临时库,绝不碰 fulfillment_dev/test 数据。
 
-安全:自建独立临时库(fulfillment_mig_check),create_all 建 schema(covered_qty 列由模型带出),
-插 SO 行 + 采购行(含一张 CANCELLED PO 应被排除)+ **故意把 covered_qty 预置成错值**,直接驱动
-迁移的 _run(conn) 回填、**重复调用**验幂等,断言列被 set-based UPDATE 纠正为真值后 drop 临时库。
+安全:自建独立临时库(fulfillment_mig_check),create_all 建 schema 后**剥掉模型带出的
+covered_qty 列/CHECK**(还原迁移前形态),再经 Operations.context 驱动**真 upgrade()**
+(加列 + CHECK + set-based 回填)→ 断言真值;人为把无覆盖行写成漂移错值重跑 _run 验
+**全行对齐修复 + 幂等**;最后 **downgrade()** 验可逆(列与 CHECK 移除)。
 同步 psycopg 直连(不复用 conftest 的 async 测试引擎)。
 """
 from __future__ import annotations
@@ -12,6 +13,8 @@ import os
 from pathlib import Path
 
 import pytest
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
@@ -110,27 +113,54 @@ def _seed_fixture(s: Session) -> None:
     s.commit()
 
 
+def _covered(engine) -> dict[int, float]:
+    with engine.connect() as conn:
+        return {i: float(v) for i, v in conn.execute(text(
+            "SELECT id, covered_qty FROM sales_order_lines ORDER BY id")).all()}
+
+
 @pytest.mark.filterwarnings("ignore")
-def test_migration_0035_backfill_and_idempotence():
+def test_migration_0035_upgrade_backfill_drift_repair_downgrade():
     _create_db(_MIG_DB)
     engine = create_engine(f"{_BASE}/{_MIG_DB}")
     try:
         Base.metadata.create_all(engine)
         with Session(engine) as s:
             _seed_fixture(s)
+        # create_all 是模型终态,已带 covered_qty——剥掉列/CHECK 还原迁移前形态,让 upgrade 真跑加列路径
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE sales_order_lines DROP CONSTRAINT ck_slines_covered_nn"))
+            conn.execute(text("ALTER TABLE sales_order_lines DROP COLUMN covered_qty"))
 
         mig = _load_migration()
-        # 跑两遍验幂等:重算非自增,结果不随次数变
+        # 真 upgrade():加列(DEFAULT 0)+ CHECK + set-based 回填
         with engine.begin() as conn:
-            mig._run(conn)
-        with engine.begin() as conn:
-            mig._run(conn)
+            with Operations.context(MigrationContext.configure(conn)):
+                mig.upgrade()
+        cov = _covered(engine)
+        assert cov[1] == 2, "sol1 应 = Σ非CANCELLED(2),排除 CANCELLED 的 5"
+        assert cov[2] == 0, "sol2 无采购行 → 对齐 0"
 
+        # 漂移修复 + 幂等:把无活动覆盖的 sol2 人为写错成 7,重跑 _run 应刷回 0 且 sol1 不变;
+        # 全行对齐(LEFT JOIN)保证「曾有覆盖、后全取消」类漂移也收敛,可复用为补账修复。
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE sales_order_lines SET covered_qty = 7 WHERE id = 2"))
+            mig._run(conn)
+        cov = _covered(engine)
+        assert cov[1] == 2 and cov[2] == 0, "漂移行未被全行对齐刷回真值"
+
+        # downgrade() 可逆:列与 CHECK 移除
+        with engine.begin() as conn:
+            with Operations.context(MigrationContext.configure(conn)):
+                mig.downgrade()
         with engine.connect() as conn:
-            cov = dict(conn.execute(text(
-                "SELECT id, covered_qty FROM sales_order_lines ORDER BY id")).all())
-            assert float(cov[1]) == 2, "sol1 应 = Σ非CANCELLED(2),排除 CANCELLED 的 5"
-            assert float(cov[2]) == 0, "sol2 无采购行 → 维持 DEFAULT 0"
+            cols = {r[0] for r in conn.execute(text(
+                "SELECT column_name FROM information_schema.columns"
+                " WHERE table_name = 'sales_order_lines'"))}
+            cks = {r[0] for r in conn.execute(text(
+                "SELECT conname FROM pg_constraint WHERE conname = 'ck_slines_covered_nn'"))}
+            assert "covered_qty" not in cols and not cks, "downgrade 未清干净列/CHECK"
     finally:
         engine.dispose()
         _drop_db(_MIG_DB)

@@ -13,7 +13,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import exists, func, or_, select, update
+from sqlalchemy import case, exists, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
@@ -119,15 +119,18 @@ async def _lock_so_lines(db: AsyncSession, so_line_ids: list[int]) -> None:
 
 async def _refresh_covered_qty(db: AsyncSession, so_line_ids: list[int]) -> None:
     """把受影响 so_line 的 covered_qty 列重算写回(**须在持 FOR UPDATE 锁 + PO 变更 flush 之后调用**)。
-    读已反映本次变更的 po_lines,写绝对值(重算非自增,不累积漂移);compute_covered_qty 单一口径。"""
-    ids = list(set(so_line_ids))
+    读已反映本次变更的 po_lines,写绝对值(重算非自增,不累积漂移);compute_covered_qty 单一口径;
+    单条 set-based UPDATE(id→值 CASE 映射),不逐行发语句。"""
+    ids = sorted(set(so_line_ids))
     if not ids:
         return
     covered = await compute_covered_qty(db, ids)
-    for sid in ids:
-        await db.execute(update(SalesOrderLine)
-                         .where(SalesOrderLine.id == sid)
-                         .values(covered_qty=covered.get(sid, Decimal("0"))))
+    await db.execute(
+        update(SalesOrderLine)
+        .where(SalesOrderLine.id.in_(ids))
+        .values(covered_qty=case(
+            {sid: covered.get(sid, Decimal("0")) for sid in ids},
+            value=SalesOrderLine.id)))
 
 
 async def compute_progress(db: AsyncSession, sales_order_id: int) -> tuple[str, dict[int, Decimal]]:
@@ -388,14 +391,15 @@ async def cancel_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_
     po = await get_order_for_update(db, order_id)
     assert_transition(PURCHASE_ORDER_TRANSITIONS, po.status, PurchaseOrderStatus.CANCELLED,
                       PurchaseOrderInvalidTransitionError)
-    # 受影响 so_line = 被取消 PO 现有行;取消前升序锁定(与 create/save 同锁序,不成环)。
-    affected = sorted({r.source_sales_order_line_id for r in await list_lines(db, po.id)})
-    await _lock_so_lines(db, affected)
     # 延迟导入避免循环依赖(inbound_order_service 依赖 PO 模型)。
     from app.core.exceptions import PurchaseOrderHasActiveInboundError
     from app.services import inbound_order_service
     if await inbound_order_service.has_active_inbound(db, po.id):
         raise PurchaseOrderHasActiveInboundError()
+    # 受影响 so_line = 被取消 PO 现有行;守卫全过后再升序锁定(拒绝路径不白拿行锁),
+    # 与 create/save 同锁序,不成环。
+    affected = sorted({r.source_sales_order_line_id for r in await list_lines(db, po.id)})
+    await _lock_so_lines(db, affected)
     # PO→CANCELLED 后 compute_covered_qty 自动排除本单 → 释放额度,covered_qty 同事务刷回。
     return await _transition(db, po, PurchaseOrderStatus.CANCELLED, AuditAction.CANCEL,
                              actor_user_id=actor_user_id, actor_user_email=actor_user_email,

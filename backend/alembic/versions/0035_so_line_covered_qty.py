@@ -7,9 +7,11 @@ NetSuite 在「订单行 vs 已履约量」这个位置默认落列。
 
 单一源头不破坏:compute_covered_qty 仍是唯一计算口径,本列是它的物化缓存。
 
-回填(_run):一条 set-based 聚合 UPDATE(非逐行),口径 = compute_covered_qty 的 SQL 版
-(Σ 非 CANCELLED PO 行 qty,含 DRAFT)。无匹配的行保持 DEFAULT 0。ADD COLUMN ... DEFAULT '0'
-在 PG≥11 是元数据级(不重写表),回填成本受 distinct source_sales_order_line_id 有界。
+回填(_run):一条 set-based 全行对齐 UPDATE(非逐行),口径 = compute_covered_qty 的 SQL 版
+(Σ 非 CANCELLED PO 行 qty,含 DRAFT)。LEFT JOIN 覆盖**全部** SO 行:无活动覆盖的行同样对齐
+到 0,故对任意漂移数据都收敛(真幂等,可直接复用为补账修复);IS DISTINCT FROM 只写不一致行,
+迁移时刻列刚建全 0,实际写行数仍受有覆盖行数有界。ADD COLUMN ... DEFAULT '0' 在 PG≥11 是
+元数据级(不重写表)。
 
 Revision ID: 0035_so_line_covered_qty
 Revises: 0034_retrofit_fk_indexes
@@ -27,23 +29,25 @@ branch_labels = None
 depends_on = None
 
 
-# set-based 回填:与 compute_covered_qty(purchase_order_service)口径逐字对应。
-# 重算非自增 → 幂等(重复调用结果不变)。
+# set-based 全行对齐:与 compute_covered_qty(purchase_order_service)口径逐字对应。
+# LEFT JOIN 让无活动覆盖的行也对齐 0(不只写有聚合行)→ 对漂移数据同样收敛,重算非自增,真幂等。
 _BACKFILL = sa.text("""
     UPDATE sales_order_lines sl
        SET covered_qty = COALESCE(agg.s, 0)
-      FROM (SELECT pol.source_sales_order_line_id AS sid, SUM(pol.qty) AS s
-              FROM purchase_order_lines pol
-              JOIN purchase_orders po ON po.id = pol.purchase_order_id
-             WHERE po.status <> 'CANCELLED'
-             GROUP BY pol.source_sales_order_line_id) agg
-     WHERE sl.id = agg.sid
+      FROM sales_order_lines s2
+      LEFT JOIN (SELECT pol.source_sales_order_line_id AS sid, SUM(pol.qty) AS s
+                   FROM purchase_order_lines pol
+                   JOIN purchase_orders po ON po.id = pol.purchase_order_id
+                  WHERE po.status <> 'CANCELLED'
+                  GROUP BY pol.source_sales_order_line_id) agg ON agg.sid = s2.id
+     WHERE sl.id = s2.id
        AND sl.covered_qty IS DISTINCT FROM COALESCE(agg.s, 0)
 """)
 
 
 def _run(conn) -> None:
-    """data 步骤:回填 covered_qty 到真值。隔离迁移测试直接驱动本函数验幂等。"""
+    """data 步骤:把全部 SO 行 covered_qty 对齐真值(含把无活动覆盖的漂移行刷回 0)。
+    隔离迁移测试直接驱动本函数验幂等 + 漂移修复。"""
     conn.execute(_BACKFILL)
 
 
