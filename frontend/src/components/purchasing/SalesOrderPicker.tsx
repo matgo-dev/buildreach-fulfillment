@@ -4,8 +4,7 @@ import { Input, Segmented } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { PickerDrawer } from "@/components/common/PickerDrawer";
 import { ProgressCell } from "@/components/common/ProgressCell";
-import { formatMoney } from "@/lib/format";
-import { salesOrderApi, type SalesOrderListItem } from "@/lib/salesOrder";
+import { formatPrice, salesOrderApi, type SalesOrderListItem } from "@/lib/salesOrder";
 import { PURCHASE_PROGRESS_META } from "@/lib/purchaseOrderStatus";
 
 // 采购进度筛选(采购台常问「哪些 SO 还没下齐」)。复用 GET /sales-orders?purchase_progress=。
@@ -52,7 +51,8 @@ export function SalesOrderPicker({
       dataIndex: "total_amount",
       width: 130,
       align: "right",
-      render: (v: number | string, r) => `${r.currency} ${formatMoney(v)}`,
+      // 🔴 采购员无 receivable:read,后端把客户售价置 null → 渲染「—」而非 0.00
+      render: (v: number | string | null, r) => `${r.currency} ${formatPrice(v)}`,
     },
     {
       title: "采购进度",

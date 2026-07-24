@@ -10,9 +10,10 @@ import { ProgressCell } from "@/components/common/ProgressCell";
 import { PageLoading } from "@/components/common/PageLoading";
 import { ListErrorState } from "@/components/common/ListErrorState";
 import { Permissions } from "@/config/permission-matrix";
-import { formatDateTime, formatMoney, formatQty } from "@/lib/format";
+import { formatDateTime, formatQty } from "@/lib/format";
 import { resolveBizError } from "@/lib/errorMessages";
 import {
+  formatPrice,
   salesOrderApi,
   type SalesOrderLineOut,
   type SalesOrderOut,
@@ -87,8 +88,9 @@ export default function SalesOrderDetailPage() {
         align: "right",
         render: (_, r) => formatQty(Number(r.qty) - Number(r.covered_qty ?? 0)),
       },
-      { title: "单价", dataIndex: "unit_price", width: 110, align: "right", render: formatMoney },
-      { title: "金额", dataIndex: "line_total", width: 120, align: "right", render: formatMoney },
+      // 🔴 售价红线:无 receivable:read 者拿到 null,渲染「—」而非 0.00
+      { title: "单价", dataIndex: "unit_price", width: 110, align: "right", render: formatPrice },
+      { title: "金额", dataIndex: "line_total", width: 120, align: "right", render: formatPrice },
       { title: "备注", dataIndex: "remark", ellipsis: true, render: (v) => v || "—" },
     ],
     [],
@@ -183,7 +185,7 @@ export default function SalesOrderDetailPage() {
           )}
           <Descriptions.Item label="总额" span={2}>
             <span style={{ fontWeight: 600 }}>
-              {order.currency} {formatMoney(order.total_amount)}
+              {order.currency} {formatPrice(order.total_amount)}
             </span>
           </Descriptions.Item>
         </Descriptions>

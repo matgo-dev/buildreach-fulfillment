@@ -17,7 +17,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { formatDateTime, formatMoney } from "@/lib/format";
 import { resolveBizError } from "@/lib/errorMessages";
 import { quotationApi, type QuotationListItem } from "@/lib/quotation";
-import { salesOrderApi, type SalesOrderListItem } from "@/lib/salesOrder";
+import { formatPrice, salesOrderApi, type SalesOrderListItem } from "@/lib/salesOrder";
 import { SALES_ORDER_STATUS_META } from "@/lib/salesOrderStatus";
 import { PURCHASE_PROGRESS_META } from "@/lib/purchaseOrderStatus";
 import { colors } from "@/lib/tokens";
@@ -139,7 +139,8 @@ export default function SalesOrderListPage() {
       width: 120,
       align: "right",
       sorter: true,
-      render: (v) => formatMoney(v),
+      // 🔴 无 receivable:read 者后端置 null,渲染「—」而非 0.00
+      render: (v) => formatPrice(v),
     },
     { title: "行数", dataIndex: "line_count", width: 70, align: "right" },
     {
