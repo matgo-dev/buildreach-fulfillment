@@ -19,6 +19,7 @@ import {
   ContainerOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  CompassOutlined,
 } from "@ant-design/icons";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuthStore } from "@/stores/authStore";
@@ -79,6 +80,12 @@ const MENU_GROUPS = [
       { key: "/admin/roles", icon: <KeyOutlined />, label: "角色权限", perm: Permissions.ROLE_MANAGE },
     ],
   },
+  {
+    group: "帮助",
+    items: [
+      { key: "/guide", icon: <CompassOutlined />, label: "平台导览", perm: null },
+    ],
+  },
 ];
 
 /**
@@ -93,10 +100,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const clear = useAuthStore((s) => s.clear);
   const hasPermission = useAuthStore((s) => s.hasPermission);
 
-  // 按权限过滤菜单项(perm 缺省=始终显示);整组被过滤空 → 该组标题一并隐藏。
+  // 按权限过滤菜单项(perm === null → 恒可见,如「平台导览」);整组被过滤空 → 该组标题一并隐藏。
   const visibleGroups = MENU_GROUPS.map((g) => ({
     ...g,
-    items: g.items.filter((m) => !m.perm || hasPermission(m.perm)),
+    items: g.items.filter((m) => m.perm === null || hasPermission(m.perm)),
   })).filter((g) => g.items.length > 0);
   const visibleItems = visibleGroups.flatMap((g) => g.items);
 
