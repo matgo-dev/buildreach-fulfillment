@@ -42,7 +42,11 @@ export default function GuidePage() {
     if (roleNodes.some((n) => n.layer === "MASTER")) setShowMaster(true);
   }, [highlightRole]);
 
-  const startTour = () => setTourStep(0);
+  // 开始叙事先清角色筛选:否则非该角色节点被淡化,叙事点亮它们时会打架。
+  const startTour = () => {
+    setHighlightRole(null);
+    setTourStep(0);
+  };
   const exitTour = () => setTourStep(null);
 
   return (
