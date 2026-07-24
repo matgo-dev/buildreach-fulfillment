@@ -12,6 +12,7 @@ import { ListErrorState } from "@/components/common/ListErrorState";
 import { ListPageCard, ListPageBody } from "@/components/common/ListPageCard";
 import { useListQuery } from "@/hooks/useListQuery";
 import { Permissions } from "@/config/permission-matrix";
+import { useAuthStore } from "@/stores/authStore";
 import { PurchaseOrderBuilder } from "@/components/purchasing/PurchaseOrderBuilder";
 import { SalesOrderPicker } from "@/components/purchasing/SalesOrderPicker";
 import { supplierApi, type SupplierListItem } from "@/lib/supplier";
@@ -33,6 +34,8 @@ const STATUS_TABS = [
 ];
 
 export default function PurchaseOrderListPage() {
+  // 🔴 成本红线可见性:无权者后端已脱敏,渲染层整列藏掉(DESIGN.md §9)。
+  const canSeeCost = useAuthStore((s) => s.hasPermission(Permissions.PURCHASE_READ_COST));
   const router = useRouter();
   const search = useSearchParams();
   const sourceSalesOrderId = search.get("source_sales_order_id");
@@ -107,13 +110,18 @@ export default function PurchaseOrderListPage() {
       ),
     },
     { title: "币种", dataIndex: "currency", width: 70 },
-    {
-      title: "金额",
-      dataIndex: "total_amount",
-      width: 130,
-      align: "right",
-      render: (v) => formatCost(v),
-    },
+    // 🔴 成本红线:无 purchase:read_cost 者整列不渲染(DESIGN.md §9);render 仍走 formatCost 兜漂移。
+    ...((canSeeCost
+      ? [
+          {
+            title: "金额",
+            dataIndex: "total_amount",
+            width: 130,
+            align: "right",
+            render: (v) => formatCost(v),
+          },
+        ]
+      : []) as ColumnsType<PurchaseOrderListItem>),
     { title: "行数", dataIndex: "line_count", width: 70, align: "right" },
     {
       title: "收货进度",

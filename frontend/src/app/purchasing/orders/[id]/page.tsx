@@ -10,6 +10,7 @@ import { ProgressCell } from "@/components/common/ProgressCell";
 import { PageLoading } from "@/components/common/PageLoading";
 import { ListErrorState } from "@/components/common/ListErrorState";
 import { Permissions } from "@/config/permission-matrix";
+import { useAuthStore } from "@/stores/authStore";
 import { formatDateTime, formatQty } from "@/lib/format";
 import { resolveBizError } from "@/lib/errorMessages";
 import {
@@ -37,6 +38,8 @@ export default function PurchaseOrderDetailPage() {
   const router = useRouter();
   const { message } = App.useApp();
   const id = Number(params.id);
+  // 🔴 成本红线可见性:无权者后端已脱敏,渲染层整列/整项藏掉(DESIGN.md §9)。
+  const canSeeCost = useAuthStore((s) => s.hasPermission(Permissions.PURCHASE_READ_COST));
 
   const [order, setOrder] = useState<PurchaseOrderOut | null>(null);
   const [lines, setLines] = useState<PurchaseOrderLineOut[]>([]);
@@ -111,11 +114,16 @@ export default function PurchaseOrderDetailPage() {
           return formatQty(remaining);
         },
       },
-      { title: "采购价", dataIndex: "unit_price", width: 120, align: "right", render: formatCost },
-      { title: "行额", dataIndex: "line_total", width: 130, align: "right", render: formatCost },
+      // 🔴 成本红线:无 purchase:read_cost 者整两列不渲染(DESIGN.md §9)。
+      ...((canSeeCost
+        ? [
+            { title: "采购价", dataIndex: "unit_price", width: 120, align: "right", render: formatCost },
+            { title: "行额", dataIndex: "line_total", width: 130, align: "right", render: formatCost },
+          ]
+        : []) as ColumnsType<PurchaseOrderLineOut>),
       { title: "备注", dataIndex: "remark", ellipsis: true, render: (v) => v || "—" },
     ],
-    [],
+    [canSeeCost],
   );
 
   if (loadError && !order) return <ListErrorState onRetry={load} />;
@@ -207,11 +215,14 @@ export default function PurchaseOrderDetailPage() {
           <Descriptions.Item label="备注" span={2}>
             {order.remark || "—"}
           </Descriptions.Item>
-          <Descriptions.Item label="金额" span={2}>
-            <span style={{ fontWeight: 600 }}>
-              {order.currency} {formatCost(order.total_amount)}
-            </span>
-          </Descriptions.Item>
+          {/* 🔴 成本红线:无 purchase:read_cost 者整项不渲染 */}
+          {canSeeCost && (
+            <Descriptions.Item label="金额" span={2}>
+              <span style={{ fontWeight: 600 }}>
+                {order.currency} {formatCost(order.total_amount)}
+              </span>
+            </Descriptions.Item>
+          )}
         </Descriptions>
       </Card>
 

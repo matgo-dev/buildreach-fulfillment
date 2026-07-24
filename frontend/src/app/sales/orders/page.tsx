@@ -39,6 +39,7 @@ export default function SalesOrderListPage() {
   const router = useRouter();
   const { message } = App.useApp();
   const userId = useAuthStore((s) => s.user?.id);
+  const canSeePrice = useAuthStore((s) => s.hasPermission(Permissions.RECEIVABLE_READ));
 
   const [status, setStatus] = useState("");
   const [keyword, setKeyword] = useState("");
@@ -113,6 +114,22 @@ export default function SalesOrderListPage() {
     }
   }
 
+  // 🔴 售价红线:无 receivable:read 者**整列不渲染**(DESIGN.md §7 列表排序 / §9 权限红线)。
+  // 后端已把值脱敏成 null,渲染层再藏一次是 UX 而非安全——一整列「—」是噪声,还会带出个点了
+  // 没反应的死排序(后端会把 sort=total_amount 静默回落)。render 仍走 formatPrice 兜前后端漂移。
+  const priceColumn: ColumnsType<SalesOrderListItem> = canSeePrice
+    ? [
+        {
+          title: "总额",
+          dataIndex: "total_amount",
+          width: 120,
+          align: "right",
+          sorter: true,
+          render: (v) => formatPrice(v),
+        },
+      ]
+    : [];
+
   const columns: ColumnsType<SalesOrderListItem> = [
     { title: "单号", dataIndex: "no", width: 150 },
     { title: "客户", dataIndex: "customer_display", width: 160, ellipsis: true },
@@ -133,15 +150,7 @@ export default function SalesOrderListPage() {
         p ? <ProgressCell meta={PURCHASE_PROGRESS_META} value={p} /> : "—",
     },
     { title: "币种", dataIndex: "currency", width: 70 },
-    {
-      title: "总额",
-      dataIndex: "total_amount",
-      width: 120,
-      align: "right",
-      sorter: true,
-      // 🔴 无 receivable:read 者后端置 null,渲染「—」而非 0.00
-      render: (v) => formatPrice(v),
-    },
+    ...priceColumn,
     { title: "行数", dataIndex: "line_count", width: 70, align: "right" },
     {
       title: "创建时间",

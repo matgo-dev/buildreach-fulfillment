@@ -4,6 +4,8 @@ import { Input, Segmented } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { PickerDrawer } from "@/components/common/PickerDrawer";
 import { ProgressCell } from "@/components/common/ProgressCell";
+import { Permissions } from "@/config/permission-matrix";
+import { useAuthStore } from "@/stores/authStore";
 import { formatPrice, salesOrderApi, type SalesOrderListItem } from "@/lib/salesOrder";
 import { PURCHASE_PROGRESS_META } from "@/lib/purchaseOrderStatus";
 
@@ -29,6 +31,7 @@ export function SalesOrderPicker({
 }) {
   const [progress, setProgress] = useState("");
   const [soNo, setSoNo] = useState("");
+  const canSeePrice = useAuthStore((s) => s.hasPermission(Permissions.RECEIVABLE_READ));
 
   const fetcher = useCallback(
     ({ page, size }: { page: number; size: number }) =>
@@ -46,14 +49,19 @@ export function SalesOrderPicker({
   const columns: ColumnsType<SalesOrderListItem> = [
     { title: "销售单号", dataIndex: "no", width: 150 },
     { title: "客户", dataIndex: "customer_display", width: 160, ellipsis: true },
-    {
-      title: "金额",
-      dataIndex: "total_amount",
-      width: 130,
-      align: "right",
-      // 🔴 采购员无 receivable:read,后端把客户售价置 null → 渲染「—」而非 0.00
-      render: (v: number | string | null, r) => `${r.currency} ${formatPrice(v)}`,
-    },
+    // 🔴 售价红线:采购员正是无 receivable:read 那一方,整列不渲染(DESIGN.md §9)。
+    ...((canSeePrice
+      ? [
+          {
+            title: "金额",
+            dataIndex: "total_amount",
+            width: 130,
+            align: "right",
+            render: (v: number | string | null, r: SalesOrderListItem) =>
+              `${r.currency} ${formatPrice(v)}`,
+          },
+        ]
+      : []) as ColumnsType<SalesOrderListItem>),
     {
       title: "采购进度",
       dataIndex: "purchase_progress",

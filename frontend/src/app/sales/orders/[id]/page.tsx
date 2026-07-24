@@ -10,6 +10,7 @@ import { ProgressCell } from "@/components/common/ProgressCell";
 import { PageLoading } from "@/components/common/PageLoading";
 import { ListErrorState } from "@/components/common/ListErrorState";
 import { Permissions } from "@/config/permission-matrix";
+import { useAuthStore } from "@/stores/authStore";
 import { formatDateTime, formatQty } from "@/lib/format";
 import { resolveBizError } from "@/lib/errorMessages";
 import {
@@ -36,6 +37,9 @@ export default function SalesOrderDetailPage() {
   const router = useRouter();
   const { message } = App.useApp();
   const id = Number(params.id);
+  // 🔴 红线可见性:无权者后端已脱敏为 null,渲染层再整列/整项藏掉(DESIGN.md §9)。
+  const canSeePrice = useAuthStore((s) => s.hasPermission(Permissions.RECEIVABLE_READ));
+  const canSeeCost = useAuthStore((s) => s.hasPermission(Permissions.PURCHASE_READ_COST));
 
   const [order, setOrder] = useState<SalesOrderOut | null>(null);
   const [lines, setLines] = useState<SalesOrderLineOut[]>([]);
@@ -88,12 +92,16 @@ export default function SalesOrderDetailPage() {
         align: "right",
         render: (_, r) => formatQty(Number(r.qty) - Number(r.covered_qty ?? 0)),
       },
-      // 🔴 售价红线:无 receivable:read 者拿到 null,渲染「—」而非 0.00
-      { title: "单价", dataIndex: "unit_price", width: 110, align: "right", render: formatPrice },
-      { title: "金额", dataIndex: "line_total", width: 120, align: "right", render: formatPrice },
+      // 🔴 售价红线:无 receivable:read 者整两列不渲染(DESIGN.md §9);render 仍走 formatPrice 兜漂移。
+      ...((canSeePrice
+        ? [
+            { title: "单价", dataIndex: "unit_price", width: 110, align: "right", render: formatPrice },
+            { title: "金额", dataIndex: "line_total", width: 120, align: "right", render: formatPrice },
+          ]
+        : []) as ColumnsType<SalesOrderLineOut>),
       { title: "备注", dataIndex: "remark", ellipsis: true, render: (v) => v || "—" },
     ],
-    [],
+    [canSeePrice],
   );
 
   if (loadError && !order) return <ListErrorState onRetry={load} />;
@@ -183,11 +191,14 @@ export default function SalesOrderDetailPage() {
               )}
             </Descriptions.Item>
           )}
-          <Descriptions.Item label="总额" span={2}>
-            <span style={{ fontWeight: 600 }}>
-              {order.currency} {formatPrice(order.total_amount)}
-            </span>
-          </Descriptions.Item>
+          {/* 🔴 售价红线:无 receivable:read 者整项不渲染 */}
+          {canSeePrice && (
+            <Descriptions.Item label="总额" span={2}>
+              <span style={{ fontWeight: 600 }}>
+                {order.currency} {formatPrice(order.total_amount)}
+              </span>
+            </Descriptions.Item>
+          )}
         </Descriptions>
       </Card>
 
@@ -234,13 +245,18 @@ export default function SalesOrderDetailPage() {
               },
               { title: "供应商", dataIndex: "supplier_display", ellipsis: true },
               { title: "币种", dataIndex: "currency", width: 70 },
-              {
-                title: "金额",
-                dataIndex: "total_amount",
-                width: 130,
-                align: "right",
-                render: (v) => formatCost(v),
-              },
+              // 🔴 成本红线:无 purchase:read_cost 者整列不渲染
+              ...(canSeeCost
+                ? [
+                    {
+                      title: "金额",
+                      dataIndex: "total_amount",
+                      width: 130,
+                      align: "right" as const,
+                      render: (v: RelatedPurchaseOrder["total_amount"]) => formatCost(v),
+                    },
+                  ]
+                : []),
             ]}
             dataSource={relatedPOs}
             pagination={false}
