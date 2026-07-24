@@ -94,6 +94,7 @@ class SalesOrderLine(Base, TimestampMixin):
         CheckConstraint("unit_price >= 0", name="ck_slines_unit_price_nn"),
         CheckConstraint("line_total >= 0", name="ck_slines_line_total_nn"),
         CheckConstraint("sort_order >= 0", name="ck_slines_sort_nn"),
+        CheckConstraint("covered_qty >= 0", name="ck_slines_covered_nn"),
         # 同单内每报价行只入一次(挡复制逻辑 bug 的行级重复);跨单放行——取消后重转的
         # 新 SO 复用同批报价行(原单列 UNIQUE 会挡重转,故降为复合)。
         Index("uq_slines_order_source_line", "sales_order_id", "source_quotation_line_id",
@@ -114,14 +115,21 @@ class SalesOrderLine(Base, TimestampMixin):
     source_quotation_line_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("quotation_lines.id", ondelete="RESTRICT"),
         nullable=False, index=True)
-    # 平移报价行已冻结快照(转换时不重算)。行 write-once → TimestampMixin(仅 created_at),
+    # 业务/快照字段 write-once(平移报价行冻结快照,转换时不重算)→ TimestampMixin(仅 created_at),
     # 变更历史归 audit_logs;与 QuotationLine(草稿期可变→UpdateMixin)按真实可变性分叉。
+    # 例外:covered_qty 是系统维护可变列(采购写入口重算刷新,非用户编辑),不进 SO 行时间戳
+    # ——其变更审计归属 PO 侧动作(create/save/cancel),见 purchase_order_service。
     name_snapshot: Mapped[str] = mapped_column(Text, nullable=False)
     spec_text_snapshot: Mapped[str] = mapped_column(Text, nullable=False, default="")
     unit_snapshot: Mapped[str] = mapped_column(String(20), nullable=False, default="")
     unit_price: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
     qty: Mapped[float] = mapped_column(Numeric(18, 3), nullable=False)
     line_total: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
+    # 已覆盖量物化列 = Σ(非 CANCELLED PO 行 qty,含 DRAFT)。compute_covered_qty 是唯一计算口径,
+    # 本列是它的同事务物化缓存(采购三写入口在持 FOR UPDATE 锁下重算写回,重算非自增)。
+    # 列表进度徽标/筛选由本列在 SQL 派生;守卫/详情仍读实时 compute_covered_qty(不信缓存)。
+    covered_qty: Mapped[float] = mapped_column(
+        Numeric(18, 3), nullable=False, server_default="0", default=0)
     language: Mapped[str] = mapped_column(String(10), nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     remark: Mapped[str | None] = mapped_column(Text, nullable=True)
