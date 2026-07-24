@@ -39,8 +39,8 @@ export function GuideDrawer({ node, onClose }: { node: GuideNode | null; onClose
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div style={{ marginBottom: 22 }}>
-      <Text strong style={{ display: "block", marginBottom: 6 }}>
+    <div style={{ marginBottom: 24 }}>
+      <Text strong style={{ display: "block", marginBottom: 8 }}>
         {title}
       </Text>
       <Paragraph style={{ marginBottom: 0, whiteSpace: "pre-wrap" }}>{children}</Paragraph>
