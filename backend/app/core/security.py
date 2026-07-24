@@ -6,10 +6,19 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError
 from passlib.context import CryptContext
 
 from app.core.config import settings
+
+
+class TokenError(Exception):
+    """JWT 签发/校验失败的统一出口。
+
+    本模块是全仓唯一直接接触 JWT 库的地方,调用方只认这个异常,不 import 底层库——
+    换库时改动收敛在这一个文件。
+    """
 
 _pwd_ctx = CryptContext(
     schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=settings.BCRYPT_ROUNDS
@@ -90,8 +99,11 @@ def hash_jti(jti: str) -> str:
 
 
 def decode_token(token: str, expected_type: Literal["access", "refresh"] = "access") -> dict[str, Any]:
-    """解码并校验 JWT。失败抛 JWTError(由调用方转 401)。"""
-    payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+    """解码并校验 JWT。失败抛 TokenError(由调用方转 401)。"""
+    try:
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+    except PyJWTError as exc:
+        raise TokenError(str(exc)) from exc
     if payload.get("type") != expected_type:
-        raise JWTError("Wrong token type")
+        raise TokenError("Wrong token type")
     return payload

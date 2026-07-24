@@ -59,6 +59,15 @@ jobs:
           source .venv/bin/activate
           uv pip install -e ".[dev]"
 
+      # 后端生产依赖漏洞审计:Dependabot 不支持 uv,这里用 pip-audit 查 OSV 库兜底。
+      # 只扫生产依赖(--no-dev),导出已是完整解析的扁平清单故 --no-deps。
+      # 当前零漏洞,任何新发现即阻断合并——不预设白名单,真出现上游不修的条目再单独评估。
+      - name: Audit production deps (Python)
+        working-directory: backend
+        run: |
+          uv export --no-dev --no-emit-project --format requirements-txt > /tmp/backend-requirements.txt
+          uvx pip-audit -s osv --no-deps --disable-pip -r /tmp/backend-requirements.txt
+
       - name: Run tests
         working-directory: backend
         run: |
