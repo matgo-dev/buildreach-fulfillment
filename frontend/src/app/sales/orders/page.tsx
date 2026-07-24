@@ -10,6 +10,7 @@ import { ProgressCell } from "@/components/common/ProgressCell";
 import { ListTable } from "@/components/common/ListTable";
 import { ListErrorState } from "@/components/common/ListErrorState";
 import { ListPageCard, ListPageBody } from "@/components/common/ListPageCard";
+import { selectFilter } from "@/components/common/SelectFilter";
 import { useListQuery } from "@/hooks/useListQuery";
 import { Permissions } from "@/config/permission-matrix";
 import { useAuthStore } from "@/stores/authStore";
@@ -126,8 +127,7 @@ export default function SalesOrderListPage() {
       title: "采购进度",
       dataIndex: "purchase_progress",
       width: 140,
-      filters: PROGRESS_FILTERS,
-      filterMultiple: false,
+      ...selectFilter<SalesOrderListItem>(PROGRESS_FILTERS),
       filteredValue: purchaseProgress ? [purchaseProgress] : null,
       render: (p: SalesOrderListItem["purchase_progress"]) =>
         p ? <ProgressCell meta={PURCHASE_PROGRESS_META} value={p} /> : "—",

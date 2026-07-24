@@ -28,6 +28,7 @@ import { StatusTag } from "@/components/common/StatusTag";
 import { ListTable } from "@/components/common/ListTable";
 import { ListErrorState } from "@/components/common/ListErrorState";
 import { ListPageCard, ListPageBody } from "@/components/common/ListPageCard";
+import { selectFilter } from "@/components/common/SelectFilter";
 import { useListQuery } from "@/hooks/useListQuery";
 import { Permissions } from "@/config/permission-matrix";
 import { supplierApi, type SupplierListItem } from "@/lib/supplier";
@@ -227,8 +228,7 @@ export default function PaymentListPage() {
       title: "币种",
       dataIndex: "currency",
       width: 90,
-      filters: CURRENCIES.map((c) => ({ text: c, value: c })),
-      filterMultiple: false,
+      ...selectFilter<PaymentListItem>(CURRENCIES.map((c) => ({ text: c, value: c }))),
       filteredValue: currency ? [currency] : null,
     },
     {

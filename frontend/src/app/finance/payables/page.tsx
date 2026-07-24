@@ -20,6 +20,7 @@ import { StatusTag } from "@/components/common/StatusTag";
 import { ListTable } from "@/components/common/ListTable";
 import { ListErrorState } from "@/components/common/ListErrorState";
 import { ListPageCard, ListPageBody } from "@/components/common/ListPageCard";
+import { selectFilter } from "@/components/common/SelectFilter";
 import { useListQuery } from "@/hooks/useListQuery";
 import { Permissions } from "@/config/permission-matrix";
 import { supplierApi, type SupplierListItem } from "@/lib/supplier";
@@ -158,8 +159,7 @@ export default function PayableListPage() {
       dataIndex: "currency",
       width: 90,
       // 次要枚举走列头筛选(DESIGN §7),服务端过滤;单选(核销要求同币种,多选无场景)。
-      filters: CURRENCIES.map((c) => ({ text: c, value: c })),
-      filterMultiple: false,
+      ...selectFilter<PayableListItem>(CURRENCIES.map((c) => ({ text: c, value: c }))),
       filteredValue: currency ? [currency] : null,
     },
     {

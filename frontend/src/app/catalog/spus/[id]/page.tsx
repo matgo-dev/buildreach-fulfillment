@@ -12,6 +12,7 @@ import { resolveBizError } from "@/lib/errorMessages";
 import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
 import { PageLoading } from "@/components/common/PageLoading";
+import { selectFilter } from "@/components/common/SelectFilter";
 import { SpuForm } from "@/components/catalog/SpuForm";
 import { SkuForm } from "@/components/catalog/SkuForm";
 import { useAuthStore } from "@/stores/authStore";
@@ -135,12 +136,11 @@ export default function SpuDetailPage() {
       title: "状态",
       dataIndex: "status",
       width: 90,
-      // 枚举列下拉单选筛选(DESIGN §7);filterMultiple:false → radio 单选,重置=全部。
-      filters: [
+      // 枚举列下拉单选筛选(DESIGN §7):即选即生效,「全部」= 清空。客户端过滤(SKU 全量已在手)。
+      ...selectFilter<SkuDetailItem>([
         { text: SKU_STATUS_META["ACTIVE"]?.label ?? "在售", value: "ACTIVE" },
         { text: SKU_STATUS_META["INACTIVE"]?.label ?? "停售", value: "INACTIVE" },
-      ],
-      filterMultiple: false,
+      ]),
       onFilter: (value, r) => r.status === value,
       render: (v: string) => <StatusTag meta={SKU_STATUS_META} value={v} />,
     },
