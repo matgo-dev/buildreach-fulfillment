@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
@@ -194,24 +194,58 @@ async def resolve_order_parties(db: AsyncSession, so: SalesOrder) -> dict:
     }
 
 
+async def _progress_for_page(db: AsyncSession, so_ids: list[int]) -> dict[int, str]:
+    """仅对当页 SO 从 **covered_qty 列**派生进度徽标(有界:page ids 一次聚合)。
+    走 classify_progress 唯一判据内核 —— 与筛选路径 SQL case 同源。零行 SO → NOT_ORDERED。"""
+    from collections import defaultdict
+
+    from app.services.purchase_order_service import classify_progress
+    if not so_ids:
+        return {}
+    rows = (await db.execute(
+        select(SalesOrderLine.sales_order_id, SalesOrderLine.covered_qty, SalesOrderLine.qty)
+        .where(SalesOrderLine.sales_order_id.in_(so_ids)))).all()
+    agg: dict[int, list[int]] = defaultdict(lambda: [0, 0, 0])  # [total, fully, anyc]
+    for soid, cov, q in rows:
+        a = agg[soid]
+        a[0] += 1
+        if cov >= q:
+            a[1] += 1
+        if cov > 0:
+            a[2] += 1
+    return {soid: classify_progress(*agg.get(soid, (0, 0, 0))) for soid in so_ids}
+
+
+def _progress_case(prog_agg):
+    """列表筛选路径的 SQL 进度表达式,镜像 classify_progress(total,fully,anyc) 同序判据。
+    prog_agg = 关联到 SalesOrder 的 LATERAL 聚合(总是返回一行,零行 SO → total=0)。"""
+    from app.db.models.purchase_order import PurchaseProgress
+    return case(
+        (func.coalesce(prog_agg.c.total, 0) == 0, PurchaseProgress.NOT_ORDERED),
+        (prog_agg.c.fully == prog_agg.c.total, PurchaseProgress.FULLY_ORDERED),
+        (prog_agg.c.anyc > 0, PurchaseProgress.PARTIALLY_ORDERED),
+        else_=PurchaseProgress.NOT_ORDERED,
+    )
+
+
 async def list_orders(db: AsyncSession, *, status=None, customer_id=None, salesperson_id=None,
                       no=None, purchase_progress=None, purchasable_only=False,
                       sort="created_at", dir="desc",
                       page: int = 1, size: int = 20) -> tuple[list[dict], int]:
     """销售单列表:筛选(状态/客户/报价人/采购进度)+ 排序(created_at|total_amount,asc|desc)+ 分页。
 
-    采购进度=派生值(轴2),按是否**按它筛选**分两条路,别让筛选场景的代价压到热路径:
-    - **无进度筛选**(默认热路径):进度只是徽标,DB 直接 count+offset/limit 分页,进度**仅对当前页**派生。
-    - **按进度筛选**(purchase_progress 指定单态,或 purchasable_only 排除已采完):派生值须先于分页参与,
-      否则踩分页空洞 + total 失真(§2.6)。故物化候选 → 全量算进度(共用 purchase_order_service 单一
-      口径)→ 过滤 → count → 切片。内部 SO 千级、方案B 毫秒级;升级触发点(十万级)→ 方案C 落冗余列。
+    采购进度=派生值(轴2),徽标两条分支均从 sales_order_lines.covered_qty **物化列**派生(方案C),
+    按是否**按它筛选**分两条路,别让筛选代价压到热路径:
+    - **无进度筛选**(默认热路径):先 count+offset/limit 分页,再**仅对当页** SO 从 covered_qty 列派生徽标
+      (有界,不对全表/全候选聚合)。
+    - **按进度筛选**(purchase_progress 指定单态,或 purchasable_only 排除已采完):派生值须先于分页参与
+      (否则踩分页空洞 + total 失真)。用 `LEFT JOIN LATERAL` 相关子查询按候选 SO 逐行走
+      ix_sales_order_lines_sales_order_id 索引聚合,进度 case 谓词下推 WHERE → 真·count+offset/limit
+      分页。covered_qty 落列前此处曾把全部候选行读进内存 Python 算,是增长型性能雷。
 
     purchasable_only:采购台选单入口用——只列**可发起采购**的 SO(排除 FULLY_ORDERED);
     与 purchase_progress 并存时以 purchase_progress(更具体)为准。
     """
-    from app.db.models.purchase_order import PurchaseProgress
-    from app.services import purchase_order_service
-
     conds = []
     if status:
         conds.append(SalesOrder.status == status)
@@ -232,10 +266,6 @@ async def list_orders(db: AsyncSession, *, status=None, customer_id=None, salesp
                   .scalar_subquery())
     sort_field = SalesOrder.total_amount if sort == "total_amount" else SalesOrder.created_at
     order_col = sort_field.asc() if dir == "asc" else sort_field.desc()
-    base = (select(SalesOrder, Customer.name, User.name, line_count.label("lc"))
-            .join(Customer, Customer.id == SalesOrder.customer_id)
-            .join(User, User.id == SalesOrder.salesperson_id)
-            .where(*conds).order_by(order_col))
 
     def _item(o, cust_name, sp_name, lc, progress):
         return {
@@ -245,26 +275,42 @@ async def list_orders(db: AsyncSession, *, status=None, customer_id=None, salesp
             "line_count": lc, "created_at": o.created_at, "purchase_progress": progress,
         }
 
-    # 无派生筛选:DB 分页,进度仅对当前页派生(不全表物化)。
+    # 无进度筛选(热路径):先分页,再仅对当页 SO 从 covered_qty 列派生徽标(有界)。
     if not purchase_progress and not purchasable_only:
+        base = (select(SalesOrder, Customer.name, User.name, line_count.label("lc"))
+                .join(Customer, Customer.id == SalesOrder.customer_id)
+                .join(User, User.id == SalesOrder.salesperson_id)
+                .where(*conds).order_by(order_col))
         rows, total = await paginate(
             db, base, page=page, size=size,
             count_stmt=select(func.count(SalesOrder.id)).where(*conds), scalars=False)
-        prog = await purchase_order_service.progress_for_sales_orders(
-            db, [o.id for (o, *_) in rows])
+        prog = await _progress_for_page(db, [o.id for (o, *_) in rows])
         return [_item(o, c, s, lc, prog.get(o.id)) for (o, c, s, lc) in rows], total
 
-    # 按进度筛选:物化候选 → 全量算进度 → 过滤 → count → 切片(派生值先于分页)。
-    rows = (await db.execute(base)).all()
-    prog = await purchase_order_service.progress_for_sales_orders(db, [o.id for (o, *_) in rows])
+    # 有进度筛选(选单抽屉等):LATERAL 相关聚合 + case 谓词下推 → 真分页。
+    prog_agg = (
+        select(
+            func.count(SalesOrderLine.id).label("total"),
+            func.count().filter(SalesOrderLine.covered_qty >= SalesOrderLine.qty).label("fully"),
+            func.count().filter(SalesOrderLine.covered_qty > 0).label("anyc"),
+        )
+        .where(SalesOrderLine.sales_order_id == SalesOrder.id)
+        .correlate(SalesOrder).lateral("prog"))
+    progress_expr = _progress_case(prog_agg)
+    if purchase_progress:  # 指定单态优先(更具体)
+        conds.append(progress_expr == purchase_progress)
+    else:  # purchasable_only:排除已采完
+        from app.db.models.purchase_order import PurchaseProgress
+        conds.append(progress_expr != PurchaseProgress.FULLY_ORDERED)
 
-    def _keep(pid) -> bool:
-        p = prog.get(pid)
-        if purchase_progress:  # 指定单态优先(更具体)
-            return p == purchase_progress
-        return p != PurchaseProgress.FULLY_ORDERED  # purchasable_only:排除已采完
-
-    items = [_item(o, c, s, lc, prog.get(o.id)) for (o, c, s, lc) in rows if _keep(o.id)]
-    total = len(items)
-    start = (page - 1) * size
-    return items[start:start + size], total
+    base = (select(SalesOrder, Customer.name, User.name, line_count.label("lc"),
+                   progress_expr.label("prog"))
+            .join(Customer, Customer.id == SalesOrder.customer_id)
+            .join(User, User.id == SalesOrder.salesperson_id)
+            .outerjoin(prog_agg, true())
+            .where(*conds).order_by(order_col))
+    count_stmt = (select(func.count(SalesOrder.id))
+                  .outerjoin(prog_agg, true()).where(*conds))
+    rows, total = await paginate(db, base, page=page, size=size,
+                                 count_stmt=count_stmt, scalars=False)
+    return [_item(o, c, s, lc, prog) for (o, c, s, lc, prog) in rows], total

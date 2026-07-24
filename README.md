@@ -139,9 +139,15 @@
   - **SO:PO = 1:N**(按供应商拆单):`purchase_orders.source_sales_order_id`(FK RESTRICT,index,**不 UNIQUE**);PO 行
     `source_sales_order_line_id`(FK RESTRICT,**不单列 UNIQUE**,入复合 `UNIQUE(purchase_order_id, source_sales_order_line_id)`
     = PO 内唯一,跨 PO 允许分批/换供应商/取消重下)。
-  - **超采守卫(全仓只有这一个函数算这个数)**:`compute_covered_qty`(SO 行 covered = Σ 非 CANCELLED PO 行 qty,**含 DRAFT**)被守卫/列表进度/
-    详情三处共用;`assert_within_so_line_quota` 同事务内 `SELECT ... FOR UPDATE` 锁 SO 行再读聚合再写入(并发双草稿不能合计超额,
+  - **超采守卫(全仓只有这一个函数算这个数)**:`compute_covered_qty`(SO 行 covered = Σ 非 CANCELLED PO 行 qty,**含 DRAFT**)是**唯一计算口径**,
+    守卫/详情/物化回填共用;`assert_within_so_line_quota` 同事务内 `SELECT ... FOR UPDATE` 锁 SO 行再读聚合再写入(并发双草稿不能合计超额,
     否则 `41603`)。金额走 `Decimal(str())` 精度(镜像报价)。
+  - **采购进度物化(方案C,迁移 `0035_so_line_covered_qty`)**:`sales_order_lines.covered_qty` 冗余列 = `compute_covered_qty` 的同事务物化缓存,
+    采购单三写入口(建单 / 改单 / 取消)在**持 SO 行 `FOR UPDATE` 锁**下重算写回(重算非自增;`save` 锁**旧∪新**行、`cancel` 补锁被释放行,
+    统一升序锁序防死锁)。SO 列表采购进度筛选/排序/分页**全下推 SQL**:热路径先分页再对当页从 `covered_qty` 列派生徽标,筛选路径走
+    `LEFT JOIN LATERAL` 相关聚合(按候选 SO 走 `sales_order_id` 索引 seek,`EXPLAIN` 实测 loops=候选数非全表)。**消除**原「全部候选行读进内存
+    Python 算进度再切片」的增长型性能雷(采购员高频选单入口)。守卫/详情仍读实时 `compute_covered_qty`(不信缓存);进度判据唯一内核
+    `classify_progress(total,fully,anyc)`,Python 与列表 SQL `case()` 同源(分页 WHERE 无法调 Python,下推必需的最小双写,见错题集 B5)。
   - **红线(全仓首个字段级脱敏)**:采购价 `unit_price` / 行额 `line_total` / 单头金额 `total_amount` = 成本红线,对无
     `purchase:read_cost` 者**后端置 null**(非仅前端隐藏)。脱敏下沉到响应 schema 构造工厂(`schemas/purchase_order.py` 的
     `*.build(..., can_see_cost=)` 单点经 `rbac/redaction.py::redact_cost`),覆盖列表/详情行/SO 关联 PO 区三处出口。供应商身份
@@ -569,8 +575,7 @@ docker compose build backend    # 或 frontend
 | 项 | 为什么要做 | 备注 |
 |---|---|---|
 | **前端升 Next 15 + React 19** | Next 14.x 上有 9 条 high 漏洞(拒绝服务 / SSRF 类),官方**只在 15.5.21 以后修**,14.x 永远修不掉。CI 的前端审计门因此只能暂时设成 critical | 迁移面已经实测过,比想象中小:动态路由全都走 `useParams()` 这个客户端 hook、没用 `next/headers`、没有 middleware / Server Actions / `next/image`,48 个 app 文件里 46 个是 `use client` —— Next 15 那些破坏性改动(`params` / `cookies()` 变异步)基本打不到我们。真正的工作量在 React 18→19 之后把所有页面回归一遍。做完把 CI 门槛提回 high |
-| **采购台选单查询绕开了数据库分页** | `GET /sales-orders?purchasable_only=true` 会把所有已确认销售单和它们的订单行**全部读进内存**再算采购进度、再在 Python 里过滤和切片(`sales_order_service.list_orders`)。开销跟着销售单总数线性涨,而这是采购员的高频入口 | 原先登记的触发条件是「p95 > 300ms」,但**后端目前没有任何耗时观测**(没有请求耗时日志、没有 APM),没人测得到,等于空头支票。而且主流 ERP(Odoo `qty_delivered`、SAP、NetSuite)在「订单行 vs 已履约量」这个位置默认就是存字段的,不是每次现算。做法:`sales_order_lines` 加 `covered_qty` 列,采购单的三个写入口(建单 / 改单 / 取消)在同一事务里重算写回,筛选排序分页全部交回数据库 |
-| 后端请求耗时观测 | 现在没有任何耗时数据,导致所有「等它变慢再优化」的判断都无从做起 | 至少要有请求耗时日志(带路由和分位数)。这是上一条那种决策能成立的前提 |
+| 后端请求耗时观测 | 现在没有任何耗时数据,导致所有「等它变慢再优化」的判断都无从做起 | 至少要有请求耗时日志(带路由和分位数)。这是曾经那条「等 p95>300ms 再优化」决策能成立的前提 |
 
 ## 待接
 

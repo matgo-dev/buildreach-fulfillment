@@ -13,7 +13,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import case, exists, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
@@ -82,17 +82,55 @@ async def compute_covered_qty(db: AsyncSession, so_line_ids: list[int], *,
     return result
 
 
-def _progress_from(covered: dict[int, Decimal], required: dict[int, Decimal]) -> str:
-    """由每行 covered/required 派生整单进度(唯一口径,列表与详情共用)。"""
-    if not required:
+def classify_progress(total: int, fully: int, anyc: int) -> str:
+    """采购进度**唯一判据内核**:total=行数、fully=覆盖满(covered≥required)行数、anyc=有覆盖(>0)行数。
+
+    Python(_progress_from / 当页徽标 / 详情)与列表筛选路径的 SQL `case()` **同源同输入同序**——
+    分页 WHERE 无法调 Python,SQL 侧必须有进度表达式,这是下推不可避免的最小双写(见
+    sales_order_service.list_orders),显式认领为例外并把重复面收敛到本内核;判据改此处与 SQL 同批改。"""
+    if total == 0:
         return PurchaseProgress.NOT_ORDERED
-    any_covered = any(covered.get(sid, Decimal("0")) > 0 for sid in required)
-    all_covered = all(covered.get(sid, Decimal("0")) >= req for sid, req in required.items())
-    if all_covered:
+    if fully == total:
         return PurchaseProgress.FULLY_ORDERED
-    if any_covered:
+    if anyc > 0:
         return PurchaseProgress.PARTIALLY_ORDERED
     return PurchaseProgress.NOT_ORDERED
+
+
+def _progress_from(covered: dict[int, Decimal], required: dict[int, Decimal]) -> str:
+    """由每行 covered/required 先算 (total,fully,anyc) 再走 classify_progress(唯一判据内核)。"""
+    total = len(required)
+    fully = sum(1 for sid, req in required.items() if covered.get(sid, Decimal("0")) >= req)
+    anyc = sum(1 for sid in required if covered.get(sid, Decimal("0")) > 0)
+    return classify_progress(total, fully, anyc)
+
+
+# ---------- covered_qty 物化列:锁 + 重算写回(采购三写入口共用)----------
+
+
+async def _lock_so_lines(db: AsyncSession, so_line_ids: list[int]) -> None:
+    """按 id **升序**逐行 `SELECT ... FOR UPDATE` 锁额度基准。全局升序锁序(任意两并发事务同序取锁)
+    消死锁环;沿用单行锁模式(不用 `IN(...) FOR UPDATE`,避免计划器打乱锁获取顺序)。
+    covered_qty 写回前必持锁:否则并发写入口各算陈旧聚合、后写者丢更新写脏缓存。"""
+    for sid in sorted(set(so_line_ids)):
+        await db.execute(
+            select(SalesOrderLine.id).where(SalesOrderLine.id == sid).with_for_update())
+
+
+async def _refresh_covered_qty(db: AsyncSession, so_line_ids: list[int]) -> None:
+    """把受影响 so_line 的 covered_qty 列重算写回(**须在持 FOR UPDATE 锁 + PO 变更 flush 之后调用**)。
+    读已反映本次变更的 po_lines,写绝对值(重算非自增,不累积漂移);compute_covered_qty 单一口径;
+    单条 set-based UPDATE(id→值 CASE 映射),不逐行发语句。"""
+    ids = sorted(set(so_line_ids))
+    if not ids:
+        return
+    covered = await compute_covered_qty(db, ids)
+    await db.execute(
+        update(SalesOrderLine)
+        .where(SalesOrderLine.id.in_(ids))
+        .values(covered_qty=case(
+            {sid: covered.get(sid, Decimal("0")) for sid in ids},
+            value=SalesOrderLine.id)))
 
 
 async def compute_progress(db: AsyncSession, sales_order_id: int) -> tuple[str, dict[int, Decimal]]:
@@ -105,21 +143,8 @@ async def compute_progress(db: AsyncSession, sales_order_id: int) -> tuple[str, 
     return _progress_from(covered, required), covered
 
 
-async def progress_for_sales_orders(db: AsyncSession, sales_order_ids: list[int]) -> dict[int, str]:
-    """批量:一组 SO 的采购进度(列表徽标 + 筛选用)。共用 compute_covered_qty 单一口径,
-    一次聚合覆盖全候选集(非逐 SO 查),供 SO 列表在「算进度→过滤→分页」中作 DB 派生值。"""
-    if not sales_order_ids:
-        return {}
-    rows = (await db.execute(
-        select(SalesOrderLine.id, SalesOrderLine.sales_order_id, SalesOrderLine.qty)
-        .where(SalesOrderLine.sales_order_id.in_(sales_order_ids)))).all()
-    covered = await compute_covered_qty(db, [lid for lid, _, _ in rows])
-    required_by_so: dict[int, dict[int, Decimal]] = defaultdict(dict)
-    for lid, soid, q in rows:
-        required_by_so[soid][lid] = Decimal(str(q))
-    return {soid: _progress_from(
-        {lid: covered.get(lid, Decimal("0")) for lid in required_by_so.get(soid, {})},
-        required_by_so.get(soid, {})) for soid in sales_order_ids}
+# 批量 SO 进度(列表徽标/筛选)已下推 SQL:热路径按当页 covered_qty 列派生、筛选路径 LATERAL+case,
+# 均见 sales_order_service.list_orders(方案C 落列后不再用 Python 全量物化)。
 
 
 # ---------- 超采守卫(并发安全)----------
@@ -257,6 +282,8 @@ async def create_order(db: AsyncSession, *, source_sales_order_id, supplier_id, 
     total = _add_lines(db, po, lines, so_lines)
     po.total_amount = total
     await db.flush()
+    # covered_qty 写回:受影响 = payload so_line(已由上方 quota 守卫逐行升序 FOR UPDATE 锁住)。
+    await _refresh_covered_qty(db, list(_payload_qty_by_soline(lines).keys()))
     await write_audit(db, resource_type=AuditResourceType.PURCHASE_ORDER, action=AuditAction.CREATE,
                       user_id=actor_user_id, user_email=actor_user_email,
                       resource_id=po.id, request=request, commit=False)
@@ -304,7 +331,13 @@ async def save_order(db: AsyncSession, *, order_id, supplier_id, currency, remar
         if ln["source_sales_order_line_id"] not in so_lines:
             raise PurchaseSourceSalesOrderInvalidError(
                 f"SO 行 {ln['source_sales_order_line_id']} 不属于 SO {po.source_sales_order_id}")
-    # 超采重校验(排除本 PO 现有行,按 so_line 聚合新 payload)
+
+    # P1:受影响 so_line = 旧行 ∪ 新 payload。**先删后加会释放旧行**,其 covered_qty 也要刷新,
+    # 故锁集合 = 旧∪新,升序**一次性**锁定(不能先锁新再补锁旧——会破坏全局升序锁序引入死锁窗口)。
+    old_so_line_ids = {r.source_sales_order_line_id for r in await list_lines(db, po.id)}
+    affected = sorted(old_so_line_ids | set(_payload_qty_by_soline(lines).keys()))
+    await _lock_so_lines(db, affected)
+    # 超采重校验(排除本 PO 现有行,按 so_line 聚合新 payload;so_line 已在上方锁定,此处 re-lock 无害)
     for so_line_id, add_qty in _payload_qty_by_soline(lines).items():
         await assert_within_so_line_quota(db, so_line_id, add_qty, exclude_po_id=po.id)
 
@@ -319,6 +352,8 @@ async def save_order(db: AsyncSession, *, order_id, supplier_id, currency, remar
     await db.flush()
     po.total_amount = _add_lines(db, po, lines, so_lines)
     await db.flush()
+    # covered_qty 写回全集(含被删旧行 → 刷回释放后真值)
+    await _refresh_covered_qty(db, affected)
     await write_audit(db, resource_type=AuditResourceType.PURCHASE_ORDER, action=AuditAction.UPDATE,
                       user_id=actor_user_id, user_email=actor_user_email,
                       resource_id=po.id, request=request, commit=False)
@@ -361,19 +396,29 @@ async def cancel_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_
     from app.services import inbound_order_service
     if await inbound_order_service.has_active_inbound(db, po.id):
         raise PurchaseOrderHasActiveInboundError()
+    # 受影响 so_line = 被取消 PO 现有行;守卫全过后再升序锁定(拒绝路径不白拿行锁),
+    # 与 create/save 同锁序,不成环。
+    affected = sorted({r.source_sales_order_line_id for r in await list_lines(db, po.id)})
+    await _lock_so_lines(db, affected)
+    # PO→CANCELLED 后 compute_covered_qty 自动排除本单 → 释放额度,covered_qty 同事务刷回。
     return await _transition(db, po, PurchaseOrderStatus.CANCELLED, AuditAction.CANCEL,
                              actor_user_id=actor_user_id, actor_user_email=actor_user_email,
-                             request=request)
+                             request=request,
+                             after_flush=lambda: _refresh_covered_qty(db, affected))
 
 
 async def _transition(db: AsyncSession, po: PurchaseOrder, target: str, audit_action: AuditAction,
-                      *, actor_user_id, actor_user_email, request: Request | None) -> PurchaseOrder:
+                      *, actor_user_id, actor_user_email, request: Request | None,
+                      after_flush=None) -> PurchaseOrder:
     # 矩阵校验内置于唯一写点(与报价 _transition 对齐):新增调用点无法绕过转移矩阵直接赋值 status。
     # 调用方(confirm/cancel)仍各自早断以 fail-fast,此处是单一强制点,非第二源头——矩阵常量唯一。
     assert_transition(PURCHASE_ORDER_TRANSITIONS, po.status, target,
                       PurchaseOrderInvalidTransitionError)
     po.status = target
     await db.flush()
+    # after_flush:状态 flush 后、提交前的同事务副作用(cancel 走此刷 covered_qty)。confirm 不传。
+    if after_flush is not None:
+        await after_flush()
     await write_audit(db, resource_type=AuditResourceType.PURCHASE_ORDER, action=audit_action,
                       user_id=actor_user_id, user_email=actor_user_email,
                       resource_id=po.id, request=request, commit=False)
