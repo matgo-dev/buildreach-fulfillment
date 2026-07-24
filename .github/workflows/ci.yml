@@ -111,11 +111,12 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # 生产依赖漏洞审计:本地 .npmrc 指向 npmmirror(无 audit 端点),CI 显式打官方 registry。
-      # 门槛暂设 critical:Next 14.x 上有 9 条 high 只在 Next >= 15.5.21 修复(见 README
-      # 《后续演进》Next 15 + React 19 迁移),设 high 会永久卡红。迁移落地后把门槛提回 high。
+      # 门槛 high:Next 15 迁移后原 Next 14 的 DoS 已清;Next 自带的 postcss/sharp 传递高危
+      # 用 pnpm.overrides 顶到修复版(见 frontend/package.json)。--prod 只卡运行时依赖,
+      # devDep(eslint 工具链)的高危不进部署产物、不计入。
       - name: Audit production deps
         working-directory: frontend
-        run: pnpm audit --prod --audit-level critical --registry=https://registry.npmjs.org
+        run: pnpm audit --prod --audit-level high --registry=https://registry.npmjs.org
 
       # next lint:ESLint 报错(errors)阻断合并;既有 warnings 不阻断
       - name: Lint

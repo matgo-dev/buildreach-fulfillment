@@ -9,6 +9,9 @@ import {
   ShopOutlined,
   ShoppingCartOutlined,
   AccountBookOutlined,
+  VerticalAlignBottomOutlined,
+  ReconciliationOutlined,
+  PayCircleOutlined,
   TeamOutlined,
   UserOutlined,
   LogoutOutlined,
@@ -19,6 +22,7 @@ import {
   ContainerOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  CompassOutlined,
 } from "@ant-design/icons";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuthStore } from "@/stores/authStore";
@@ -67,9 +71,9 @@ const MENU_GROUPS = [
     group: "财务",
     items: [
       { key: "/finance/receivables", icon: <AccountBookOutlined />, label: "应收款", perm: Permissions.RECEIVABLE_READ },
-      { key: "/finance/receipts", icon: <AccountBookOutlined />, label: "收款单", perm: Permissions.RECEIPT_READ },
-      { key: "/finance/payables", icon: <AccountBookOutlined />, label: "应付款", perm: Permissions.PAYABLE_READ },
-      { key: "/finance/payments", icon: <AccountBookOutlined />, label: "付款单", perm: Permissions.PAYMENT_READ },
+      { key: "/finance/receipts", icon: <VerticalAlignBottomOutlined />, label: "收款单", perm: Permissions.RECEIPT_READ },
+      { key: "/finance/payables", icon: <ReconciliationOutlined />, label: "应付款", perm: Permissions.PAYABLE_READ },
+      { key: "/finance/payments", icon: <PayCircleOutlined />, label: "付款单", perm: Permissions.PAYMENT_READ },
     ],
   },
   {
@@ -77,6 +81,12 @@ const MENU_GROUPS = [
     items: [
       { key: "/admin/users", icon: <SafetyCertificateOutlined />, label: "用户管理", perm: Permissions.USER_MANAGE },
       { key: "/admin/roles", icon: <KeyOutlined />, label: "角色权限", perm: Permissions.ROLE_MANAGE },
+    ],
+  },
+  {
+    group: "帮助",
+    items: [
+      { key: "/guide", icon: <CompassOutlined />, label: "平台导览", perm: null },
     ],
   },
 ];
@@ -93,10 +103,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const clear = useAuthStore((s) => s.clear);
   const hasPermission = useAuthStore((s) => s.hasPermission);
 
-  // 按权限过滤菜单项(perm 缺省=始终显示);整组被过滤空 → 该组标题一并隐藏。
+  // 按权限过滤菜单项(perm === null → 恒可见,如「平台导览」);整组被过滤空 → 该组标题一并隐藏。
   const visibleGroups = MENU_GROUPS.map((g) => ({
     ...g,
-    items: g.items.filter((m) => !m.perm || hasPermission(m.perm)),
+    items: g.items.filter((m) => m.perm === null || hasPermission(m.perm)),
   })).filter((g) => g.items.length > 0);
   const visibleItems = visibleGroups.flatMap((g) => g.items);
 
