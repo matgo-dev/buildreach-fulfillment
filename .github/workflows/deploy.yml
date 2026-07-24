@@ -23,7 +23,7 @@ jobs:
     name: 迁移安全检查
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: 检查破坏性迁移
@@ -54,7 +54,7 @@ jobs:
     outputs:
       image_tag: ${{ steps.meta.outputs.image_tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: 计算镜像 Tag
         id: meta
@@ -68,27 +68,27 @@ jobs:
           echo "latest_tag=${BRANCH}-latest" >> "$GITHUB_OUTPUT"
 
       - name: 登录 GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 登录阿里云 ACR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.ACR_REGISTRY }}
           username: ${{ secrets.ACR_USERNAME }}
           password: ${{ secrets.ACR_PASSWORD }}
 
       - name: 设置 Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: 生成构建时间戳
         run: echo "BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
       - name: 构建并推送 backend 镜像
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./backend
           file: ./backend/Dockerfile
@@ -108,7 +108,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=backend
 
       - name: 构建并推送 frontend 镜像
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./frontend
           file: ./frontend/Dockerfile
@@ -129,7 +129,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: 同步部署文件到 ECS
         env:
           ECS_HOST: ${{ secrets.ECS_HOST }}
@@ -145,7 +145,7 @@ jobs:
             ssh -i ~/.ssh/fulfillment_ecs -p 22 "$ECS_USER@$ECS_HOST" \
               'cd /opt/fulfillment && tar -xzf - && chmod +x deploy/*.sh'
       - name: SSH 部署
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.ECS_HOST }}
           username: ${{ secrets.ECS_USER }}
@@ -172,7 +172,7 @@ jobs:
     environment: production
     steps:
       - name: SSH 部署
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.OVH_HOST }}
           username: ${{ secrets.OVH_USER }}
