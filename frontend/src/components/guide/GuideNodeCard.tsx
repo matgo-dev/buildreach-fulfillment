@@ -36,7 +36,11 @@ export function GuideNodeCard({ node, dimmed, active, onClick }: Props) {
           borderRadius: 8,
           cursor: "pointer",
           background: isMaster ? colors.bg : colors.white,
-          border: `1px solid ${active ? colors.brand : colors.line}`,
+          // 四条边全用长写,不用 border 简写 —— 简写会重置四边,active 切换时
+          // React 只重写变化的 border 而不重写未变的 borderLeft,分类左色条会被抹掉。
+          borderTop: `1px solid ${active ? colors.brand : colors.line}`,
+          borderRight: `1px solid ${active ? colors.brand : colors.line}`,
+          borderBottom: `1px solid ${active ? colors.brand : colors.line}`,
           borderLeft: `4px solid ${categoryColor(node)}`,
           boxShadow: active ? `0 0 0 4px ${colors.brand}22` : "none",
           opacity: dimmed ? 0.3 : 1,
