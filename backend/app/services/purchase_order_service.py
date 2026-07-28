@@ -458,21 +458,23 @@ async def list_orders(db: AsyncSession, *, status=None, supplier_id=None,
     if q:
         like = f"%{q}%"
         conds.append(or_(PurchaseOrder.no.ilike(like), SalesOrder.no.ilike(like)))
-    # 仅可收:留下「至少一行 ordered > received」的 PO —— 即非 FULLY_RECEIVED。
-    # 这是 receipt_progress_from() 里 all(received>=required)=FULLY 的集合版镜像(受分页约束
-    # 无法在 SQL 内复用那个 per-行 Python 口径),两者须同步:FULLY 判据一旦改,这里同批改。
+    # 仅可收:留下「至少一行 还有可开入库额度」的 PO。口径必须镜像**入库守卫**
+    # (assert_within_po_line_quota → compute_inbounded_qty:Σ 含在途入库行 qty),而非进度口径
+    # (仅 RECEIVED)。否则「已被在途 ASN 收满」的 PO 仍进选单器,真建入库时却撞 41703 无额度——
+    # 选单器要回答的是「还能不能再开」,答案由守卫定。含在途状态集走 INBOUNDED_STATUSES 单一源头
+    # (与 compute_inbounded_qty 同引用,禁两处各写谓词)。
     if receivable_only:
-        received_sq = (
+        inbounded_sq = (
             select(func.coalesce(func.sum(InboundOrderLine.qty), 0))
             .select_from(InboundOrderLine)
             .join(InboundOrder, InboundOrder.id == InboundOrderLine.inbound_order_id)
             .where(InboundOrderLine.purchase_order_line_id == PurchaseOrderLine.id,
-                   InboundOrder.status == InboundOrderStatus.RECEIVED)
+                   InboundOrder.status.in_(InboundOrderStatus.INBOUNDED_STATUSES))
             .scalar_subquery())
         conds.append(exists(
             select(PurchaseOrderLine.id)
             .where(PurchaseOrderLine.purchase_order_id == PurchaseOrder.id,
-                   PurchaseOrderLine.qty > received_sq)))
+                   PurchaseOrderLine.qty > inbounded_sq)))
     # 需 JOIN sales_orders 的条件:按 SO 号筛(独立框或合并 q)——count 也要带上同一 join。
     need_so_join = bool(source_sales_order_no) or bool(q)
 
