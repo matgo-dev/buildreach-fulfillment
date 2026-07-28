@@ -10,7 +10,25 @@ export function formatQty(v: number | string): string {
   return Number(v).toLocaleString(undefined, { maximumFractionDigits: 3 });
 }
 
-/** ISO 时间串 → "YYYY-MM-DD HH:mm"(截到分)。空值原样透传(列表渲染空单元格)。 */
+const DATE_TIME_PARTS = new Intl.DateTimeFormat("zh-CN", {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
+function utcDateTime(v: string): Date {
+  // 后端 created_at/updated_at 是 naive UTC。无时区后缀时按 UTC 解释,再交给浏览器本地时区展示。
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(v);
+  return new Date(hasZone ? v : `${v}Z`);
+}
+
+/** ISO 时间串 → 浏览器本地时区 "YYYY-MM-DD HH:mm"。空值原样透传(列表渲染空单元格)。 */
 export function formatDateTime(v: string | null | undefined): string | null | undefined {
-  return v?.replace("T", " ").slice(0, 16);
+  if (!v) return v;
+  const parts = DATE_TIME_PARTS.formatToParts(utcDateTime(v));
+  const byType = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+  return `${byType.year}-${byType.month}-${byType.day} ${byType.hour}:${byType.minute}`;
 }
