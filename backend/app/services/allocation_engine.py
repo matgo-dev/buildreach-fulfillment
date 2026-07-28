@@ -93,6 +93,21 @@ async def has_active_allocations(db: AsyncSession, spec: AllocationSpec, source_
         .limit(1))).scalar_one_or_none() is not None
 
 
+def _take_one(db, spec, source, acc, *, alloc_type: str, actor_user_id: int):
+    """对单个已锁账行核销 min(source 未分配, 账余额)。remaining 恒由 source 现算(单一源头,
+    不设本地记账副本);take≤0(source 耗尽或账已核满)→ 不建核销返回 None。
+    只做内存变更 + db.add,不 flush(调用方遍历完一次性 flush)。"""
+    take = min(_source_remaining(source), _account_balance(acc))
+    if take <= 0:
+        return None
+    alloc = spec.alloc_model(**{spec.source_fk: source.id, spec.account_fk: acc.id},
+                             amount=take, alloc_type=alloc_type, created_by=actor_user_id)
+    db.add(alloc)
+    source.amount_allocated = _d(source.amount_allocated) + take
+    acc.amount_allocated = _d(acc.amount_allocated) + take
+    return alloc
+
+
 async def auto_allocate(db: AsyncSession, spec: AllocationSpec, source, *,
                         actor_user_id: int) -> list:
     """自动核销:按账龄 FIFO 冲开口账,取满 min(source 未分配, 账余额),多余留存(预收/预付)。
@@ -100,13 +115,10 @@ async def auto_allocate(db: AsyncSession, spec: AllocationSpec, source, *,
 
     锁法:先按 (due_at NULLS LAST, created_at, id) 取有序候选 id(不加锁),再逐行 FOR UPDATE
     ——与采购/入库「取有序 id 再逐行锁」同一显式范式,锁序=取序,不依赖「ORDER BY ... FOR UPDATE」
-    的计划相关锁序。锁后复核(账未作废、仍有余额)顶替裸 SELECT 的 EvalPlanQual;累计已锁余额够冲
-    remaining 即停,不多锁尾部无关账行。"""
+    的计划相关锁序。逐行一趟:锁后复核账未作废(顶替裸 SELECT 的 EvalPlanQual)→ 核销一账
+    → source 未分配耗尽即停。"""
     party = getattr(source, spec.party_source_attr)
-    if party is None:
-        return []
-    remaining = _source_remaining(source)
-    if remaining <= 0:
+    if party is None or _source_remaining(source) <= 0:
         return []
     A = spec.account_model
     ordered_ids = (await db.execute(
@@ -116,41 +128,19 @@ async def auto_allocate(db: AsyncSession, spec: AllocationSpec, source, *,
             A.voided_at.is_(None),
             A.balance > 0)
         .order_by(A.due_at.asc().nullslast(), A.created_at.asc(), A.id.asc()))).scalars().all()
-    locked = []
-    need = remaining
+    created = []
     for acc_id in ordered_ids:
-        if need <= 0:
+        if _source_remaining(source) <= 0:
             break
         acc = (await db.execute(
             select(A).where(A.id == acc_id).with_for_update())).scalar_one_or_none()
-        # 锁后复核:取序无锁,并发可能已把该账作废/核满(裸 FOR UPDATE 的 EvalPlanQual 手动版)。
+        # 锁后复核:取序无锁,并发可能已把该账作废(账已核满则 _take_one 取 0 自然跳过)。
         if acc is None or acc.voided_at is not None:
             continue
-        bal = _account_balance(acc)
-        if bal <= 0:
-            continue
-        locked.append(acc)
-        need -= bal
-    return await _apply(db, spec, source, locked, remaining,
-                        alloc_type=AllocationType.AUTO, actor_user_id=actor_user_id)
-
-
-async def _apply(db, spec, source, accounts, remaining: Decimal, *, alloc_type: str,
-                 actor_user_id: int) -> list:
-    created = []
-    for acc in accounts:
-        if remaining <= 0:
-            break
-        take = min(remaining, _account_balance(acc))
-        if take <= 0:
-            continue
-        alloc = spec.alloc_model(**{spec.source_fk: source.id, spec.account_fk: acc.id},
-                                 amount=take, alloc_type=alloc_type, created_by=actor_user_id)
-        db.add(alloc)
-        source.amount_allocated = _d(source.amount_allocated) + take
-        acc.amount_allocated = _d(acc.amount_allocated) + take
-        remaining -= take
-        created.append(alloc)
+        alloc = _take_one(db, spec, source, acc,
+                          alloc_type=AllocationType.AUTO, actor_user_id=actor_user_id)
+        if alloc is not None:
+            created.append(alloc)
     await db.flush()
     return created
 
@@ -181,14 +171,14 @@ async def manual_allocate(db: AsyncSession, spec: AllocationSpec, source, accoun
                             am.reversed_at.is_(None)).limit(1))).scalar_one_or_none()
     if dup is not None:
         raise AllocationPairAlreadyActiveError()
-    remaining = _source_remaining(source)
-    if remaining <= 0:
+    if _source_remaining(source) <= 0:
         raise AllocationExceedsSourceError()
     if _account_balance(acc) <= 0:
         raise AllocationExceedsAccountError()
-    created = await _apply(db, spec, source, [acc], remaining,
-                           alloc_type=AllocationType.MANUAL, actor_user_id=actor_user_id)
-    return created[0]
+    alloc = _take_one(db, spec, source, acc,
+                      alloc_type=AllocationType.MANUAL, actor_user_id=actor_user_id)
+    await db.flush()
+    return alloc
 
 
 async def reverse(db: AsyncSession, spec: AllocationSpec, alloc_id: int, *,
