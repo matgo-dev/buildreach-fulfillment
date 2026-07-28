@@ -516,6 +516,7 @@ export default function ShipmentDetailPage() {
         onCancel={() => setEditOpen(false)}
         onOk={onSaveInfo}
         width={560}
+        forceRender
       >
         <Form form={form} layout="vertical" style={{ marginTop: 12 }}>
           {isFieldEditable(shipment.status, "container_no") && (
@@ -592,6 +593,7 @@ export default function ShipmentDetailPage() {
           loadForm.resetFields();
         }}
         onOk={onLoad}
+        forceRender
       >
         <Space direction="vertical" style={{ width: "100%" }} size="middle">
           <span>
@@ -617,6 +619,7 @@ export default function ShipmentDetailPage() {
         confirmLoading={busy}
         onCancel={() => setDepartOpen(false)}
         onOk={onDepart}
+        forceRender
       >
         <Space direction="vertical" style={{ width: "100%" }} size="middle">
           <span>确认后柜进入「已发运」。请填写实际离港日(ATD)。</span>
