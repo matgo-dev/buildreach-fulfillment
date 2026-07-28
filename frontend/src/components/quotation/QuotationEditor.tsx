@@ -305,22 +305,23 @@ export function QuotationEditor({ mode, orderId }: { mode: "create" | "edit"; or
             </Col>
           </Row>
           <Row gutter={16}>
-            <Col span={8}>
+            <Col span={12}>
               <Form.Item name="currency" label="币种" rules={[{ required: true }]}>
                 <Select options={CURRENCY_OPTIONS} />
               </Form.Item>
             </Col>
-            <Col span={8}>
-              <Form.Item name="language" label="语言">
-                <Select options={QUOTE_LANGUAGE_OPTIONS} />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
+            <Col span={12}>
               <Form.Item name="valid_until" label="有效期">
                 <DatePicker style={{ width: "100%" }} />
               </Form.Item>
             </Col>
           </Row>
+          {/* 报价语言:先隐藏——链路是通的(冻结快照时真按此择语言取 name_i18n),
+              但库里 SKU 目前只有 zh 内容、报价导出也未开发,暴露这个下拉会误导销售以为选了就出对应语种。
+              待翻译内容 + 导出功能落地再放出来。字段仍随表单走(hidden 不影响提交/回显)。 */}
+          <Form.Item name="language" hidden>
+            <Select options={QUOTE_LANGUAGE_OPTIONS} />
+          </Form.Item>
           <Form.Item name="summary" label="摘要">
             <Input maxLength={180} placeholder="一句话主题(选填)" />
           </Form.Item>

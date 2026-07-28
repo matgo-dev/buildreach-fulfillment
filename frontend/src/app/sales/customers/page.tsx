@@ -33,7 +33,7 @@ import {
   type CustomerOut,
   type CustomerSaveBody,
 } from "@/lib/customer";
-import { QUOTE_LANGUAGE_OPTIONS, quoteLanguageLabel } from "@/lib/quote-languages";
+import { QUOTE_LANGUAGE_OPTIONS } from "@/lib/quote-languages";
 
 const STATUS_TABS = [
   { label: "启用", value: "ACTIVE" },
@@ -96,12 +96,6 @@ export default function CustomerListPage() {
   const columns: ColumnsType<CustomerListItem> = [
     { title: "编码", dataIndex: "code", width: 140 },
     { title: "名称", dataIndex: "name", ellipsis: true },
-    {
-      title: "报价语言",
-      dataIndex: "quote_language",
-      width: 110,
-      render: (v) => quoteLanguageLabel(v),
-    },
     { title: "联系人", dataIndex: "contact_name", width: 140, render: (v) => v || "—" },
     { title: "电话", dataIndex: "contact_phone", width: 140, render: (v) => v || "—" },
     {
@@ -225,9 +219,6 @@ export default function CustomerListPage() {
             <Descriptions column={1} size="small" bordered>
               <Descriptions.Item label="编码">{current.code}</Descriptions.Item>
               <Descriptions.Item label="名称">{current.name}</Descriptions.Item>
-              <Descriptions.Item label="报价语言">
-                {quoteLanguageLabel(current.quote_language)}
-              </Descriptions.Item>
               <Descriptions.Item label="联系人">{current.contact_name || "—"}</Descriptions.Item>
               <Descriptions.Item label="电话">{current.contact_phone || "—"}</Descriptions.Item>
               <Descriptions.Item label="邮箱">{current.contact_email || "—"}</Descriptions.Item>
@@ -242,8 +233,9 @@ export default function CustomerListPage() {
             <Form.Item name="name" label="名称" rules={[{ required: true, message: "请输入客户名称" }]}>
               <Input maxLength={200} placeholder="客户名称" />
             </Form.Item>
-            <Form.Item name="quote_language" label="报价语言" extra="不填=建报价时默认中文">
-              <Select allowClear placeholder="可空" options={QUOTE_LANGUAGE_OPTIONS} />
+            {/* 报价语言:先隐藏,理由同报价编辑器(见 QuotationEditor.tsx 对应注释)。字段仍随表单走。 */}
+            <Form.Item name="quote_language" hidden>
+              <Select allowClear options={QUOTE_LANGUAGE_OPTIONS} />
             </Form.Item>
             <Row gutter={16}>
               <Col span={12}>
