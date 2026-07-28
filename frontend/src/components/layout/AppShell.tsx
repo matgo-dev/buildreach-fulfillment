@@ -38,6 +38,12 @@ const { Header, Sider, Content } = Layout;
 // 菜单项按权限显隐(perm=可见所需权限点),避免死链;后端 RouteGuard 仍是访问底线。
 const MENU_GROUPS = [
   {
+    group: "帮助",
+    items: [
+      { key: "/guide", icon: <CompassOutlined />, label: "平台导览", perm: null },
+    ],
+  },
+  {
     group: "基础资料",
     items: [
       { key: "/catalog/spus", icon: <AppstoreOutlined />, label: "商品目录", perm: Permissions.PRODUCT_READ },
@@ -81,12 +87,6 @@ const MENU_GROUPS = [
     items: [
       { key: "/admin/users", icon: <SafetyCertificateOutlined />, label: "用户管理", perm: Permissions.USER_MANAGE },
       { key: "/admin/roles", icon: <KeyOutlined />, label: "角色权限", perm: Permissions.ROLE_MANAGE },
-    ],
-  },
-  {
-    group: "帮助",
-    items: [
-      { key: "/guide", icon: <CompassOutlined />, label: "平台导览", perm: null },
     ],
   },
 ];
