@@ -22,6 +22,10 @@ class InboundOrderStatus:
     RECEIVED = "RECEIVED"
     CANCELLED = "CANCELLED"
     ALL = (IN_TRANSIT, RECEIVED, CANCELLED)
+    # 「含在途」口径的单一源头:计入采购超采守卫累计的状态(在途 + 已收,排 CANCELLED)。
+    # compute_inbounded_qty(超采守卫)与 receivable_only 选单器共用此集,禁两处各写谓词——
+    # 新增入库状态时在此一处决定是否计入,两条路径自动跟随(单一源头,不靠对拍测试兜)。
+    INBOUNDED_STATUSES = (IN_TRANSIT, RECEIVED)
 
 
 # 状态机单一源头(model 层常量)。入库单 = ASN:供应商发货即建(在途本身即可编辑工作态),

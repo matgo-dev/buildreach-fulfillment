@@ -70,7 +70,6 @@ async def _next_inbound_no(db: AsyncSession) -> str:
 
 async def _sum_inbound_line_qty(db: AsyncSession, po_line_ids: list[int], *,
                                 statuses: set[str] | None = None,
-                                exclude_status: str | None = None,
                                 exclude_inbound_id: int | None = None) -> dict[int, Decimal]:
     """PO 行 → Σ 入库行 qty,按状态过滤。底层单一聚合,守卫/进度口径共用。"""
     result: dict[int, Decimal] = {pid: Decimal("0") for pid in po_line_ids}
@@ -79,8 +78,6 @@ async def _sum_inbound_line_qty(db: AsyncSession, po_line_ids: list[int], *,
     conds = [InboundOrderLine.purchase_order_line_id.in_(po_line_ids)]
     if statuses is not None:
         conds.append(InboundOrder.status.in_(statuses))
-    if exclude_status is not None:
-        conds.append(InboundOrder.status != exclude_status)
     if exclude_inbound_id is not None:
         conds.append(InboundOrderLine.inbound_order_id != exclude_inbound_id)
     rows = (await db.execute(
@@ -96,9 +93,10 @@ async def _sum_inbound_line_qty(db: AsyncSession, po_line_ids: list[int], *,
 
 async def compute_inbounded_qty(db: AsyncSession, po_line_ids: list[int], *,
                                 exclude_inbound_id: int | None = None) -> dict[int, Decimal]:
-    """守卫口径:Σ(非 CANCELLED 入库行 qty,含在途)。exclude_inbound_id 排除本单(编辑重算)。"""
+    """守卫口径:Σ(含在途入库行 qty)。状态集 = InboundOrderStatus.INBOUNDED_STATUSES(单一源头)。
+    exclude_inbound_id 排除本单(编辑重算)。"""
     return await _sum_inbound_line_qty(
-        db, po_line_ids, exclude_status=InboundOrderStatus.CANCELLED,
+        db, po_line_ids, statuses=set(InboundOrderStatus.INBOUNDED_STATUSES),
         exclude_inbound_id=exclude_inbound_id)
 
 

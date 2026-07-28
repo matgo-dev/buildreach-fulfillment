@@ -124,10 +124,13 @@ async def auto_allocate(db: AsyncSession, spec: AllocationSpec, source, *,
         acc = (await db.execute(
             select(A).where(A.id == acc_id).with_for_update())).scalar_one_or_none()
         # 锁后复核:取序无锁,并发可能已把该账作废/核满(裸 FOR UPDATE 的 EvalPlanQual 手动版)。
-        if acc is None or acc.voided_at is not None or _account_balance(acc) <= 0:
+        if acc is None or acc.voided_at is not None:
+            continue
+        bal = _account_balance(acc)
+        if bal <= 0:
             continue
         locked.append(acc)
-        need -= _account_balance(acc)
+        need -= bal
     return await _apply(db, spec, source, locked, remaining,
                         alloc_type=AllocationType.AUTO, actor_user_id=actor_user_id)
 
