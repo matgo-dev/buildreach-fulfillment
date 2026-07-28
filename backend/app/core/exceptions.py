@@ -554,6 +554,15 @@ class OutboundShipmentLoadedCannotRevertError(BusinessError):
         super().__init__(status.HTTP_409_CONFLICT, 41910, message)
 
 
+class OutboundOrderEmptyError(BusinessError):
+    """空出库单(无行):建单 / 编辑对账后 / 确认前均杜绝(镜像采购 41608 / 入库 41707)。
+    service 兜底 —— API schema 挡空行,但 service 直调若放行 0 行出库,会在确认时生成
+    0 金额应收、并让柜误判「非空」占用槽位。守卫落最强层。"""
+
+    def __init__(self, message: str = "Outbound order must have at least one line"):
+        super().__init__(status.HTTP_400_BAD_REQUEST, 41911, message)
+
+
 # 模块段 20 = 柜 / 发运(发运单状态机 + 船务字段编辑门禁)。见 db/models/shipment_order.py。
 class ShipmentHasActiveOutboundError(BusinessError):
     """取消柜被拦:柜下存在非 CANCELLED 出库单。先取消柜内出库单再取消柜。"""

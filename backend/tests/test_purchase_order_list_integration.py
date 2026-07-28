@@ -21,6 +21,15 @@ async def _receive(client, purchaser_headers, po_id, po_line_id, qty):
     assert rc.status_code == 200, rc.text
 
 
+async def _inbound_in_transit(client, purchaser_headers, po_id, po_line_id, qty):
+    """建入库单但**不确认收货** → 停在 IN_TRANSIT(在途);占守卫额度但不算已收。"""
+    cr = await client.post("/api/v1/inbound-orders", headers=purchaser_headers, json={
+        "purchase_order_id": po_id,
+        "lines": [{"purchase_order_line_id": po_line_id, "qty": qty}]})
+    assert cr.status_code == 200, cr.text
+    return cr.json()["data"]["order"]["id"]
+
+
 async def _po(client, H, so_id, sup_id, lid, qty=2):
     r = await client.post("/api/v1/purchase-orders", headers=H, json={
         "source_sales_order_id": so_id, "supplier_id": sup_id, "currency": "USD",
@@ -142,6 +151,37 @@ async def test_receivable_only_keeps_partially_received(
     po_id, po_lines = await setup_confirmed_po(
         client, db_session, sales_headers, purchaser_headers, so_qty=10)
     await _receive(client, purchaser_headers, po_id, po_lines[0]["id"], 4)  # 收 4/10
+
+    recv = (await client.get(
+        "/api/v1/purchase-orders?status=CONFIRMED&receivable_only=true&size=100",
+        headers=purchaser_headers)).json()["data"]
+    assert po_id in {it["id"] for it in recv["items"]}
+
+
+@pytest.mark.asyncio
+async def test_receivable_only_hides_fully_in_transit(
+        client, purchaser_headers, sales_headers, db_session):
+    """整单已被在途 ASN(IN_TRANSIT,未收货)开满 → receivable_only 隐藏。
+    口径必须镜像入库守卫(含在途),否则选进去真建入库时撞 41703 无额度。
+    旧口径(仅 RECEIVED)会漏放行——本测试是新旧口径的判别点。"""
+    po_id, po_lines = await setup_confirmed_po(
+        client, db_session, sales_headers, purchaser_headers, so_qty=10)
+    # 在途开满 10、不收货:守卫口径 inbounded=10=qty → 无可开额度。
+    await _inbound_in_transit(client, purchaser_headers, po_id, po_lines[0]["id"], 10)
+
+    recv = (await client.get(
+        "/api/v1/purchase-orders?status=CONFIRMED&receivable_only=true&size=100",
+        headers=purchaser_headers)).json()["data"]
+    assert po_id not in {it["id"] for it in recv["items"]}
+
+
+@pytest.mark.asyncio
+async def test_receivable_only_keeps_partially_in_transit(
+        client, purchaser_headers, sales_headers, db_session):
+    """部分在途(4/10)仍有 6 可开额度 → receivable_only 保留(不因引入守卫口径而误伤)。"""
+    po_id, po_lines = await setup_confirmed_po(
+        client, db_session, sales_headers, purchaser_headers, so_qty=10)
+    await _inbound_in_transit(client, purchaser_headers, po_id, po_lines[0]["id"], 4)
 
     recv = (await client.get(
         "/api/v1/purchase-orders?status=CONFIRMED&receivable_only=true&size=100",

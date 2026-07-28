@@ -30,6 +30,7 @@ from app.core.exceptions import (
     OutboundDuplicateLineError,
     OutboundInsufficientAvailableError,
     OutboundLineNotInSalesOrderError,
+    OutboundOrderEmptyError,
     OutboundOrderInvalidTransitionError,
     OutboundOrderEditConflictError,
     OutboundSalesOrderNotConfirmedError,
@@ -175,7 +176,10 @@ def _add_lines(db: AsyncSession, order: OutboundOrder, lines: list[dict],
 
 def _validate_lines_in_so(lines: list[dict], so_lines: dict[int, SalesOrderLine]) -> None:
     """行归属 + 单内不重复(一 SO 行一出库行)。前置拒绝给友好错,
-    DB UNIQUE(outbound_order_id, sales_order_line_id) 兜底,不让打穿成 500。"""
+    DB UNIQUE(outbound_order_id, sales_order_line_id) 兜底,不让打穿成 500。
+    空行兜底(建单/编辑两写入口共守):service 直调放行 0 行会留下占柜槽的空草稿。"""
+    if not lines:
+        raise OutboundOrderEmptyError()
     seen: set[int] = set()
     for ln in lines:
         line_id = ln["sales_order_line_id"]
@@ -288,6 +292,9 @@ async def confirm_order(db: AsyncSession, *, order_id, actor_user_id, actor_user
         raise OutboundSalesOrderNotConfirmedError()
     await _assert_shipment_open(db, order.shipment_id)
     lines = await list_lines(db, order.id)
+    # 确认前兜底空行:0 行出库单会生成 0 金额应收(镜像采购 confirm 的 PurchaseOrderEmptyError)。
+    if not lines:
+        raise OutboundOrderEmptyError()
     so_lines = await _load_so_lines(db, so.id)
     name_by_sku = {sl.sku_id: sl.name_snapshot for sl in so_lines.values()}
 

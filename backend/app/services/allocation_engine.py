@@ -6,7 +6,7 @@ source.amount_unallocated 由 DB Computed 跟随,不手写。全程 Decimal(两�
 Decimal,min/加减不落 float)。
 
 并发(调用方负责):写入口先锁 source 行(receipt/payment)FOR UPDATE,再由本引擎锁候选账行
-(自动核销 ORDER BY 账龄固定序取锁)/ 指定账行(人工/反核销)。锁序钉死「源行先、账行后」,
+(自动核销:取账龄有序 id 后逐行 FOR UPDATE)/ 指定账行(人工/反核销)。锁序钉死「源行先、账行后」,
 自动核销多账行按 (due_at, created_at, id) 固定序——无反序路径,无死锁环。偏唯一
 uq_*_alloc_active 兜底并发重复核销(冲突转 409,调用方 commit 处映射)。
 """
@@ -97,7 +97,11 @@ async def auto_allocate(db: AsyncSession, spec: AllocationSpec, source, *,
                         actor_user_id: int) -> list:
     """自动核销:按账龄 FIFO 冲开口账,取满 min(source 未分配, 账余额),多余留存(预收/预付)。
     调用方须已锁 source 行 FOR UPDATE。source 未认领(对手方空)/ 无未分配余额 → 不核销。
-    候选账行 ORDER BY (due_at NULLS LAST, created_at, id) FOR UPDATE(固定锁序,防并发超额)。"""
+
+    锁法:先按 (due_at NULLS LAST, created_at, id) 取有序候选 id(不加锁),再逐行 FOR UPDATE
+    ——与采购/入库「取有序 id 再逐行锁」同一显式范式,锁序=取序,不依赖「ORDER BY ... FOR UPDATE」
+    的计划相关锁序。锁后复核(账未作废、仍有余额)顶替裸 SELECT 的 EvalPlanQual;累计已锁余额够冲
+    remaining 即停,不多锁尾部无关账行。"""
     party = getattr(source, spec.party_source_attr)
     if party is None:
         return []
@@ -105,15 +109,26 @@ async def auto_allocate(db: AsyncSession, spec: AllocationSpec, source, *,
     if remaining <= 0:
         return []
     A = spec.account_model
-    candidates = (await db.execute(
-        select(A).where(
+    ordered_ids = (await db.execute(
+        select(A.id).where(
             getattr(A, spec.party_account_attr) == party,
             A.currency == source.currency,
             A.voided_at.is_(None),
             A.balance > 0)
-        .order_by(A.due_at.asc().nullslast(), A.created_at.asc(), A.id.asc())
-        .with_for_update())).scalars().all()
-    return await _apply(db, spec, source, candidates, remaining,
+        .order_by(A.due_at.asc().nullslast(), A.created_at.asc(), A.id.asc()))).scalars().all()
+    locked = []
+    need = remaining
+    for acc_id in ordered_ids:
+        if need <= 0:
+            break
+        acc = (await db.execute(
+            select(A).where(A.id == acc_id).with_for_update())).scalar_one_or_none()
+        # 锁后复核:取序无锁,并发可能已把该账作废/核满(裸 FOR UPDATE 的 EvalPlanQual 手动版)。
+        if acc is None or acc.voided_at is not None or _account_balance(acc) <= 0:
+            continue
+        locked.append(acc)
+        need -= _account_balance(acc)
+    return await _apply(db, spec, source, locked, remaining,
                         alloc_type=AllocationType.AUTO, actor_user_id=actor_user_id)
 
 
