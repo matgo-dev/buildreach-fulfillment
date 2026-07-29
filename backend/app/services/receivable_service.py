@@ -91,8 +91,11 @@ async def _customers_with_unallocated(db: AsyncSession, customer_ids: set[int]) 
             Receipt.amount_unallocated > 0))).scalars().all())
 
 
-async def get_detail(db: AsyncSession, receivable_id: int) -> dict:
-    """应收款详情:账头 + 活动核销记录(哪笔收款冲了多少、何时、操作人),供「怎么收清的」追溯。"""
+async def get_detail(db: AsyncSession, receivable_id: int, *, can_read_receipt: bool) -> dict:
+    """应收款详情:账头 + 活动核销记录(哪笔收款冲了多少、何时、操作人),供「怎么收清的」追溯。
+
+    核销记录属收款域:无 receipt:read 者整块不下发(空列表),与列表提示位同源门控
+    ——不该经账层详情旁路感知收款单存在性。账头(已冲/余额/状态)是账层信息,receivable:read 即可见。"""
     r = await get(db, receivable_id)
     if r is None:
         raise NotFoundError(f"应收款不存在: {receivable_id}")
@@ -101,7 +104,7 @@ async def get_detail(db: AsyncSession, receivable_id: int) -> dict:
         .join(Receipt, Receipt.id == ReceiptAllocation.receipt_id)
         .where(ReceiptAllocation.receivable_id == receivable_id,
                ReceiptAllocation.reversed_at.is_(None))
-        .order_by(ReceiptAllocation.id))).all()
+        .order_by(ReceiptAllocation.id))).all() if can_read_receipt else []
     cust_name = (await db.execute(
         select(Customer.name).where(Customer.id == r.customer_id))).scalar_one_or_none()
     ob_no = (await db.execute(

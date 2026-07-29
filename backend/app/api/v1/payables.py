@@ -41,6 +41,8 @@ async def list_payables(page_params: PageParams = Depends(),
 
 
 @router.get("/{payable_id}", summary="应付款详情(嵌活动核销记录:哪笔付款冲了多少)· 🔴红线")
-async def get_payable(payable_id: int, _current: CurrentUser = _READ,
+async def get_payable(payable_id: int, current: CurrentUser = _READ,
                       db: AsyncSession = Depends(get_db)):
-    return success(await payable_service.get_detail(db, payable_id))
+    # 🔴 核销记录派生自付款域:无 payment:read 不下发(整块脱敏),与列表提示位同源门控。
+    return success(await payable_service.get_detail(
+        db, payable_id, can_read_payment=has_permission(current, Permissions.PAYMENT_READ)))
