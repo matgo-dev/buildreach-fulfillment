@@ -52,6 +52,18 @@ async def test_create_computes_total(db_session):
 
 
 @pytest.mark.asyncio
+async def test_total_equals_sum_of_quantized_line_totals(db_session):
+    """表头总额 = Σ(逐行 quantize 2dp),不是「原始乘积求和后舍一次」。
+    否则与行 line_total(DB 存 2dp)口径分裂,一路冻结进 SO、与应收/应付逐行合计恒差分位。
+    3 行 0.99×1.115=1.10385 → 行 2dp=1.10,Σ=3.30;原始求和 3.31155→舍一次=3.31(错)。"""
+    cust, skus = await _seed(db_session)
+    order = await _create(db_session, cust, skus,
+                          [_ln(skus[0].id, "0.99", "1.115"), _ln(skus[1].id, "0.99", "1.115"),
+                           _ln(skus[2].id, "0.99", "1.115")])
+    assert str(order.total_amount) == "3.30"
+
+
+@pytest.mark.asyncio
 async def test_put_reconcile_edit_and_delete(db_session):
     cust, skus = await _seed(db_session)
     order = await _create(db_session, cust, skus,

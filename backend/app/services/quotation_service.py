@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,6 +43,10 @@ from app.db.models.user import User
 from app.services import customer_service, sku_service, spec_template_service as tmpl, user_service
 from app.services.numbering import allocate
 from app.services.repo import assert_no_edit_conflict, get_or_404, paginate
+
+# 金额舍入到分:逐行 quantize 再求和,表头 = Σ 已舍入行额(与行 line_total 的 DB 2dp 口径一致,
+# 镜像入库/出库侧;若「原始乘积求和后舍一次」会与行合计差分位,冻结进 SO 后污染应收对账)。
+_CENT = Decimal("0.01")
 
 
 def _compose_snapshot(sku: Sku, spu: Spu, by_key: dict, order_lang: str) -> tuple[str, str, str]:
@@ -186,7 +190,8 @@ async def _reconcile_lines(db: AsyncSession, order: QuotationOrder, lines: list[
         else:
             name, spec_text, unit = _compose_snapshot(
                 sku, spu, by_key_by_cat[spu.category_code], order.language)
-        line_total = Decimal(str(ln["unit_price"])) * Decimal(str(ln["qty"]))
+        line_total = (Decimal(str(ln["unit_price"])) * Decimal(str(ln["qty"]))).quantize(
+            _CENT, rounding=ROUND_HALF_UP)
         total += line_total
         sort_order = ln.get("sort_order", idx)
         if row is not None:
