@@ -9,7 +9,7 @@ from app.audit.constants import AuditAction, AuditResourceType
 from app.audit.logger import write_audit
 from app.core.config import settings
 from app.core.exceptions import ConflictError, NotFoundError, ValidationFailedError
-from app.core.security import PASSWORD_RULE_MESSAGE, hash_password, validate_password_strength
+from app.core.security import PASSWORD_RULE_MESSAGE, hash_password_async, validate_password_strength
 from app.db.models.permission import Permission
 from app.db.models.role import Role, RoleCode
 from app.db.models.role_permission import RolePermission
@@ -92,7 +92,7 @@ async def create_internal_user(
         email=email,
         username=username,
         name=name,
-        password_hash=hash_password(password),
+        password_hash=await hash_password_async(password),
         status=UserStatus.ACTIVE,
         must_change_password=must_change_password,
     )
@@ -244,14 +244,24 @@ async def update_user(
     return target
 
 
-async def _count_active_admins(db: AsyncSession) -> int:
-    row = await db.execute(
-        select(func.count(User.id.distinct()))
+async def _count_active_admins(db: AsyncSession, *, lock: bool = False) -> int:
+    """可用 ADMIN 数。lock=True 时对命中的 ADMIN 用户行 `FOR UPDATE`(按 id 升序取锁、消死锁环)。
+
+    「减少 ADMIN 数」的写路径(停用 / 改走 ADMIN)在计数前锁住**共享的整个 active-ADMIN 行集**
+    (查询返回全部而非仅 target),使并发操作串行化——否则两个并发操作各读到 2、双双通过 <=1
+    检查,把最后两个 ADMIN 一起停掉、系统失联(TOCTOU)。
+    UNIQUE(user_id, role_id) 保证每 ADMIN 用户仅一行,无需 distinct(FOR UPDATE 也不容 distinct)。"""
+    stmt = (
+        select(User.id)
         .join(UserRole, UserRole.user_id == User.id)
         .join(Role, Role.id == UserRole.role_id)
         .where(Role.code == RoleCode.ADMIN, User.status == UserStatus.ACTIVE)
+        .order_by(User.id)
     )
-    return int(row.scalar_one())
+    if lock:
+        stmt = stmt.with_for_update(of=User)
+    rows = await db.execute(stmt)
+    return len(rows.scalars().all())
 
 
 async def _user_has_role(db: AsyncSession, user_id: int, role_code: str) -> bool:
@@ -294,7 +304,7 @@ async def disable_user(
 
     # 最后一个可用 ADMIN 保护
     if await _user_has_role(db, target.id, RoleCode.ADMIN):
-        active_admins = await _count_active_admins(db)
+        active_admins = await _count_active_admins(db, lock=True)
         if active_admins <= 1:
             raise ValidationFailedError("系统至少保留一个可用 ADMIN,无法停用该账号")
 
@@ -384,7 +394,7 @@ async def change_role(
         return target  # 幂等
 
     if RoleCode.ADMIN in old_roles and new_role != RoleCode.ADMIN:
-        if target.status == UserStatus.ACTIVE and await _count_active_admins(db) <= 1:
+        if target.status == UserStatus.ACTIVE and await _count_active_admins(db, lock=True) <= 1:
             raise ValidationFailedError("系统至少保留一个可用 ADMIN,无法改走该账号角色")
 
     role_row = await db.execute(select(Role).where(Role.code == new_role))
@@ -436,7 +446,7 @@ async def reset_password(
     if _is_super_admin(target):
         raise ValidationFailedError("不能重置 super admin 密码")
 
-    target.password_hash = hash_password(new_password)
+    target.password_hash = await hash_password_async(new_password)
     target.must_change_password = True
     target.token_version += 1
     # 管理员代重置 = 账号级登录锁定的人工解锁通道:计数清零 + 解除锁定

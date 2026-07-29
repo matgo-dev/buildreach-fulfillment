@@ -55,30 +55,6 @@ async def block_if_must_change_password(
     return current
 
 
-def require_any_role(*role_codes: str):
-    allowed = set(role_codes)
-
-    async def checker(current: CurrentUser = Depends(get_current_user)) -> CurrentUser:
-        if not (allowed & set(current.roles)):
-            raise PermissionDeniedError(
-                f"Permission denied: required role in {sorted(allowed)}"
-            )
-        return current
-    return checker
-
-
-def require_all_roles(*role_codes: str):
-    required = set(role_codes)
-
-    async def checker(current: CurrentUser = Depends(get_current_user)) -> CurrentUser:
-        if not required.issubset(set(current.roles)):
-            raise PermissionDeniedError(
-                f"Permission denied: requires all roles {sorted(required)}"
-            )
-        return current
-    return checker
-
-
 def require_any_permission(*perm_codes: str):
     allowed: Iterable[str] = perm_codes
 

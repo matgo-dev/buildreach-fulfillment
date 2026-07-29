@@ -29,9 +29,9 @@ from app.core.security import (
     create_refresh_token,
     decode_token,
     hash_jti,
-    hash_password,
+    hash_password_async,
     validate_password_strength,
-    verify_password,
+    verify_password_async,
 )
 from app.db.models.audit_log import AuditStatus
 from app.db.models.refresh_token import RefreshToken
@@ -209,7 +209,11 @@ async def login(
     # 用户不存在 / 密码错误 / 已注销 → 统一返回同一个 401,防枚举;
     # 真实原因只进审计(error_message)。
     # 注意:_find_user_by_identifier 只返回 ACTIVE 用户,DISABLED/DEACTIVATED 会走此分支
-    if user is None or not verify_password(password, user.password_hash):
+    # verify_password_async:走线程池(不阻塞事件循环)+ 用户不存在时对 dummy hash 跑一次
+    # 等化耗时(堵登录时序枚举,与上方「统一 401」防枚举同一层意图)。
+    password_ok = await verify_password_async(
+        password, user.password_hash if user is not None else None)
+    if user is None or not password_ok:
         error_detail = "invalid credentials"
         if user is None and await _is_deactivated_by_identifier(db, identifier):
             error_detail = "account deactivated"
@@ -412,7 +416,7 @@ async def change_password(
     user = await db.get(User, user_id)
     if user is None:
         raise NotFoundError("User not found")
-    if not verify_password(old_password, user.password_hash):
+    if not await verify_password_async(old_password, user.password_hash):
         await write_audit(
             db,
             resource_type=AuditResourceType.AUTH,
@@ -427,7 +431,7 @@ async def change_password(
     if not validate_password_strength(new_password):
         raise ValidationFailedError(PASSWORD_RULE_MESSAGE)
 
-    user.password_hash = hash_password(new_password)
+    user.password_hash = await hash_password_async(new_password)
     user.must_change_password = False
     # 吊销旧 token，随后签发新 token（改密后自动续登，无需重新输入凭证）
     user.token_version += 1
@@ -464,7 +468,11 @@ async def logout(
     user_email: str | None = None,
     request: Request | None = None,
 ) -> None:
-    """登出:撤销 refresh cookie 所属的 token 家族(服务端吊销,非仅清浏览器 cookie)+ 写审计。
+    """登出:撤销 refresh cookie 所属的 token 家族(服务端吊销 refresh,非仅清浏览器 cookie)+ 写审计。
+
+    注意:只吊销 refresh 家族(续期链断,无法再换新 access)。已签发的 access token 是无状态的,
+    在其 ACCESS_TOKEN_EXPIRE_MINUTES(15min)有效期内仍可用——这是无状态 JWT 的固有取舍;需要
+    即时全设备断权走改密/重置(token_version+1)。故「登出即刻断权」仅对 refresh 成立。
 
     幂等:token 缺失/失效/账本无行都静默跳过撤族;仅在拿到有效用户身份时写 LOGOUT 审计。
     """
