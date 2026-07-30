@@ -40,6 +40,8 @@ async def list_receivables(page_params: PageParams = Depends(), customer_id: int
 
 
 @router.get("/{receivable_id}", summary="应收款详情(嵌活动核销记录:哪笔收款冲了多少)")
-async def get_receivable(receivable_id: int, _current: CurrentUser = _READ,
+async def get_receivable(receivable_id: int, current: CurrentUser = _READ,
                          db: AsyncSession = Depends(get_db)):
-    return success(await receivable_service.get_detail(db, receivable_id))
+    # 核销记录派生自收款域:无 receipt:read 不下发(整块脱敏),与列表提示位同源门控。
+    return success(await receivable_service.get_detail(
+        db, receivable_id, can_read_receipt=has_permission(current, Permissions.RECEIPT_READ)))

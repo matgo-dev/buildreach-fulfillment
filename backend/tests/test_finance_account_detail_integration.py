@@ -79,6 +79,45 @@ async def test_receivable_hint_masked_for_sales_without_receipt_read(
     assert sal_row["counterparty_has_unallocated"] is False
 
 
+async def test_payable_detail_withholds_payment_domain_for_purchaser(
+        client, db_session, sales_headers, purchaser_headers, finance_headers):
+    """🔴红线:PURCHASER(持 payable:read 无 payment:read)看应付详情——账头(已冲/已付清)可见,
+    但付款域核销记录整块不下发。与列表提示位同源门控:不该经账层详情旁路感知付款单存在性。"""
+    ctx, supplier_id, pay_id, amount = await make_open_payable(
+        client, db_session, sales_headers, purchaser_headers, po_price="5.00", received=10)
+    await client.post("/api/v1/payments", headers=finance_headers, json={
+        "supplier_id": supplier_id, "currency": "USD", "amount": "50.00", "paid_at": "2026-07-21"})
+    # FINANCE:见付款单号
+    fin = await client.get(f"/api/v1/payables/{pay_id}", headers=finance_headers)
+    assert fin.json()["data"]["allocations"][0]["payment_no"].startswith("PM")
+    # PURCHASER:账头照常(已冲 50 / 已付清),但 allocations 空 —— 付款单存在性不泄漏
+    pur = await client.get(f"/api/v1/payables/{pay_id}", headers=purchaser_headers)
+    assert pur.status_code == 200, pur.text
+    body = pur.json()["data"]
+    assert float(body["amount_allocated"]) == 50.0 and body["status"] == "PAID"
+    assert body["allocations"] == []
+
+
+async def test_receivable_detail_withholds_receipt_domain_for_sales(
+        client, db_session, sales_headers, purchaser_headers, logistics_headers, finance_headers):
+    """应收详情:SALES(持 receivable:read 无 receipt:read)——账头可见,收款域核销记录整块不下发。
+    与列表提示位同源门控:不经账层详情旁路感知收款单存在性。"""
+    ctx, ob_id, amount = await make_open_receivable(
+        client, db_session, sales_headers, purchaser_headers, logistics_headers,
+        unit_price="10.00", qty=5)  # 应收 50
+    reg = await client.post("/api/v1/receipts", headers=finance_headers, json={
+        "customer_id": ctx["customer"].id, "currency": "USD", "amount": "50.00",
+        "received_at": "2026-07-21"})
+    receivable_id = reg.json()["data"]["allocations"][0]["receivable_id"]
+    fin = await client.get(f"/api/v1/receivables/{receivable_id}", headers=finance_headers)
+    assert fin.json()["data"]["allocations"][0]["receipt_no"].startswith("RC")
+    sal = await client.get(f"/api/v1/receivables/{receivable_id}", headers=sales_headers)
+    assert sal.status_code == 200, sal.text
+    body = sal.json()["data"]
+    assert float(body["amount_allocated"]) == 50.0 and body["status"] == "PAID"
+    assert body["allocations"] == []
+
+
 async def test_payable_hint_masked_for_purchaser_without_payment_read(
         client, db_session, sales_headers, purchaser_headers, finance_headers):
     """🔴 D10 提示位(付侧):派生自红线付款域,PURCHASER(持 payable:read 无 payment:read)

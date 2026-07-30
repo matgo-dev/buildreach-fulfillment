@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import case, exists, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,6 +47,9 @@ from app.db.models.sku import Sku
 from app.db.models.supplier import Supplier, SupplierStatus
 from app.services.numbering import allocate
 from app.services.repo import assert_no_edit_conflict, get_or_404, paginate
+
+# 金额舍入到分:逐行 quantize 再求和(与报价/入库/出库同口径,见 _add_lines)。
+_CENT = Decimal("0.01")
 
 
 async def _next_po_no(db: AsyncSession) -> str:
@@ -294,11 +297,13 @@ async def create_order(db: AsyncSession, *, source_sales_order_id, supplier_id, 
 
 def _add_lines(db: AsyncSession, po: PurchaseOrder, lines: list[dict],
                so_lines: dict[int, SalesOrderLine]) -> Decimal:
-    """新增 PO 行:平移 SO 行快照,采购价录入,line_total=Decimal 精度。返回 Σ line_total。"""
+    """新增 PO 行:平移 SO 行快照,采购价录入,line_total 逐行 quantize 2dp。返回 Σ 已舍入行额。
+    表头 = Σ 已舍入行额(与行 line_total 的 DB 2dp 一致,镜像入库/出库/报价侧,防表头行合计分位差)。"""
     total = Decimal("0")
     for idx, ln in enumerate(lines):
         sol = so_lines[ln["source_sales_order_line_id"]]
-        line_total = Decimal(str(ln["unit_price"])) * Decimal(str(ln["qty"]))
+        line_total = (Decimal(str(ln["unit_price"])) * Decimal(str(ln["qty"]))).quantize(
+            _CENT, rounding=ROUND_HALF_UP)
         total += line_total
         db.add(PurchaseOrderLine(
             purchase_order_id=po.id, sku_id=sol.sku_id,

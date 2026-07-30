@@ -90,8 +90,11 @@ async def get(db: AsyncSession, payable_id: int) -> Payable | None:
         select(Payable).where(Payable.id == payable_id))).scalar_one_or_none()
 
 
-async def get_detail(db: AsyncSession, payable_id: int) -> dict:
-    """应付款详情:账头 + 活动核销记录(哪笔付款冲了多少、何时),供「怎么付清的」追溯。🔴红线。"""
+async def get_detail(db: AsyncSession, payable_id: int, *, can_read_payment: bool) -> dict:
+    """应付款详情:账头 + 活动核销记录(哪笔付款冲了多少、何时),供「怎么付清的」追溯。🔴红线。
+
+    核销记录属付款域(红线):无 payment:read 者整块不下发(空列表),与列表提示位同源门控
+    ——不该经账层详情旁路感知付款单存在性。账头(已冲/余额/状态)是账层信息,payable:read 即可见。"""
     p = await get(db, payable_id)
     if p is None:
         raise NotFoundError(f"应付款不存在: {payable_id}")
@@ -100,7 +103,7 @@ async def get_detail(db: AsyncSession, payable_id: int) -> dict:
         .join(Payment, Payment.id == PaymentAllocation.payment_id)
         .where(PaymentAllocation.payable_id == payable_id,
                PaymentAllocation.reversed_at.is_(None))
-        .order_by(PaymentAllocation.id))).all()
+        .order_by(PaymentAllocation.id))).all() if can_read_payment else []
     sup_name = (await db.execute(
         select(Supplier.name).where(Supplier.id == p.supplier_id))).scalar_one_or_none()
     inb_no = (await db.execute(

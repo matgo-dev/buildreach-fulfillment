@@ -58,6 +58,42 @@ async def test_line_total_precision(client, purchaser_headers, sales_headers, db
 
 
 @pytest.mark.asyncio
+async def test_po_total_equals_sum_of_quantized_lines(
+        client, purchaser_headers, sales_headers, db_session):
+    """PO 表头总额 = Σ(逐行 quantize 2dp),与报价同口径;否则 PO/应付表头与逐行合计分裂。
+    两行 0.99×1.115=1.10385 → 行 2dp=1.10,Σ=2.20;原始求和 2.2077→舍一次=2.21(错)。"""
+    from app.db.models.sku import Sku
+    cust, sku = await seed_catalog_and_customer(db_session)
+    sku2 = Sku(spu_id=sku.spu_id, sku_code="SKUA002", unit="ton",
+               name_i18n={"zh": "工字钢201"}, created_by=1, status="ACTIVE")
+    db_session.add(sku2)
+    await db_session.commit()
+    # 两 SKU 各一报价行(一 SKU 一价:多行须不同 SKU)→ 锁档 → 转销售。
+    r = await client.post("/api/v1/quotations", headers=sales_headers, json={
+        "customer_id": cust.id, "currency": "USD", "summary": "采购舍入测试",
+        "lines": [{"sku_id": sku.id, "unit_price": 100, "qty": 5},
+                  {"sku_id": sku2.id, "unit_price": 100, "qty": 5}]})
+    assert r.status_code == 200, r.text
+    qid = r.json()["data"]["id"]
+    assert (await client.post(f"/api/v1/quotations/{qid}/lock", headers=sales_headers)).status_code == 200
+    conv = await client.post(f"/api/v1/quotations/{qid}/convert", headers=sales_headers)
+    assert conv.status_code == 200, conv.text
+    so_id = conv.json()["data"]["order"]["id"]
+    so_lines = (await client.get(f"/api/v1/sales-orders/{so_id}", headers=sales_headers)
+                ).json()["data"]["lines"]
+    sup = await create_supplier(client, purchaser_headers)
+
+    po = await client.post("/api/v1/purchase-orders", headers=purchaser_headers, json={
+        "source_sales_order_id": so_id, "supplier_id": sup["id"], "currency": "USD",
+        "lines": [{"source_sales_order_line_id": so_lines[0]["id"], "qty": "1.115", "unit_price": "0.99"},
+                  {"source_sales_order_line_id": so_lines[1]["id"], "qty": "1.115", "unit_price": "0.99"}]})
+    assert po.status_code == 200, po.text
+    data = po.json()["data"]
+    assert float(data["lines"][0]["line_total"]) == 1.10
+    assert float(data["order"]["total_amount"]) == 2.20
+
+
+@pytest.mark.asyncio
 async def test_over_purchase_blocked_single_line(client, purchaser_headers, sales_headers, db_session):
     """超采守卫:单行采购量 > SO 行数量 → 41603。"""
     cust, sku = await seed_catalog_and_customer(db_session)
