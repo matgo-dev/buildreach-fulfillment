@@ -55,9 +55,11 @@ class Spu(Base, TimestampUpdateMixin, SoftDeleteMixin):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     spu_code: Mapped[str] = mapped_column(String(30), unique=True, nullable=False, index=True)
-    # ON DELETE RESTRICT 显式:品类被引用时不可硬删(同 sku.unit 口径;categories 实际只软删)
+    # ON DELETE RESTRICT 显式:品类被引用时不可硬删(同 sku.unit 口径;categories 实际只软删)。
+    # 不加 index=True:本列全部查询仅等值 + 前缀 LIKE(list_spus 子树过滤),均由上方
+    # ix_spus_category_code_prefix(text_pattern_ops)覆盖;默认 opclass 普通索引纯冗余(无 locale 排序/范围消费)。
     category_code: Mapped[str] = mapped_column(
-        String(50), ForeignKey("categories.code", ondelete="RESTRICT"), nullable=False, index=True)
+        String(50), ForeignKey("categories.code", ondelete="RESTRICT"), nullable=False)
     name_i18n: Mapped[dict] = mapped_column(JSONB, nullable=False)
     # 主数据补全(商品概念层,跨 SKU 变体一致):
     #   brand 可选品牌文本(值非枚举,可中文;不同品牌本就拆成不同 SPU,故一 SPU 一品牌);

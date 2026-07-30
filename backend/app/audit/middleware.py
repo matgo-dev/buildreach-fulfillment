@@ -34,7 +34,8 @@ def _safe_inbound_trace_id(request: Request) -> str | None:
     if not settings.TRUST_INBOUND_TRACE_ID:
         return None
     raw = request.headers.get("X-Trace-Id")
-    return raw if (raw and _TRACE_ID_RE.match(raw)) else None
+    # fullmatch 而非 match:`$` 允许尾随一个 \n,"validid\n" 会漏进日志/响应头(h11 拒非法头值 → 500)。
+    return raw if (raw and _TRACE_ID_RE.fullmatch(raw)) else None
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):

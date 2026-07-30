@@ -21,9 +21,9 @@ class Settings(BaseSettings):
     DB_POOL_TIMEOUT: int = 30
     DB_POOL_RECYCLE: int = 3600
 
-    # JWT
+    # JWT(签名算法钉死在 core/security.py 的 _JWT_ALG 常量,不做可配置项:只用 HS256 对称密钥,
+    # env 可配只徒增误配面)
     JWT_SECRET_KEY: str = Field(..., min_length=16)
-    JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 

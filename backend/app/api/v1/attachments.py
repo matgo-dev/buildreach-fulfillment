@@ -1,7 +1,7 @@
 """附件端点 /api/v1/attachments —— 中转上传 + 逐文件鉴权下载 + 删孤儿。
 
 上传/删孤儿守 shipment:manage(当前唯一消费域=报关;新消费者出现时改为按域集合)。
-下载仅需登录,scope 在 service 逐文件判(孤儿=上传者本人/TTL;已挂报关=shipment:read)。
+下载仅需登录(仍受强制改密门),scope 在 service 逐文件判(孤儿=上传者本人/TTL;已挂报关=shipment:read)。
 下载恒强制 attachment + nosniff,不提供 inline/preview。
 """
 from __future__ import annotations
@@ -12,11 +12,11 @@ from fastapi import APIRouter, Depends, File, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import CurrentUser, get_current_user
+from app.core.dependencies import CurrentUser
 from app.core.exceptions import AttachmentUnavailableError, success
 from app.db.session import get_db
 from app.rbac.constants import Permissions
-from app.rbac.guards import require_permission
+from app.rbac.guards import block_if_must_change_password, require_permission
 from app.schemas.attachment import AttachmentPublic
 from app.services import attachment_service
 from app.services.storage import get_attachment_storage
@@ -39,7 +39,8 @@ async def upload(file: UploadFile = File(...), current: CurrentUser = _MANAGE,
 
 
 @router.get("/{attachment_id}/download", summary="鉴权流式下载(强制下载 + nosniff)")
-async def download(attachment_id: int, current: CurrentUser = Depends(get_current_user),
+async def download(attachment_id: int,
+                   current: CurrentUser = Depends(block_if_must_change_password),
                    db: AsyncSession = Depends(get_db)):
     att = await attachment_service.get_downloadable(db, current, attachment_id)
     storage = get_attachment_storage()
