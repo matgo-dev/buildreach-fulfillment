@@ -468,6 +468,12 @@ async def list_orders(db: AsyncSession, *, status=None, supplier_id=None,
     # (仅 RECEIVED)。否则「已被在途 ASN 收满」的 PO 仍进选单器,真建入库时却撞 41703 无额度——
     # 选单器要回答的是「还能不能再开」,答案由守卫定。含在途状态集走 INBOUNDED_STATUSES 单一源头
     # (与 compute_inbounded_qty 同引用,禁两处各写谓词)。
+    # ⚠️ 增长型性能雷 —— 按实测触发、刻意未做(登记见 docs/分析/工程约定与遗留待办.md):
+    # inbounded_sq 每次现算「已入库量」相关子查询,分页/count 前对全部候选 PO 逐行聚合,与已
+    # 物化的 SO covered_qty(方案C·迁移 0035)完全同构。此处是冷路径(仅建入库时开选单器、通常
+    # 带 PO 号搜索),阈值比 SO 那条(采购员高频)高:PO 表约 1–5 万行、不带搜索打开时才开始觉出。
+    # 触发信号=本端点 X-Process-Time-Ms / 日志耗时(RequestIDMiddleware,PR#52 已加请求计时)
+    # 或 PO 行数上万。解法照搬方案C:PO 行加 inbounded_qty 物化列 + 入库三写入口同事务锁内重算写回。
     if receivable_only:
         inbounded_sq = (
             select(func.coalesce(func.sum(InboundOrderLine.qty), 0))
