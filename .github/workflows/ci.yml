@@ -74,6 +74,15 @@ jobs:
           source .venv/bin/activate
           pytest -v --tb=short
 
+      - name: Frontend permissions are generated from backend (single source)
+        working-directory: backend
+        run: |
+          source .venv/bin/activate
+          python scripts/gen_frontend_permissions.py
+          # 前端权限码是后端 constants.py 的派生产物;若后端改了码却没重生成则报红。
+          git diff --exit-code -- ../frontend/src/config/permission-matrix.ts \
+            || { echo "::error::permission-matrix.ts 已过期,请在 backend 下运行 python scripts/gen_frontend_permissions.py 后提交"; exit 1; }
+
       - name: Test database migration (alembic upgrade head)
         working-directory: backend
         env:

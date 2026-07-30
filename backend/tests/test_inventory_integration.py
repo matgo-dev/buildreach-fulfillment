@@ -273,9 +273,14 @@ async def test_pagination_and_filters(client, db_session, sales_headers, purchas
     # 两行在库
     full = await _inventory(client, purchaser_headers)
     assert full["total"] >= 2
-    # 分页 size=1
+    # 分页 size=1:首页/末页非空,total 随 count(*) OVER () 一趟返回
     p1 = await _inventory(client, purchaser_headers, sales_order_id=so_id, page=1, size=1)
     assert p1["total"] == 2 and len(p1["items"]) == 1
+    p2 = await _inventory(client, purchaser_headers, sales_order_id=so_id, page=2, size=1)
+    assert p2["total"] == 2 and len(p2["items"]) == 1
+    # 越界空页:窗口无行可取 → 回落单独 count,total 仍为 2(不塌成 0)
+    over = await _inventory(client, purchaser_headers, sales_order_id=so_id, page=99, size=1)
+    assert over["items"] == [] and over["total"] == 2
     # 按 sku_id 过滤
     only_a = await _inventory(client, purchaser_headers, sku_id=sku_a.id)
     assert all(it["sku_id"] == sku_a.id for it in only_a["items"])

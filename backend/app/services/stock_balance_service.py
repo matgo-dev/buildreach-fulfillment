@@ -37,7 +37,6 @@ from app.db.models.sku import Sku
 from app.db.models.spu import Spu
 from app.db.models.unit import Unit
 from app.services import spec_template_service as tmpl
-from app.services.repo import paginate
 
 
 class StockScope:
@@ -259,7 +258,19 @@ async def compute_stock_balance(
     stmt = stmt.order_by(bal.c.so_id, bal.c.sku_id)
 
     if page is not None and size is not None:
-        rows, total = await paginate(db, stmt, page=page, size=size, scalars=False)
+        # count(*) OVER () 让总数随当页行一趟返回,避免默认 paginate 把三臂聚合 + FULL JOIN
+        # (全库最贵查询)为算 total 再整条重跑一遍(2× → 1×)。窗口按过滤后、limit 前的全集计数。
+        # 越界空页(page 超末页)窗口无行可取 → 回落单独 count 一次拿正确总数(仅此边角付 2×)。
+        paged = (stmt.add_columns(func.count().over().label("total_count"))
+                 .offset((page - 1) * size).limit(size))
+        rows = list((await db.execute(paged)).all())
+        if rows:
+            total = int(rows[0].total_count)
+        elif page <= 1:
+            total = 0
+        else:
+            total = (await db.execute(
+                select(func.count()).select_from(stmt.order_by(None).subquery()))).scalar_one()
     else:
         rows = list((await db.execute(stmt)).all())
         total = len(rows)
