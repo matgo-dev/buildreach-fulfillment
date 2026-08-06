@@ -11,6 +11,7 @@ class AuditResourceType(str, Enum):
     PERMISSION = "permission"
     SYSTEM = "system"
     USER_ROLE = "user_role"
+    CATEGORY = "category"
     CUSTOMER = "customer"
     SPU = "spu"
     SKU = "sku"
