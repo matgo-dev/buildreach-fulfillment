@@ -1,14 +1,53 @@
 """分类服务:树形主数据维护 + 读投影。"""
 from __future__ import annotations
 
+import re
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
 from app.audit.constants import AuditAction, AuditResourceType
 from app.audit.logger import write_audit
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import ConflictError, NotFoundError, ValidationFailedError
 from app.db.models.category import Category
+
+_CATEGORY_CODE_RE = re.compile(r"^(?!00(?:\.|$))\d{2}(?:\.(?!000)\d{3}){0,2}$")
+_CATEGORY_CODE_MESSAGE = "分类编码格式应为 01 / 01.001 / 01.001.003"
+
+
+def _normalize_category_code(code: str, *, field: str = "code") -> str:
+    normalized = code.strip()
+    if not _CATEGORY_CODE_RE.fullmatch(normalized):
+        raise ValidationFailedError(f"{field}: {_CATEGORY_CODE_MESSAGE}")
+    return normalized
+
+
+def _normalize_category_code_opt(code: str | None, *, field: str = "parent_code") -> str | None:
+    if code is None:
+        return None
+    normalized = code.strip()
+    if not normalized:
+        return None
+    return _normalize_category_code(normalized, field=field)
+
+
+def _code_level(code: str) -> int:
+    return code.count(".") + 1
+
+
+def _assert_create_parentage(*, code: str, parent_code: str | None) -> None:
+    level = _code_level(code)
+    if parent_code is None:
+        if level != 1:
+            raise ValidationFailedError("根分类编码必须是一段,例如 01")
+        return
+
+    parent_level = _code_level(parent_code)
+    if parent_level >= 3:
+        raise ValidationFailedError("分类最多支持三级")
+    if level != parent_level + 1 or not code.startswith(f"{parent_code}."):
+        raise ValidationFailedError("子分类编码必须在父级编码后追加一段三位数字")
 
 
 def _to_out(c: Category) -> dict:
@@ -26,6 +65,7 @@ def _to_out(c: Category) -> dict:
 
 
 async def get_category(db: AsyncSession, code: str, *, for_update: bool = False) -> Category:
+    code = _normalize_category_code(code)
     stmt = select(Category).where(Category.code == code)
     if for_update:
         stmt = stmt.with_for_update()
@@ -33,6 +73,33 @@ async def get_category(db: AsyncSession, code: str, *, for_update: bool = False)
     if c is None:
         raise NotFoundError(f"分类不存在: {code}")
     return c
+
+
+async def _ancestor_chain(db: AsyncSession, code: str, *, for_update: bool = False) -> list[Category]:
+    """返回根→当前节点链。for_update=True 时按根→叶顺序锁,供写入路径消除死锁环。"""
+    chain: list[Category] = []
+    cur = await get_category(db, code)
+    seen: set[str] = set()
+    while cur.code not in seen:
+        seen.add(cur.code)
+        chain.append(cur)
+        if not cur.parent_code:
+            break
+        cur = await get_category(db, cur.parent_code)
+
+    codes = [c.code for c in reversed(chain)]
+    if not for_update:
+        return list(reversed(chain))
+
+    rows = (await db.execute(
+        select(Category)
+        .where(Category.code.in_(codes))
+        .order_by(Category.level, Category.code)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )).scalars().all()
+    by_code = {row.code: row for row in rows}
+    return [by_code[c] for c in codes]
 
 
 async def list_tree(db: AsyncSession, *, include_inactive: bool = False) -> list[dict]:
@@ -47,18 +114,27 @@ async def create_category(db: AsyncSession, *, code: str, parent_code: str | Non
                           name_i18n: dict, sort_order: int,
                           actor_user_id: int, actor_user_email: str,
                           request: Request | None = None) -> Category:
+    code = _normalize_category_code(code)
+    parent_code = _normalize_category_code_opt(parent_code)
+    _assert_create_parentage(code=code, parent_code=parent_code)
+
     exists = (await db.execute(
         select(Category.id).where(Category.code == code))).scalar_one_or_none()
     if exists is not None:
         raise ConflictError(f"分类编码已存在: {code}")
 
     parent: Category | None = None
-    level = 1
+    level = _code_level(code)
     if parent_code:
-        parent = await get_category(db, parent_code, for_update=True)
-        if not parent.is_active:
-            raise ConflictError(f"父分类已停用,请先启用父分类: {parent_code}")
-        level = parent.level + 1
+        chain = await _ancestor_chain(db, parent_code, for_update=True)
+        parent = chain[-1]
+        inactive = next((c for c in chain if not c.is_active), None)
+        if inactive is not None:
+            raise ConflictError(f"上级分类已停用,请先启用分类: {inactive.code}")
+        if parent.level >= 3:
+            raise ValidationFailedError("分类最多支持三级")
+        if level != parent.level + 1:
+            raise ValidationFailedError("分类编码层级必须与父级一致")
 
     c = Category(code=code, parent_code=parent_code, name_i18n=name_i18n, level=level,
                  is_leaf=True, is_active=True, sort_order=sort_order)
@@ -164,8 +240,7 @@ async def names_by_code(db: AsyncSession, codes: list[str]) -> dict[str, dict]:
 async def paths_by_code(db: AsyncSession, codes: list[str]) -> dict[str, list[dict]]:
     """每个 code → 根→叶完整祖先链 [{code, name_i18n}, ...](含自身)。
 
-    走 parent_code FK 链派生(权威关系,不解析 code 字符串——运营新增分类的 code
-    方案未必是点分物化路径)。逐层向上批量取,**不写死层数**(无限上溯到根,加层不炸);
+    走 parent_code FK 链派生(权威关系,不解析 code 字符串)。逐层向上批量取,
     seen 守卫防脏数据成环。读时投影,不落库、非第二源头。
     """
     leaves = [c for c in set(codes) if c]

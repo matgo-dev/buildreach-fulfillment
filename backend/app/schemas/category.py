@@ -2,8 +2,32 @@
 from __future__ import annotations
 
 from datetime import datetime
+import re
 
 from pydantic import BaseModel, Field, field_validator
+
+_CATEGORY_CODE_RE = re.compile(r"^(?!00(?:\.|$))\d{2}(?:\.(?!000)\d{3}){0,2}$")
+_CATEGORY_CODE_MESSAGE = "分类编码格式应为 01 / 01.001 / 01.001.003"
+
+
+def _valid_category_code(v: str) -> str:
+    if not isinstance(v, str):
+        return v
+    v = v.strip()
+    if not _CATEGORY_CODE_RE.fullmatch(v):
+        raise ValueError(_CATEGORY_CODE_MESSAGE)
+    return v
+
+
+def _valid_category_code_opt(v: str | None) -> str | None:
+    if v is None:
+        return None
+    if not isinstance(v, str):
+        return v
+    v = v.strip()
+    if not v:
+        return None
+    return _valid_category_code(v)
 
 
 def _valid_name_i18n(v: dict) -> dict:
@@ -15,11 +39,13 @@ def _valid_name_i18n(v: dict) -> dict:
 
 
 class CategoryCreateIn(BaseModel):
-    code: str = Field(..., min_length=1, max_length=50)
-    parent_code: str | None = Field(default=None, max_length=50)
+    code: str = Field(..., min_length=2, max_length=10)
+    parent_code: str | None = Field(default=None, max_length=10)
     name_i18n: dict = Field(..., min_length=1)
     sort_order: int = Field(default=0, ge=0)
 
+    _v_code = field_validator("code", mode="before")(_valid_category_code)
+    _v_parent_code = field_validator("parent_code", mode="before")(_valid_category_code_opt)
     _v_name = field_validator("name_i18n")(_valid_name_i18n)
 
 

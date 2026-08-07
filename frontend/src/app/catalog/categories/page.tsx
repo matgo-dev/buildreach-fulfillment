@@ -30,6 +30,9 @@ import { resolveBizError } from "@/lib/errorMessages";
 
 type DrawerMode = "create" | "edit" | null;
 
+const CATEGORY_CODE_PATTERN = /^(?!00(?:\.|$))\d{2}(?:\.(?!000)\d{3}){0,2}$/;
+const CATEGORY_CODE_MESSAGE = "编码格式应为 01 / 01.001 / 01.001.003";
+
 function buildTree(nodes: CategoryNode[]): DataNode[] {
   const byParent = new Map<string | null, CategoryNode[]>();
   nodes.forEach((n) => {
@@ -63,6 +66,20 @@ function namePayload(v: { name_zh: string; name_en?: string; name_sw?: string })
     ...(v.name_en?.trim() ? { en: v.name_en.trim() } : {}),
     ...(v.name_sw?.trim() ? { sw: v.name_sw.trim() } : {}),
   };
+}
+
+function validateCategoryCode(code: string, parent: CategoryNode | null): string | null {
+  if (!CATEGORY_CODE_PATTERN.test(code)) return CATEGORY_CODE_MESSAGE;
+  const level = code.split(".").length;
+  if (!parent) {
+    return level === 1 ? null : "根分类编码必须是一段,例如 01";
+  }
+  const parentLevel = parent.code.split(".").length;
+  if (parentLevel >= 3) return "分类最多支持三级";
+  if (level !== parentLevel + 1 || !code.startsWith(`${parent.code}.`)) {
+    return "子分类编码必须在父级编码后追加一段三位数字";
+  }
+  return null;
 }
 
 export default function CategoryAdminPage() {
@@ -151,7 +168,7 @@ export default function CategoryAdminPage() {
     try {
       if (drawerMode === "create") {
         const created = await catalogApi.createCategory({
-          code: values.code,
+          code: values.code?.trim(),
           parent_code: createParent?.code ?? null,
           name_i18n: namePayload(values),
           sort_order: values.sort_order ?? 0,
@@ -228,7 +245,11 @@ export default function CategoryAdminPage() {
           extra={
             selected && canManage ? (
               <Space>
-                <Button icon={<PlusOutlined />} onClick={() => openCreate(selected)}>
+                <Button
+                  icon={<PlusOutlined />}
+                  onClick={() => openCreate(selected)}
+                  disabled={selected.level >= 3}
+                >
                   新建子类
                 </Button>
                 <Button icon={<EditOutlined />} onClick={() => openEdit(selected)}>
@@ -295,9 +316,20 @@ export default function CategoryAdminPage() {
               <Form.Item
                 label="编码"
                 name="code"
-                rules={[{ required: true, message: "请输入分类编码" }]}
+                normalize={(v) => (typeof v === "string" ? v.trim() : v)}
+                rules={[
+                  { required: true, message: "请输入分类编码" },
+                  {
+                    validator: (_, value) => {
+                      const code = typeof value === "string" ? value.trim() : "";
+                      if (!code) return Promise.resolve();
+                      const error = validateCategoryCode(code, createParent);
+                      return error ? Promise.reject(new Error(error)) : Promise.resolve();
+                    },
+                  },
+                ]}
               >
-                <Input maxLength={50} placeholder="如 08.001" />
+                <Input maxLength={10} placeholder={createParent ? `${createParent.code}.001` : "如 08"} />
               </Form.Item>
             </>
           ) : (
