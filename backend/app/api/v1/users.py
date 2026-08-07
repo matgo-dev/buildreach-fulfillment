@@ -18,6 +18,7 @@ from app.schemas.user import (
     AdminUserOut,
     AdminUserResetPasswordIn,
     AdminUserRoleIn,
+    AdminUserRolesIn,
     AdminUserUpdateIn,
 )
 from app.services import user_service
@@ -54,15 +55,15 @@ async def list_users(page_params: PageParams = Depends(),
         total=total, page=page_params.page, size=page_params.size).model_dump())
 
 
-@router.post("", summary="建内部账号(指派单角色)")
+@router.post("", summary="建内部账号(指派角色)")
 async def create_user(body: AdminUserCreateIn, request: Request,
                       current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
     u = await user_service.create_internal_user(
         db, email=body.email, username=body.username, name=body.name,
-        password=body.password, role=body.role,
+        password=body.password, roles=body.role_codes(),
         must_change_password=body.must_change_password,
         actor_user_id=current.id, actor_user_email=current.email, request=request)
-    return success(_user_out(u, [body.role]))
+    return success(_user_out(u, await user_service.get_user_roles(db, u.id)))
 
 
 @router.put("/{user_id}", summary="编辑用户基本信息(email/phone/name)")
@@ -103,7 +104,16 @@ async def reset_password(user_id: int, body: AdminUserResetPasswordIn, request: 
     return success(_user_out(u, await user_service.get_user_roles(db, u.id)))
 
 
-@router.put("/{user_id}/role", summary="替换角色(单角色;不改自己/super admin/最后 ADMIN)")
+@router.put("/{user_id}/roles", summary="替换角色集合(不改自己/super admin/最后 ADMIN)")
+async def change_roles(user_id: int, body: AdminUserRolesIn, request: Request,
+                       current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
+    u = await user_service.change_roles(
+        db, target_user_id=user_id, new_roles=body.roles,
+        actor_user_id=current.id, actor_user_email=current.email, request=request)
+    return success(_user_out(u, await user_service.get_user_roles(db, u.id)))
+
+
+@router.put("/{user_id}/role", summary="替换单角色(兼容旧调用)")
 async def change_role(user_id: int, body: AdminUserRoleIn, request: Request,
                       current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
     u = await user_service.change_role(

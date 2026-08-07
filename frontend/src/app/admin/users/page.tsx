@@ -52,7 +52,7 @@ export default function UserAdminPage() {
 
   // 改角色 / 重置密码 小 Modal
   const [roleTarget, setRoleTarget] = useState<UserItem | null>(null);
-  const [rolePick, setRolePick] = useState<string>("");
+  const [rolePick, setRolePick] = useState<string[]>([]);
   const [resetTarget, setResetTarget] = useState<UserItem | null>(null);
   const [resetPwd, setResetPwd] = useState("");
   const [modalBusy, setModalBusy] = useState(false);
@@ -75,7 +75,7 @@ export default function UserAdminPage() {
   const drawer = useCrudDrawer<UserItem, UserCreateBody & UserUpdateBody>({
     form,
     fillForm: (r) => form.setFieldsValue({ email: r.email, phone: r.phone, name: r.name }),
-    prepareCreate: () => form.setFieldsValue({ must_change_password: true }),
+    prepareCreate: () => form.setFieldsValue({ must_change_password: true, roles: [] }),
     create: (values) => userAdminApi.create(values as UserCreateBody),
     update: (current, values) => userAdminApi.update(current.id, values as UserUpdateBody),
     afterSubmit: load,
@@ -102,12 +102,13 @@ export default function UserAdminPage() {
   }
 
   async function onChangeRole() {
-    if (!roleTarget || !rolePick) return;
+    if (!roleTarget || rolePick.length === 0) return;
     setModalBusy(true);
     try {
-      await userAdminApi.changeRole(roleTarget.id, rolePick);
+      await userAdminApi.changeRoles(roleTarget.id, rolePick);
       message.success("角色已更新,即时生效");
       setRoleTarget(null);
+      setRolePick([]);
       load();
     } catch (e) {
       message.error(resolveBizError(e, "改角色失败"));
@@ -139,7 +140,7 @@ export default function UserAdminPage() {
     {
       title: "角色",
       dataIndex: "roles",
-      width: 120,
+      width: 220,
       render: (roles: string[]) =>
         roles.length ? roles.map((r) => <Tag key={r}>{roleLabel(r)}</Tag>) : "—",
     },
@@ -176,7 +177,7 @@ export default function UserAdminPage() {
                 ],
                 onClick: ({ key }) => {
                   if (key === "role") {
-                    setRolePick(r.roles[0] ?? "");
+                    setRolePick(r.roles);
                     setRoleTarget(r);
                   } else if (key === "reset") {
                     setResetPwd("");
@@ -297,11 +298,11 @@ export default function UserAdminPage() {
                 <Input.Password maxLength={20} placeholder="交付给用户的临时密码" />
               </Form.Item>
               <Form.Item
-                name="role"
+                name="roles"
                 label="角色"
                 rules={[{ required: true, message: "请选择角色" }]}
               >
-                <Select options={ROLE_OPTIONS} placeholder="选择角色" />
+                <Select mode="multiple" options={ROLE_OPTIONS} placeholder="选择角色" />
               </Form.Item>
               <Form.Item
                 name="must_change_password"
@@ -323,21 +324,26 @@ export default function UserAdminPage() {
       <Modal
         title={`改角色 —— ${roleTarget?.name ?? ""}`}
         open={roleTarget !== null}
-        onCancel={() => setRoleTarget(null)}
+        onCancel={() => {
+          setRoleTarget(null);
+          setRolePick([]);
+        }}
         onOk={onChangeRole}
         confirmLoading={modalBusy}
-        okText="确认更换"
+        okText="确认更新"
+        okButtonProps={{ disabled: rolePick.length === 0 }}
         destroyOnClose
       >
         <p style={{ color: colors.muted, marginBottom: 12 }}>
           权限即时生效,无需该用户重新登录。
         </p>
         <Select
+          mode="multiple"
           style={{ width: "100%" }}
           options={ROLE_OPTIONS}
-          value={rolePick || undefined}
+          value={rolePick}
           onChange={setRolePick}
-          placeholder="选择新角色"
+          placeholder="选择角色"
         />
       </Modal>
 

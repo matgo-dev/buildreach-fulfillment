@@ -40,19 +40,28 @@ def _none_if_blank(v):
 
 
 class AdminUserCreateIn(BaseModel):
-    """管理员建内部账号(指派单角色)。role 白名单校验在 service 层
+    """管理员建内部账号(指派角色)。roles 白名单校验在 service 层
     ALLOWED_INTERNAL_ROLES(单一源头,schema 不复制一份枚举)。"""
 
     email: str = Field(..., max_length=255)
     username: str | None = Field(default=None, max_length=50)
     name: str = Field(..., min_length=1, max_length=100)
     password: str
-    role: str = Field(..., min_length=1, max_length=50)
+    # role 保留给旧调用方;新前端使用 roles。
+    role: str | None = Field(default=None, min_length=1, max_length=50)
+    roles: list[str] | None = Field(default=None, min_length=1)
     must_change_password: bool = True
 
     _v_email = field_validator("email")(_valid_email)
     _v_password = field_validator("password")(_valid_password)
     _v_username = field_validator("username", mode="before")(_none_if_blank)
+
+    def role_codes(self) -> list[str]:
+        if self.roles is not None:
+            return self.roles
+        if self.role is not None:
+            return [self.role]
+        return []
 
 
 class AdminUserOut(BaseModel):
@@ -85,6 +94,12 @@ class AdminUserResetPasswordIn(BaseModel):
 
 
 class AdminUserRoleIn(BaseModel):
-    """替换用户角色(内部用户恒单角色)。白名单校验在 service 层。"""
+    """替换用户单角色的兼容入参。白名单校验在 service 层。"""
 
     role: str = Field(..., min_length=1, max_length=50)
+
+
+class AdminUserRolesIn(BaseModel):
+    """替换用户角色集合。白名单校验在 service 层。"""
+
+    roles: list[str] = Field(..., min_length=1)

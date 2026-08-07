@@ -45,6 +45,47 @@ async def is_selectable_salesperson(db: AsyncSession, user_id: int) -> bool:
 
 ALLOWED_INTERNAL_ROLES = {RoleCode.ADMIN, RoleCode.PRODUCT_OPERATOR, RoleCode.SALES,
                           RoleCode.PURCHASER, RoleCode.LOGISTICS, RoleCode.FINANCE}
+_ROLE_ORDER = {code: index for index, code in enumerate(RoleCode.ALL)}
+
+
+def _role_sort_key(role_code: str) -> tuple[int, str]:
+    return (_ROLE_ORDER.get(role_code, len(_ROLE_ORDER)), role_code)
+
+
+def _normalize_role_codes(role_codes: list[str]) -> list[str]:
+    normalized: list[str] = []
+    for role_code in role_codes:
+        code = role_code.strip()
+        if code and code not in normalized:
+            normalized.append(code)
+
+    if not normalized:
+        raise ValidationFailedError("至少选择一个角色")
+
+    invalid = sorted(set(normalized) - ALLOWED_INTERNAL_ROLES)
+    if invalid:
+        raise ValidationFailedError(
+            f"角色必须是 {sorted(ALLOWED_INTERNAL_ROLES)} 之一,非法角色: {invalid}"
+        )
+    return sorted(normalized, key=_role_sort_key)
+
+
+def _resolve_role_codes(*, role: str | None = None,
+                        roles: list[str] | None = None) -> list[str]:
+    if roles is not None:
+        return _normalize_role_codes(roles)
+    if role is not None:
+        return _normalize_role_codes([role])
+    raise ValidationFailedError("至少选择一个角色")
+
+
+async def _load_roles_by_code(db: AsyncSession, role_codes: list[str]) -> dict[str, Role]:
+    rows = await db.execute(select(Role).where(Role.code.in_(role_codes)))
+    roles_by_code = {role.code: role for role in rows.scalars().all()}
+    missing = [role_code for role_code in role_codes if role_code not in roles_by_code]
+    if missing:
+        raise NotFoundError(f"Role not found: {missing}")
+    return roles_by_code
 
 
 def _is_super_admin(user: User) -> bool:
@@ -59,18 +100,15 @@ async def create_internal_user(
     email: str,
     name: str,
     password: str,
-    role: str,
     must_change_password: bool,
     actor_user_id: int,
     actor_user_email: str,
+    role: str | None = None,
+    roles: list[str] | None = None,
     username: str | None = None,
     request: Request | None = None,
 ) -> User:
-    if role not in ALLOWED_INTERNAL_ROLES:
-        # 业务用户必须走自助注册
-        raise ValidationFailedError(
-            f"该接口仅允许创建 {sorted(ALLOWED_INTERNAL_ROLES)},BUYER/SUPPLIER 请走自助注册"
-        )
+    role_codes = _resolve_role_codes(role=role, roles=roles)
     if not validate_password_strength(password):
         raise ValidationFailedError(PASSWORD_RULE_MESSAGE)
     # 全状态唯一(镜像 uq_users_email):停用不释放邮箱,恢复走启用流程
@@ -83,10 +121,7 @@ async def create_internal_user(
         if row2.scalar_one_or_none() is not None:
             raise ConflictError("用户名已存在")
 
-    role_row = await db.execute(select(Role).where(Role.code == role))
-    role_obj = role_row.scalar_one_or_none()
-    if role_obj is None:
-        raise NotFoundError(f"Role not found: {role}")
+    roles_by_code = await _load_roles_by_code(db, role_codes)
 
     user = User(
         email=email,
@@ -98,7 +133,8 @@ async def create_internal_user(
     )
     db.add(user)
     await db.flush()
-    db.add(UserRole(user_id=user.id, role_id=role_obj.id))
+    for role_code in role_codes:
+        db.add(UserRole(user_id=user.id, role_id=roles_by_code[role_code].id))
 
     await write_audit(
         db,
@@ -108,7 +144,7 @@ async def create_internal_user(
         user_email=actor_user_email,
         resource_id=user.id,
         request=request,
-        extra={"created_user_email": user.email, "role": role},
+        extra={"created_user_email": user.email, "roles": role_codes},
         commit=False,
     )
     await write_audit(
@@ -119,7 +155,7 @@ async def create_internal_user(
         user_email=actor_user_email,
         resource_id=user.id,
         request=request,
-        extra={"target_user_id": user.id, "role": role},
+        extra={"target_user_id": user.id, "roles": role_codes},
         commit=False,
     )
     await db.commit()
@@ -163,7 +199,7 @@ async def list_users(
     for uid, rcode in role_rows.all():
         roles_by_user.setdefault(uid, []).append(rcode)
 
-    items = [(u, sorted(roles_by_user.get(u.id, []))) for u in users]
+    items = [(u, sorted(roles_by_user.get(u.id, []), key=_role_sort_key)) for u in users]
     return items, total
 
 
@@ -172,7 +208,7 @@ async def get_user_roles(db: AsyncSession, user_id: int) -> list[str]:
     rows = await db.execute(
         select(Role.code).join(UserRole, UserRole.role_id == Role.id)
         .where(UserRole.user_id == user_id))
-    return sorted(r for (r,) in rows.all())
+    return sorted((r for (r,) in rows.all()), key=_role_sort_key)
 
 
 async def update_user(
@@ -369,18 +405,37 @@ async def change_role(
     actor_user_email: str,
     request: Request | None = None,
 ) -> User:
-    """替换用户角色(内部用户恒单角色)。守卫镜像停用三件套。
+    """替换用户单角色的兼容包装。"""
+    return await change_roles(
+        db,
+        target_user_id=target_user_id,
+        new_roles=[new_role],
+        actor_user_id=actor_user_id,
+        actor_user_email=actor_user_email,
+        request=request,
+    )
+
+
+async def change_roles(
+    db: AsyncSession,
+    *,
+    target_user_id: int,
+    new_roles: list[str],
+    actor_user_id: int,
+    actor_user_email: str,
+    request: Request | None = None,
+) -> User:
+    """替换用户角色集合。守卫镜像停用三件套。
 
     规则:
-    - new_role ∈ ALLOWED_INTERNAL_ROLES(单一源头白名单)
+    - new_roles 非空且均 ∈ ALLOWED_INTERNAL_ROLES(单一源头白名单)
     - 不能改自己的角色(防自锁/自提权)
     - 不能改 super admin
-    - 不能把最后一个可用 ADMIN 改走(防系统失联)
-    - 已是该角色 → 幂等返回,不写审计
+    - 不能从最后一个可用 ADMIN 身上移除 ADMIN(防系统失联)
+    - 角色集合无变化 → 幂等返回,不写审计
     权限每请求查库(core/dependencies),改角色即时生效,无需踢会话。
     """
-    if new_role not in ALLOWED_INTERNAL_ROLES:
-        raise ValidationFailedError(f"角色必须是 {sorted(ALLOWED_INTERNAL_ROLES)} 之一")
+    new_role_codes = _normalize_role_codes(new_roles)
     target = await db.get(User, target_user_id)
     if target is None:
         raise NotFoundError("User not found")
@@ -390,20 +445,18 @@ async def change_role(
         raise ValidationFailedError("不能修改 super admin 的角色")
 
     old_roles = await get_user_roles(db, target.id)
-    if old_roles == [new_role]:
+    if old_roles == new_role_codes:
         return target  # 幂等
 
-    if RoleCode.ADMIN in old_roles and new_role != RoleCode.ADMIN:
+    if RoleCode.ADMIN in old_roles and RoleCode.ADMIN not in new_role_codes:
         if target.status == UserStatus.ACTIVE and await _count_active_admins(db, lock=True) <= 1:
             raise ValidationFailedError("系统至少保留一个可用 ADMIN,无法改走该账号角色")
 
-    role_row = await db.execute(select(Role).where(Role.code == new_role))
-    role_obj = role_row.scalar_one_or_none()
-    if role_obj is None:
-        raise NotFoundError(f"Role not found: {new_role}")
+    roles_by_code = await _load_roles_by_code(db, new_role_codes)
 
     await db.execute(delete(UserRole).where(UserRole.user_id == target.id))
-    db.add(UserRole(user_id=target.id, role_id=role_obj.id))
+    for role_code in new_role_codes:
+        db.add(UserRole(user_id=target.id, role_id=roles_by_code[role_code].id))
 
     await write_audit(
         db,
@@ -413,7 +466,7 @@ async def change_role(
         user_email=actor_user_email,
         resource_id=target.id,
         request=request,
-        extra={"target_user_id": target.id, "old": old_roles, "new": new_role},
+        extra={"target_user_id": target.id, "old": old_roles, "new": new_role_codes},
         commit=False,
     )
     await db.commit()
