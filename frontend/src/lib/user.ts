@@ -44,13 +44,13 @@ export interface UserItem {
   roles: string[];
 }
 
-/** 建号入参(role 白名单由后端 service 校验)。 */
+/** 建号入参(roles 白名单由后端 service 校验)。 */
 export interface UserCreateBody {
   email: string;
   username?: string | null;
   name: string;
   password: string;
-  role: string;
+  roles: string[];
   must_change_password?: boolean;
 }
 
@@ -76,6 +76,8 @@ export const userAdminApi = {
   enable: (id: number) => api.post<UserItem>(`/api/v1/users/${id}/enable`),
   resetPassword: (id: number, password: string) =>
     api.post<UserItem>(`/api/v1/users/${id}/reset-password`, { password }),
+  changeRoles: (id: number, roles: string[]) =>
+    api.put<UserItem>(`/api/v1/users/${id}/roles`, { roles }),
   changeRole: (id: number, role: string) =>
     api.put<UserItem>(`/api/v1/users/${id}/role`, { role }),
 };

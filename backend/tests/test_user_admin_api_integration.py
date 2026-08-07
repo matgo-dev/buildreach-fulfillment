@@ -11,11 +11,17 @@ async def _super_id(db) -> int:
     return row.scalar_one().id
 
 
-async def _create(client, headers, *, email, name="测试号", role="SALES",
+async def _create(client, headers, *, email, name="测试号", role="SALES", roles=None,
                   password="Aa123456789", must_change=True):
-    r = await client.post("/api/v1/users", headers=headers, json={
-        "email": email, "name": name, "password": password, "role": role,
-        "must_change_password": must_change})
+    body = {
+        "email": email, "name": name, "password": password,
+        "must_change_password": must_change,
+    }
+    if roles is None:
+        body["role"] = role
+    else:
+        body["roles"] = roles
+    r = await client.post("/api/v1/users", headers=headers, json=body)
     assert r.status_code == 200, r.text
     return r.json()["data"]
 
@@ -29,6 +35,13 @@ async def test_create_and_list_user(client, superadmin_headers):
     lst = (await client.get("/api/v1/users", headers=superadmin_headers)).json()["data"]
     assert lst["total"] >= 2  # superadmin + 新号
     assert any(it["id"] == u["id"] for it in lst["items"])
+
+
+@pytest.mark.asyncio
+async def test_create_user_with_multiple_roles(client, superadmin_headers):
+    u = await _create(client, superadmin_headers, email="multi@fulfillment.local",
+                      name="多角色", roles=["SALES", "PURCHASER"])
+    assert u["roles"] == ["SALES", "PURCHASER"]
 
 
 @pytest.mark.asyncio
