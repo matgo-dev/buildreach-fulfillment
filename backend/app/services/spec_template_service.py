@@ -13,8 +13,10 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import SpecContractError
+from app.core.exceptions import ConflictError, NotFoundError, SpecContractError
 from app.db.models.category_spec_attribute import CategorySpecAttribute, SuggestionSource
+from app.db.models.sku import Sku
+from app.db.models.spu import Spu
 from app.schemas.sku import validate_spec_items
 
 _KEY_ALPHABET = string.ascii_letters + string.digits
@@ -69,6 +71,152 @@ def _validate_label_and_options(label_i18n: dict, value_type: str, options: list
         raise SpecContractError("enum 属性必须提供 options")
     if value_type != "enum" and options:
         raise SpecContractError("非 enum 属性不可携带 options")
+
+
+def _normalize_options(value_type: str, options: list[dict] | None) -> list[dict] | None:
+    if value_type != "enum":
+        return None
+    normalized: list[dict] = []
+    used_codes: set[str] = set()
+    for opt in options or []:
+        label = opt.get("label_i18n") or {}
+        if not label.get("zh"):
+            raise SpecContractError("enum option label_i18n.zh 必填")
+        if any(v in ("", None) for v in label.values()):
+            raise SpecContractError("enum option label_i18n 禁止空串/空值")
+        code = (opt.get("code") or "").strip()
+        if not code:
+            for _ in range(5):
+                code = _random_option_code()
+                if code not in used_codes:
+                    break
+            else:
+                raise SpecContractError("生成选项 code 连续冲突,请重试")
+        if code in used_codes:
+            raise SpecContractError(f"enum option code 重复: {code}")
+        used_codes.add(code)
+        normalized.append({"code": code, "label_i18n": label})
+    _validate_label_and_options({"zh": "x"}, value_type, normalized)
+    return normalized
+
+
+def _subtree_condition(category_code: str):
+    return or_(Spu.category_code == category_code, Spu.category_code.like(category_code + ".%"))
+
+
+async def _spec_key_is_used(db: AsyncSession, category_code: str, key: str) -> bool:
+    spu_row = await db.execute(
+        select(Spu.id)
+        .where(Spu.deleted_at.is_(None), _subtree_condition(category_code))
+        .where(Spu.spec_jsonb.contains([{"key": key}]))
+        .limit(1)
+    )
+    if spu_row.scalar_one_or_none() is not None:
+        return True
+    sku_row = await db.execute(
+        select(Sku.id)
+        .join(Spu, Spu.id == Sku.spu_id)
+        .where(Spu.deleted_at.is_(None), Sku.deleted_at.is_(None), _subtree_condition(category_code))
+        .where(Sku.spec_jsonb.contains([{"key": key}]))
+        .limit(1)
+    )
+    return sku_row.scalar_one_or_none() is not None
+
+
+async def _spec_option_is_used(
+    db: AsyncSession, category_code: str, key: str, option_code: str
+) -> bool:
+    needle = [{"key": key, "value": option_code}]
+    spu_row = await db.execute(
+        select(Spu.id)
+        .where(Spu.deleted_at.is_(None), _subtree_condition(category_code))
+        .where(Spu.spec_jsonb.contains(needle))
+        .limit(1)
+    )
+    if spu_row.scalar_one_or_none() is not None:
+        return True
+    sku_row = await db.execute(
+        select(Sku.id)
+        .join(Spu, Spu.id == Sku.spu_id)
+        .where(Spu.deleted_at.is_(None), Sku.deleted_at.is_(None), _subtree_condition(category_code))
+        .where(Sku.spec_jsonb.contains(needle))
+        .limit(1)
+    )
+    return sku_row.scalar_one_or_none() is not None
+
+
+async def _get_direct_attribute(
+    db: AsyncSession, category_code: str, key: str, *, for_update: bool = False
+) -> CategorySpecAttribute:
+    stmt = select(CategorySpecAttribute).where(
+        CategorySpecAttribute.category_code == category_code,
+        CategorySpecAttribute.key == key,
+    )
+    if for_update:
+        stmt = stmt.with_for_update()
+    row = (await db.execute(stmt)).scalar_one_or_none()
+    if row is None:
+        raise NotFoundError(f"规格属性不存在: category_code={category_code!r} key={key!r}")
+    return row
+
+
+async def list_direct_attributes(db: AsyncSession, category_code: str) -> list[dict]:
+    rows = (await db.execute(
+        select(CategorySpecAttribute)
+        .where(CategorySpecAttribute.category_code == category_code)
+        .order_by(CategorySpecAttribute.sort_order, CategorySpecAttribute.id)
+    )).scalars().all()
+    return [_to_item(row) for row in rows]
+
+
+async def update_attribute(
+    db: AsyncSession,
+    category_code: str,
+    key: str,
+    *,
+    label_i18n: dict,
+    value_type: str,
+    unit: str | None = None,
+    options: list[dict] | None = None,
+    sort_order: int | None = None,
+    scope: str = "sku",
+) -> dict:
+    _validate_label_and_options(label_i18n, value_type, options)
+    normalized_options = _normalize_options(value_type, options)
+    row = await _get_direct_attribute(db, category_code, key, for_update=True)
+    await _assert_chain_scope_consistent(db, category_code, key, scope)
+
+    key_in_use = await _spec_key_is_used(db, category_code, key)
+    if key_in_use and row.value_type != value_type:
+        raise ConflictError("该规格属性已有商品引用,不能修改字段类型")
+    if key_in_use and row.scope != scope:
+        raise ConflictError("该规格属性已有商品引用,不能修改归属层")
+
+    if row.value_type == "enum" and value_type == "enum":
+        old_codes = {opt["code"] for opt in (row.options or [])}
+        new_codes = {opt["code"] for opt in (normalized_options or [])}
+        removed_codes = old_codes - new_codes
+        for option_code in removed_codes:
+            if await _spec_option_is_used(db, category_code, key, option_code):
+                raise ConflictError(f"枚举选项已被商品引用,不能删除: {option_code}")
+
+    row.label_i18n = label_i18n
+    row.value_type = value_type
+    row.options = normalized_options
+    row.unit = unit or ""
+    row.scope = scope
+    if sort_order is not None:
+        row.sort_order = sort_order
+    await db.flush()
+    return _to_item(row)
+
+
+async def delete_attribute(db: AsyncSession, category_code: str, key: str) -> None:
+    row = await _get_direct_attribute(db, category_code, key, for_update=True)
+    if await _spec_key_is_used(db, category_code, key):
+        raise ConflictError("该规格属性已有商品引用,不能删除")
+    await db.delete(row)
+    await db.flush()
 
 
 async def get_suggestions(db: AsyncSession, category_code: str) -> list[dict]:
@@ -162,6 +310,7 @@ async def upsert_attribute(
 
     scope:'spu' 产品级 / 'sku' 变体轴(默认)。插入前守卫继承链同 key 单一 scope(不变式5)。
     """
+    options = _normalize_options(value_type, options)
     _validate_label_and_options(label_i18n, value_type, options)
     await _assert_chain_scope_consistent(db, category_code, key, scope)
 
@@ -191,6 +340,7 @@ async def create_new_attribute(
     options: list[dict] | None = None,
     source: str = SuggestionSource.OPERATOR,
     scope: str = "sku",
+    sort_order: int | None = None,
     max_retries: int = 5,
 ) -> dict:
     """运营新增属性:后端生成独立随机稳定键(a_<8位 base62>)并落一行,不接受调用方
@@ -206,11 +356,12 @@ async def create_new_attribute(
     唯一性由 UNIQUE(category_code,key) 兜底:INSERT ... ON CONFLICT DO NOTHING
     RETURNING id,极小概率撞键(RETURNING 空)则换个随机键重试,不抛异常不回滚。
     """
+    options = _normalize_options(value_type, options)
     _validate_label_and_options(label_i18n, value_type, options)
 
     for _ in range(max_retries):
         key = _random_attribute_key()
-        next_order = await _next_sort_order(db, category_code)
+        next_order = sort_order if sort_order is not None else await _next_sort_order(db, category_code)
         stmt = (
             insert(CategorySpecAttribute)
             .values(

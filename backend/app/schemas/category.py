@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 import re
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 _CATEGORY_CODE_RE = re.compile(r"^(?!00(?:\.|$))\d{2}(?:\.(?!000)\d{3}){0,2}$")
 _CATEGORY_CODE_MESSAGE = "分类编码格式应为 01 / 01.001 / 01.001.003"
@@ -66,3 +66,41 @@ class CategoryOut(BaseModel):
     is_active: bool
     sort_order: int
     updated_at: datetime
+
+
+class CategorySpecOptionIn(BaseModel):
+    code: str | None = Field(default=None, max_length=32)
+    label_i18n: dict = Field(..., min_length=1)
+
+    _v_label = field_validator("label_i18n")(_valid_name_i18n)
+
+
+class CategorySpecAttributeIn(BaseModel):
+    label_i18n: dict = Field(..., min_length=1)
+    value_type: str = Field(default="string", pattern="^(string|number|enum)$")
+    options: list[CategorySpecOptionIn] | None = None
+    unit: str | None = Field(default=None, max_length=20)
+    sort_order: int | None = Field(default=None, ge=0)
+    scope: str = Field(default="sku", pattern="^(spu|sku)$")
+
+    _v_label = field_validator("label_i18n")(_valid_name_i18n)
+
+    @model_validator(mode="after")
+    def _valid_options_for_type(self):
+        if self.value_type == "enum" and not self.options:
+            raise ValueError("enum 属性必须提供 options")
+        if self.value_type != "enum" and self.options:
+            raise ValueError("非 enum 属性不可携带 options")
+        return self
+
+
+class CategorySpecAttributeOut(BaseModel):
+    key: str
+    label_i18n: dict
+    value_type: str
+    options: list[dict] | None
+    unit: str
+    sort_order: int
+    source: str
+    category_code: str
+    scope: str

@@ -175,7 +175,22 @@ export interface SpecSuggestion {
   unit: string;
   sort_order: number;
   source: string;
+  /** 属性实际归属的分类层。叶子分类读取 suggestions 时可能来自祖先层。 */
+  category_code: string;
   /** 归属层:spu 渲染到 SPU 表单、sku 渲染到 SKU 表单(前端按此分渲染)。 */
+  scope: SpecScope;
+}
+
+export type CategorySpecAttribute = SpecSuggestion & {
+  category_code: string;
+};
+
+export interface CategorySpecAttributeSaveBody {
+  label_i18n: Record<string, string>;
+  value_type: SpecValueType;
+  options?: Array<{ code?: string | null; label_i18n: Record<string, string> }> | null;
+  unit?: string | null;
+  sort_order?: number | null;
   scope: SpecScope;
 }
 
@@ -228,6 +243,24 @@ export const catalogApi = {
     api.post<CategoryNode>(`/api/v1/categories/${encodeURIComponent(code)}/activate`),
   deactivateCategory: (code: string) =>
     api.post<CategoryNode>(`/api/v1/categories/${encodeURIComponent(code)}/deactivate`),
+  specAttributes: (code: string) =>
+    api.get<{ items: CategorySpecAttribute[] }>(
+      `/api/v1/categories/${encodeURIComponent(code)}/spec-attributes`,
+    ),
+  createSpecAttribute: (code: string, b: CategorySpecAttributeSaveBody) =>
+    api.post<CategorySpecAttribute>(
+      `/api/v1/categories/${encodeURIComponent(code)}/spec-attributes`,
+      b,
+    ),
+  updateSpecAttribute: (code: string, key: string, b: CategorySpecAttributeSaveBody) =>
+    api.put<CategorySpecAttribute>(
+      `/api/v1/categories/${encodeURIComponent(code)}/spec-attributes/${encodeURIComponent(key)}`,
+      b,
+    ),
+  deleteSpecAttribute: (code: string, key: string) =>
+    api.del<null>(
+      `/api/v1/categories/${encodeURIComponent(code)}/spec-attributes/${encodeURIComponent(key)}`,
+    ),
   specSuggestions: (code: string) =>
     api.get<{ items: SpecSuggestion[] }>(`/api/v1/categories/${code}/spec-suggestions`),
   units: () => api.get<{ items: UnitOut[] }>("/api/v1/units"),

@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.core.exceptions import ConflictError
 from app.db.models.category import Category
+from app.db.models.spu import Spu
+from app.db.models.user import User
 from app.services import category_service
 
 
@@ -256,3 +258,110 @@ async def test_spec_suggestions_includes_value_type_and_options(
     assert items[0]["key"] == "material"
     assert items[0]["value_type"] == "enum"
     assert items[0]["options"] == options
+
+
+@pytest.mark.asyncio
+async def test_category_spec_attribute_admin_crud(
+    client, product_operator_headers, product_readonly_headers
+):
+    cat = await client.post("/api/v1/categories", headers=product_operator_headers, json={
+        "code": "94",
+        "name_i18n": {"zh": "规格模板类"},
+        "sort_order": 0,
+    })
+    assert cat.status_code == 200, cat.text
+
+    create = await client.post("/api/v1/categories/94/spec-attributes",
+                               headers=product_operator_headers, json={
+        "label_i18n": {"zh": "材质"},
+        "value_type": "enum",
+        "options": [{"label_i18n": {"zh": "碳钢"}}],
+        "scope": "spu",
+        "sort_order": 10,
+    })
+    assert create.status_code == 200, create.text
+    attr = create.json()["data"]
+    assert attr["key"].startswith("a_")
+    assert attr["scope"] == "spu"
+    assert attr["options"][0]["code"].startswith("v_")
+
+    key = attr["key"]
+    list_direct = await client.get("/api/v1/categories/94/spec-attributes",
+                                   headers=product_readonly_headers)
+    assert list_direct.status_code == 200, list_direct.text
+    assert [i["key"] for i in list_direct.json()["data"]["items"]] == [key]
+
+    update = await client.put(f"/api/v1/categories/94/spec-attributes/{key}",
+                              headers=product_operator_headers, json={
+        "label_i18n": {"zh": "材料"},
+        "value_type": "enum",
+        "options": [
+            attr["options"][0],
+            {"label_i18n": {"zh": "不锈钢"}},
+        ],
+        "scope": "spu",
+        "unit": "",
+        "sort_order": 20,
+    })
+    assert update.status_code == 200, update.text
+    updated = update.json()["data"]
+    assert updated["label_i18n"]["zh"] == "材料"
+    assert updated["sort_order"] == 20
+    assert len(updated["options"]) == 2
+
+    delete = await client.delete(f"/api/v1/categories/94/spec-attributes/{key}",
+                                 headers=product_operator_headers)
+    assert delete.status_code == 200, delete.text
+    after = await client.get("/api/v1/categories/94/spec-attributes",
+                             headers=product_readonly_headers)
+    assert after.json()["data"]["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_category_spec_attribute_requires_product_manage(
+    client, product_operator_headers, product_readonly_headers
+):
+    cat = await client.post("/api/v1/categories", headers=product_operator_headers, json={
+        "code": "95",
+        "name_i18n": {"zh": "权限模板类"},
+        "sort_order": 0,
+    })
+    assert cat.status_code == 200, cat.text
+
+    readonly_create = await client.post("/api/v1/categories/95/spec-attributes",
+                                        headers=product_readonly_headers, json={
+        "label_i18n": {"zh": "材质"},
+        "value_type": "string",
+        "scope": "sku",
+    })
+    assert readonly_create.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_category_spec_attribute_delete_blocked_when_used(
+    client, product_operator_headers, db_session
+):
+    cat = await client.post("/api/v1/categories", headers=product_operator_headers, json={
+        "code": "96",
+        "name_i18n": {"zh": "引用模板类"},
+        "sort_order": 0,
+    })
+    assert cat.status_code == 200, cat.text
+    create = await client.post("/api/v1/categories/96/spec-attributes",
+                               headers=product_operator_headers, json={
+        "label_i18n": {"zh": "材质"},
+        "value_type": "string",
+        "scope": "spu",
+    })
+    assert create.status_code == 200, create.text
+    key = create.json()["data"]["key"]
+
+    user_id = (await db_session.execute(select(User.id).limit(1))).scalar_one()
+    db_session.add(Spu(spu_code="SPU-SPEC-USED", category_code="96",
+                       name_i18n={"zh": "引用商品"}, spec_jsonb=[{"key": key, "value": "Q235"}],
+                       status="DRAFT", created_by=user_id))
+    await db_session.commit()
+
+    delete = await client.delete(f"/api/v1/categories/96/spec-attributes/{key}",
+                                 headers=product_operator_headers)
+    assert delete.status_code == 409, delete.text
