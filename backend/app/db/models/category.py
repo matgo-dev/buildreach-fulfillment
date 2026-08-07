@@ -10,7 +10,7 @@ from app.db.base import Base, TimestampUpdateMixin
 class Category(Base, TimestampUpdateMixin):
     """分类树(照搬前台结构 + 数据,只读引用,M1 无管理 UI)。
 
-    code 为业务主键(点分数字 XX.XXX.XXX,永久不变契约,关联引 code 不引 id)。
+    code 为业务主键(点分数字:01 / 01.001 / 01.001.003,永久不变契约,关联引 code 不引 id)。
     """
     __tablename__ = "categories"
     __table_args__ = (

@@ -1,4 +1,13 @@
+import asyncio
+from contextlib import suppress
+
 import pytest
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
+from app.core.exceptions import ConflictError
+from app.db.models.category import Category
+from app.services import category_service
 
 
 @pytest.mark.asyncio
@@ -11,6 +20,211 @@ async def test_categories_tree_ok(client, product_readonly_headers):
     r = await client.get("/api/v1/categories/tree", headers=product_readonly_headers)
     assert r.status_code == 200
     assert isinstance(r.json()["data"]["items"], list)
+
+
+@pytest.mark.asyncio
+async def test_product_readonly_cannot_create_category(client, product_readonly_headers):
+    r = await client.post("/api/v1/categories", headers=product_readonly_headers, json={
+        "code": "88",
+        "name_i18n": {"zh": "只读不可写"},
+        "sort_order": 0,
+    })
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_category_admin_create_update_and_tree_visibility(
+    client, product_operator_headers, product_readonly_headers
+):
+    r1 = await client.post("/api/v1/categories", headers=product_operator_headers, json={
+        "code": "88",
+        "name_i18n": {"zh": "测试大类"},
+        "sort_order": 1,
+    })
+    assert r1.status_code == 200, r1.text
+    assert r1.json()["data"]["level"] == 1
+    assert r1.json()["data"]["is_leaf"] is True
+
+    r2 = await client.post("/api/v1/categories", headers=product_operator_headers, json={
+        "code": "88.001",
+        "parent_code": "88",
+        "name_i18n": {"zh": "测试子类"},
+        "sort_order": 2,
+    })
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["data"]["level"] == 2
+
+    parent = await client.get("/api/v1/categories/88", headers=product_readonly_headers)
+    assert parent.status_code == 200, parent.text
+    assert parent.json()["data"]["is_leaf"] is False
+
+    r3 = await client.put("/api/v1/categories/88.001", headers=product_operator_headers, json={
+        "name_i18n": {"zh": "测试子类改名", "en": "Subcategory"},
+        "sort_order": 3,
+    })
+    assert r3.status_code == 200, r3.text
+    assert r3.json()["data"]["name_i18n"]["zh"] == "测试子类改名"
+    assert r3.json()["data"]["sort_order"] == 3
+
+    r4 = await client.post("/api/v1/categories/88/deactivate", headers=product_operator_headers)
+    assert r4.status_code == 200, r4.text
+    active_tree = await client.get("/api/v1/categories/tree", headers=product_readonly_headers)
+    active_codes = {it["code"] for it in active_tree.json()["data"]["items"]}
+    assert "88" not in active_codes
+    assert "88.001" not in active_codes
+
+    all_tree = await client.get(
+        "/api/v1/categories/tree?include_inactive=true", headers=product_readonly_headers)
+    all_codes = {it["code"] for it in all_tree.json()["data"]["items"]}
+    assert {"88", "88.001"} <= all_codes
+
+    r5 = await client.post("/api/v1/categories/88.001/activate", headers=product_operator_headers)
+    assert r5.status_code == 200, r5.text
+    active_tree = await client.get("/api/v1/categories/tree", headers=product_readonly_headers)
+    active_codes = {it["code"] for it in active_tree.json()["data"]["items"]}
+    assert {"88", "88.001"} <= active_codes
+
+
+@pytest.mark.asyncio
+async def test_create_category_normalizes_and_validates_code(client, product_operator_headers):
+    r1 = await client.post("/api/v1/categories", headers=product_operator_headers, json={
+        "code": " 90 ",
+        "name_i18n": {"zh": "编码归一"},
+        "sort_order": 0,
+    })
+    assert r1.status_code == 200, r1.text
+    assert r1.json()["data"]["code"] == "90"
+
+    r2 = await client.post("/api/v1/categories", headers=product_operator_headers, json={
+        "code": " 90.001 ",
+        "parent_code": " 90 ",
+        "name_i18n": {"zh": "编码归一子类"},
+        "sort_order": 0,
+    })
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["data"]["code"] == "90.001"
+    assert r2.json()["data"]["parent_code"] == "90"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code", ["foo", ".1", "中文", "01.1", "001", "00", "01.000"])
+async def test_create_category_rejects_invalid_code(client, product_operator_headers, code):
+    r = await client.post("/api/v1/categories", headers=product_operator_headers, json={
+        "code": code,
+        "name_i18n": {"zh": "非法编码"},
+        "sort_order": 0,
+    })
+    assert r.status_code == 422, r.text
+
+
+@pytest.mark.asyncio
+async def test_create_category_rejects_parent_code_mismatch(client, product_operator_headers):
+    root = await client.post("/api/v1/categories", headers=product_operator_headers, json={
+        "code": "91",
+        "name_i18n": {"zh": "父级"},
+        "sort_order": 0,
+    })
+    assert root.status_code == 200, root.text
+
+    wrong_root_child = await client.post(
+        "/api/v1/categories", headers=product_operator_headers, json={
+            "code": "91.001",
+            "name_i18n": {"zh": "缺父级"},
+            "sort_order": 0,
+        })
+    assert wrong_root_child.status_code == 400, wrong_root_child.text
+
+    wrong_parent = await client.post(
+        "/api/v1/categories", headers=product_operator_headers, json={
+            "code": "92.001",
+            "parent_code": "91",
+            "name_i18n": {"zh": "错父级"},
+            "sort_order": 0,
+        })
+    assert wrong_parent.status_code == 400, wrong_parent.text
+
+
+@pytest.mark.asyncio
+async def test_create_category_rejects_inactive_parent(client, product_operator_headers):
+    r1 = await client.post("/api/v1/categories", headers=product_operator_headers, json={
+        "code": "89",
+        "name_i18n": {"zh": "停用父类"},
+        "sort_order": 0,
+    })
+    assert r1.status_code == 200, r1.text
+    r2 = await client.post("/api/v1/categories/89/deactivate", headers=product_operator_headers)
+    assert r2.status_code == 200, r2.text
+
+    r3 = await client.post("/api/v1/categories", headers=product_operator_headers, json={
+        "code": "89.001",
+        "parent_code": "89",
+        "name_i18n": {"zh": "不应创建"},
+        "sort_order": 0,
+    })
+    assert r3.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_create_under_descendant_waits_for_ancestor_deactivation(_engine):
+    """新增后代需锁住整条祖先链:祖先停用持锁时,并发新建会等待并在提交后被拒绝。"""
+    Session = async_sessionmaker(_engine, expire_on_commit=False)
+    async with Session() as setup:
+        setup.add(Category(code="93", parent_code=None, name_i18n={"zh": "并发父"},
+                           level=1, is_leaf=False, is_active=True, sort_order=0))
+        setup.add(Category(code="93.001", parent_code="93", name_i18n={"zh": "并发子"},
+                           level=2, is_leaf=True, is_active=True, sort_order=0))
+        await setup.commit()
+
+    s1 = Session()
+    s2 = Session()
+    create_task = None
+    try:
+        await s1.begin()
+        root = (await s1.execute(
+            select(Category).where(Category.code == "93").with_for_update()
+        )).scalar_one()
+
+        create_task = asyncio.create_task(category_service.create_category(
+            s2,
+            code="93.001.001",
+            parent_code="93.001",
+            name_i18n={"zh": "不应漏停"},
+            sort_order=0,
+            actor_user_id=0,
+            actor_user_email="test@test",
+        ))
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(asyncio.shield(create_task), timeout=0.2)
+
+        root.is_active = False
+        child = (await s1.execute(
+            select(Category).where(Category.code == "93.001").with_for_update()
+        )).scalar_one()
+        child.is_active = False
+        await s1.commit()
+
+        with pytest.raises(ConflictError):
+            await create_task
+
+        async with Session() as verify:
+            created = (await verify.execute(
+                select(Category.id).where(Category.code == "93.001.001")
+            )).scalar_one_or_none()
+            assert created is None
+    finally:
+        if create_task is not None and not create_task.done():
+            create_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await create_task
+        await s1.rollback()
+        await s2.rollback()
+        await s1.close()
+        await s2.close()
+        async with Session() as cleanup:
+            await cleanup.execute(delete(Category).where(Category.code == "93.001.001"))
+            await cleanup.execute(delete(Category).where(Category.code == "93.001"))
+            await cleanup.execute(delete(Category).where(Category.code == "93"))
+            await cleanup.commit()
 
 
 @pytest.mark.asyncio

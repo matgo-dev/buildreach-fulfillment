@@ -5,12 +5,15 @@ import { qs } from "./qs";
 // ---- 类型(对齐后端 schemas/spu.py · sku.py · categories/units 路由)----
 
 export interface CategoryNode {
+  id: number;
   code: string;
   parent_code: string | null;
   level: number;
   is_leaf: boolean;
+  is_active: boolean;
   name_i18n: Record<string, string>;
   sort_order: number;
+  updated_at: string;
 }
 
 // SPU 三态生命周期(SKU 仍二态 ACTIVE/INACTIVE)。语义见 backend SpuStatus / lib/productStatus。
@@ -182,6 +185,13 @@ export interface UnitOut {
   sort_order: number;
 }
 
+export interface CategorySaveBody {
+  code?: string;
+  parent_code?: string | null;
+  name_i18n: Record<string, string>;
+  sort_order: number;
+}
+
 /** SKU 写入的 spec 项(对齐后端 SkuSpecItemIn):新属性/新选项走 label_i18n 逃生口。 */
 export interface SkuSpecItemIn {
   key?: string;
@@ -206,7 +216,18 @@ export interface SkuWriteBody {
 
 export const catalogApi = {
   // ---- 参照(只读)----
-  categoriesTree: () => api.get<{ items: CategoryNode[] }>("/api/v1/categories/tree"),
+  categoriesTree: (p?: { include_inactive?: boolean }) =>
+    api.get<{ items: CategoryNode[] }>(
+      `/api/v1/categories/tree${qs((p ?? {}) as Record<string, unknown>)}`,
+    ),
+  getCategory: (code: string) => api.get<CategoryNode>(`/api/v1/categories/${encodeURIComponent(code)}`),
+  createCategory: (b: CategorySaveBody) => api.post<CategoryNode>("/api/v1/categories", b),
+  updateCategory: (code: string, b: CategorySaveBody) =>
+    api.put<CategoryNode>(`/api/v1/categories/${encodeURIComponent(code)}`, b),
+  activateCategory: (code: string) =>
+    api.post<CategoryNode>(`/api/v1/categories/${encodeURIComponent(code)}/activate`),
+  deactivateCategory: (code: string) =>
+    api.post<CategoryNode>(`/api/v1/categories/${encodeURIComponent(code)}/deactivate`),
   specSuggestions: (code: string) =>
     api.get<{ items: SpecSuggestion[] }>(`/api/v1/categories/${code}/spec-suggestions`),
   units: () => api.get<{ items: UnitOut[] }>("/api/v1/units"),

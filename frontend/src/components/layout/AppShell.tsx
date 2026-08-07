@@ -3,6 +3,7 @@ import { ReactNode, useEffect, useState } from "react";
 import { Layout, Menu, Breadcrumb, Dropdown, Avatar, Button } from "antd";
 import {
   AppstoreOutlined,
+  ApartmentOutlined,
   FileTextOutlined,
   InboxOutlined,
   ProfileOutlined,
@@ -47,6 +48,7 @@ const MENU_GROUPS = [
     group: "基础资料",
     items: [
       { key: "/catalog/spus", icon: <AppstoreOutlined />, label: "商品目录", perm: Permissions.PRODUCT_READ },
+      { key: "/catalog/categories", icon: <ApartmentOutlined />, label: "商品分类", perm: Permissions.PRODUCT_READ },
       { key: "/sales/customers", icon: <TeamOutlined />, label: "客户", perm: Permissions.CUSTOMER_READ },
       { key: "/purchasing/suppliers", icon: <ShopOutlined />, label: "供应商", perm: Permissions.SUPPLIER_READ },
     ],
