@@ -576,7 +576,7 @@ export default function CategoryAdminPage() {
         title={drawerMode === "create" ? "新建分类" : "编辑分类"}
         open={drawerMode !== null}
         onClose={closeDrawer}
-        width="min(560px, 92vw)"
+        size="large"
         destroyOnClose
         footer={
           <Space style={{ width: "100%", justifyContent: "flex-end" }}>
@@ -642,7 +642,7 @@ export default function CategoryAdminPage() {
         title={specDrawerMode === "create" ? "新建规格字段" : "编辑规格字段"}
         open={specDrawerMode !== null}
         onClose={closeSpecDrawer}
-        width="min(620px, 94vw)"
+        size="large"
         destroyOnClose
         footer={
           <Space style={{ width: "100%", justifyContent: "flex-end" }}>
@@ -721,8 +721,8 @@ export default function CategoryAdminPage() {
                       添加选项
                     </Button>
                   </Space>
-                  {fields.map((field) => (
-                    <Row key={field.key} gutter={8} align="middle">
+                  {fields.map(({ key, ...field }) => (
+                    <Row key={key} gutter={8} align="middle">
                       <Form.Item name={[field.name, "code"]} hidden>
                         <Input />
                       </Form.Item>
