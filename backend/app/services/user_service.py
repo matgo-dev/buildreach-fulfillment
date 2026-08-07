@@ -436,7 +436,9 @@ async def change_roles(
     权限每请求查库(core/dependencies),改角色即时生效,无需踢会话。
     """
     new_role_codes = _normalize_role_codes(new_roles)
-    target = await db.get(User, target_user_id)
+    target = (await db.execute(
+        select(User).where(User.id == target_user_id).with_for_update()
+    )).scalar_one_or_none()
     if target is None:
         raise NotFoundError("User not found")
     if target.id == actor_user_id:
