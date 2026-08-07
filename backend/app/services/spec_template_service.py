@@ -219,7 +219,9 @@ async def delete_attribute(db: AsyncSession, category_code: str, key: str) -> No
     await db.flush()
 
 
-async def get_suggestions(db: AsyncSession, category_code: str) -> list[dict]:
+async def get_suggestions(
+    db: AsyncSession, category_code: str, *, for_update: bool = False
+) -> list[dict]:
     """解析某分类的建议属性 = **整条祖先链的并集**(通用属性挂高层、特有属性挂低层,
     叶子继承全套)——对齐 PIM/ERP 的分类-属性继承(Akeneo family / SAP class 层级)。
 
@@ -232,10 +234,14 @@ async def get_suggestions(db: AsyncSession, category_code: str) -> list[dict]:
     """
     ancestors = _ancestor_codes(category_code)
     depth = {code: i for i, code in enumerate(ancestors)}
-    rows = (await db.execute(
-        select(CategorySpecAttribute)
-        .where(CategorySpecAttribute.category_code.in_(ancestors))
-    )).scalars().all()
+    stmt = select(CategorySpecAttribute).where(CategorySpecAttribute.category_code.in_(ancestors))
+    if for_update:
+        # 商品规格写入与模板破坏性变更共用 category_spec_attributes 行锁。
+        # 按稳定顺序取锁,避免同一写事务涉及多层继承属性时和其它写事务成环。
+        stmt = stmt.order_by(
+            CategorySpecAttribute.category_code, CategorySpecAttribute.key
+        ).with_for_update()
+    rows = (await db.execute(stmt)).scalars().all()
 
     merged: dict[str, CategorySpecAttribute] = {}
     for row in rows:
@@ -255,8 +261,10 @@ async def get_suggestions(db: AsyncSession, category_code: str) -> list[dict]:
     return items
 
 
-async def suggestions_by_key(db: AsyncSession, category_code: str) -> dict[str, dict]:
-    return {s["key"]: s for s in await get_suggestions(db, category_code)}
+async def suggestions_by_key(
+    db: AsyncSession, category_code: str, *, for_update: bool = False
+) -> dict[str, dict]:
+    return {s["key"]: s for s in await get_suggestions(db, category_code, for_update=for_update)}
 
 
 async def _next_sort_order(db: AsyncSession, category_code: str) -> int:
@@ -455,7 +463,8 @@ async def resolve_spec(
     计量单位归位:单位只住模板 unit,spec_jsonb 永不落 unit;提交的 unit 仅"新增属性"分支
     消费一次(作该新属性模板行单位),已存在 key 的提交 unit 一律忽略。
     """
-    known = await suggestions_by_key(db, category_code)  # 含继承、全 scope
+    # 含继承、全 scope;写入侧持模板锁,与模板破坏性变更互斥。
+    known = await suggestions_by_key(db, category_code, for_update=True)
     resolved: list[dict] = []
     for item in spec_items:
         key = item.get("key")
