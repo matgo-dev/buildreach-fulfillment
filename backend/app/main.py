@@ -16,11 +16,14 @@ from app.audit.middleware import RequestIDMiddleware
 from app.core.config import settings
 from app.core.exceptions import BusinessError, success
 from app.core.logging_config import setup_logging
+from app.core.production_guard import validate_production_settings
 from app.db.session import AsyncSessionLocal
 from app.rbac.sync import sync_rbac
 from app.seed import run_all_seeds
 
 logger = logging.getLogger("app.main")
+
+validate_production_settings(settings)
 
 
 @asynccontextmanager

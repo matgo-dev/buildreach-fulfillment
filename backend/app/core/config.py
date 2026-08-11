@@ -36,6 +36,9 @@ class Settings(BaseSettings):
 
     LOG_LEVEL: str = "INFO"
 
+    # 部署环境。仅 production 启用强安全配置校验;development/staging 不套生产硬约束。
+    DEPLOY_ENV: str = "development"
+
     # CORS
     CORS_ORIGINS_RAW: str = Field(default="http://localhost:3000", alias="CORS_ORIGINS")
     CORS_ALLOW_CREDENTIALS: bool = True
