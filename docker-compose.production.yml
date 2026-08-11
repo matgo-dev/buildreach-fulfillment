@@ -8,8 +8,8 @@
 # 用法(一般由 deploy/deploy.sh 调,手动亦可):
 #   IMAGE_TAG=<tag> docker compose -f docker-compose.production.yml --env-file .env.production up -d
 #
-# 数据库/对象存储当前为容器(与前台一致);OVH 上线前切 OVH 托管 PG / Object Storage
-# —— 见 README「上线前切托管」。
+# 数据库/对象存储当前为容器(与前台一致)。PG 短期取舍:单机 Docker PG +
+# named volume + 发布前本机 pg_dump;异地备份/托管 PG 暂缓,见 deploy/README-deploy.md。
 # ============================================================
 
 x-logging: &default-logging
