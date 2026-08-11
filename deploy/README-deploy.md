@@ -30,11 +30,11 @@ CI 构建镜像 → 推 ACR(阿里云,给 ECS)/ GHCR(给 OVH)→ SSH 到服务�
 ```bash
 sudo mkdir -p /opt/fulfillment && cd /opt/fulfillment
 # 放入 docker-compose.production.yml + deploy/(CI 首次会自动 rsync,手动首部署则先 git clone 或 scp)
-cp .env.example .env.production   # 按注释改:强口令、API_BASE_URL、CORS_ORIGINS 等
+cp .env.example .env.production   # 按注释改:强口令、API_BASE_URL、CORS_ORIGINS、外部对象存储等
 ```
 
 - ECS:`.env.production` 里 `API_BASE_URL` / `CORS_ORIGINS` = `http://<ECS_IP>`;`REFRESH_COOKIE_SECURE=false`。
-- OVH:改 `https://<域名>`;`REFRESH_COOKIE_SECURE=true` + `ENABLE_HSTS=true`。
+- OVH:改 `https://<域名>`;`REFRESH_COOKIE_SECURE=true` + `ENABLE_HSTS=true`;对象存储必须指向外部 S3 兼容服务。
 - 1Panel 建反向代理:`/api` → `127.0.0.1:17858`,其余 → `127.0.0.1:7858`;OVH 签证书(同前台流程)。
 
 ## 三、发布
@@ -88,10 +88,32 @@ docker compose -f docker-compose.production.yml exec -T db pg_dump -U "$POSTGRES
 4. 恢复演练文档与演练记录。
 5. 如维护成本可接受,再评估托管 PG 或主备方案。
 
-## 五、对象存储切换(登记待办)
+## 五、对象存储生产规则
 
-对象存储当前仍是容器内 MinIO。以后如果切 OVH Object Storage:
+生产环境必须使用**外部 S3 兼容对象存储**(如 OVH Object Storage),不得把业务附件/商品图片长期放在应用服务器本机 MinIO 中。
 
-1. 去掉 `minio` / `minio-init` 服务。
-2. `.env.production` 中的 `S3_ENDPOINT_URL` / `S3_ACCESS_KEY` / `S3_SECRET_KEY` 指向 OVH;bucket 由面板预建。
-3. 数据迁移用 `mc mirror` 把 MinIO bucket 同步到 OVH Object Storage。
+上线前 `.env.production` 必须满足:
+
+- `DEPLOY_ENV=production`
+- `STORAGE_BACKEND=s3`
+- `S3_ENDPOINT_URL` 指向外部 HTTPS endpoint,不能是 `http://minio:9000`、`localhost`、`127.0.0.1`。
+- `S3_ACCESS_KEY` / `S3_SECRET_KEY` / `S3_BUCKET` 填写真值,不能保留示例占位。
+- `COMPOSE_PROFILES` 不得包含 `local-minio`。
+
+`deploy.sh` 会在生产部署前执行上述校验,不满足则直接失败。
+
+本机 MinIO 只允许用于 staging、临时演示或开发联调。若确需启用:
+
+```bash
+DEPLOY_ENV=staging
+COMPOSE_PROFILES=local-minio
+S3_ENDPOINT_URL=http://minio:9000
+S3_ACCESS_KEY=minio
+S3_SECRET_KEY=<staging-minio-password>
+MINIO_ROOT_USER=minio
+MINIO_ROOT_PASSWORD=<staging-minio-password>
+```
+
+此时 `minio` / `minio-init` 服务才会随 `local-minio` profile 启动,MinIO Console 仍只能绑定 `127.0.0.1` 并通过 SSH/服务器内网排查,禁止配置公网反向代理。
+
+如果曾经用本机 MinIO 存过真实业务文件,切换到 OVH Object Storage 前需用 `mc mirror` 同步 bucket,再更新 `.env.production` 指向外部对象存储。
