@@ -192,8 +192,8 @@ export default function CustomerListPage() {
         title={mode === "create" ? "新建客户" : mode === "edit" ? "编辑客户" : "客户详情"}
         open={mode !== null}
         onClose={closeDrawer}
-        width="min(560px, 92vw)"
-        destroyOnClose
+        size="min(560px, 92vw)"
+        destroyOnHidden
         extra={
           readOnly && canManage && current ? (
             <Button type="primary" onClick={() => openEdit(current.id)}>

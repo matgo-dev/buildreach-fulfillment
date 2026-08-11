@@ -12,7 +12,7 @@ export function GuideDrawer({ node, onClose }: { node: GuideNode | null; onClose
     <Drawer
       open={node !== null}
       onClose={onClose}
-      width={440}
+      size={440}
       title={
         node && (
           <span>

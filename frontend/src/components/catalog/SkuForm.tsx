@@ -124,7 +124,7 @@ export function SkuForm({
     <Drawer
       open={open}
       onClose={onClose}
-      width={680}
+      size={680}
       title={sku ? "编辑 SKU" : copyFrom ? "复制 SKU" : "新建 SKU"}
       extra={
         <Space>

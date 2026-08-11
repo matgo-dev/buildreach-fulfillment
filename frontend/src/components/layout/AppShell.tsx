@@ -2,96 +2,20 @@
 import { ReactNode, useEffect, useState } from "react";
 import { Layout, Menu, Breadcrumb, Dropdown, Avatar, Button } from "antd";
 import {
-  AppstoreOutlined,
-  ApartmentOutlined,
-  FileTextOutlined,
-  InboxOutlined,
-  ProfileOutlined,
-  ShopOutlined,
-  ShoppingCartOutlined,
-  AccountBookOutlined,
-  VerticalAlignBottomOutlined,
-  ReconciliationOutlined,
-  PayCircleOutlined,
-  TeamOutlined,
   UserOutlined,
   LogoutOutlined,
-  SafetyCertificateOutlined,
-  KeyOutlined,
-  DatabaseOutlined,
-  ExportOutlined,
-  ContainerOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
-  CompassOutlined,
 } from "@ant-design/icons";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuthStore } from "@/stores/authStore";
 import { authApi } from "@/lib/auth";
-import { Permissions } from "@/config/permission-matrix";
+import { getVisibleMenuGroups } from "@/config/navigation";
 import { colors } from "@/lib/tokens";
 
 const { Header, Sider, Content } = Layout;
 
 // 侧栏暗色底 = DESIGN §1.1 sidebar(深墨绿;与 AntD 默认 #001529 的有意偏离)。
-
-// 菜单按 ERP 职能域分 6 组(DESIGN §6):仅呈现层分组,路由与 perm 门控逻辑不变。
-// 菜单项按权限显隐(perm=可见所需权限点),避免死链;后端 RouteGuard 仍是访问底线。
-const MENU_GROUPS = [
-  {
-    group: "帮助",
-    items: [
-      { key: "/guide", icon: <CompassOutlined />, label: "平台导览", perm: null },
-    ],
-  },
-  {
-    group: "基础资料",
-    items: [
-      { key: "/catalog/spus", icon: <AppstoreOutlined />, label: "商品目录", perm: Permissions.PRODUCT_READ },
-      { key: "/catalog/categories", icon: <ApartmentOutlined />, label: "商品分类", perm: Permissions.PRODUCT_READ },
-      { key: "/sales/customers", icon: <TeamOutlined />, label: "客户", perm: Permissions.CUSTOMER_READ },
-      { key: "/purchasing/suppliers", icon: <ShopOutlined />, label: "供应商", perm: Permissions.SUPPLIER_READ },
-    ],
-  },
-  {
-    group: "销售",
-    items: [
-      { key: "/sales/quotations", icon: <FileTextOutlined />, label: "报价管理", perm: Permissions.QUOTE_MANAGE },
-      { key: "/sales/orders", icon: <ProfileOutlined />, label: "销售单", perm: Permissions.SALES_READ },
-    ],
-  },
-  {
-    group: "采购",
-    items: [
-      { key: "/purchasing/orders", icon: <ShoppingCartOutlined />, label: "采购单", perm: Permissions.PURCHASE_READ },
-    ],
-  },
-  {
-    group: "仓储物流",
-    items: [
-      { key: "/inbound", icon: <InboxOutlined />, label: "入库单", perm: Permissions.INBOUND_READ },
-      { key: "/inventory", icon: <DatabaseOutlined />, label: "库存", perm: Permissions.INVENTORY_READ },
-      { key: "/shipments", icon: <ContainerOutlined />, label: "发运柜", perm: Permissions.SHIPMENT_READ },
-      { key: "/outbound", icon: <ExportOutlined />, label: "出库单", perm: Permissions.OUTBOUND_READ },
-    ],
-  },
-  {
-    group: "财务",
-    items: [
-      { key: "/finance/receivables", icon: <AccountBookOutlined />, label: "应收款", perm: Permissions.RECEIVABLE_READ },
-      { key: "/finance/receipts", icon: <VerticalAlignBottomOutlined />, label: "收款单", perm: Permissions.RECEIPT_READ },
-      { key: "/finance/payables", icon: <ReconciliationOutlined />, label: "应付款", perm: Permissions.PAYABLE_READ },
-      { key: "/finance/payments", icon: <PayCircleOutlined />, label: "付款单", perm: Permissions.PAYMENT_READ },
-    ],
-  },
-  {
-    group: "系统",
-    items: [
-      { key: "/admin/users", icon: <SafetyCertificateOutlined />, label: "用户管理", perm: Permissions.USER_MANAGE },
-      { key: "/admin/roles", icon: <KeyOutlined />, label: "角色权限", perm: Permissions.ROLE_MANAGE },
-    ],
-  },
-];
 
 /**
  * 全站唯一外壳实例(挂在根 layout 的 ShellGate 上,业务段 layout 只留 RouteGuard)。
@@ -106,10 +30,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const hasPermission = useAuthStore((s) => s.hasPermission);
 
   // 按权限过滤菜单项(perm === null → 恒可见,如「平台导览」);整组被过滤空 → 该组标题一并隐藏。
-  const visibleGroups = MENU_GROUPS.map((g) => ({
-    ...g,
-    items: g.items.filter((m) => m.perm === null || hasPermission(m.perm)),
-  })).filter((g) => g.items.length > 0);
+  const visibleGroups = getVisibleMenuGroups(hasPermission);
   const visibleItems = visibleGroups.flatMap((g) => g.items);
 
   // 详情页(/catalog/spus/123)仍高亮所属一级项:取最长前缀命中。

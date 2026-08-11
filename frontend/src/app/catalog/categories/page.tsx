@@ -577,7 +577,7 @@ export default function CategoryAdminPage() {
         open={drawerMode !== null}
         onClose={closeDrawer}
         size="large"
-        destroyOnClose
+        destroyOnHidden
         footer={
           <Space style={{ width: "100%", justifyContent: "flex-end" }}>
             <Button onClick={closeDrawer} disabled={saving}>
@@ -643,7 +643,7 @@ export default function CategoryAdminPage() {
         open={specDrawerMode !== null}
         onClose={closeSpecDrawer}
         size="large"
-        destroyOnClose
+        destroyOnHidden
         footer={
           <Space style={{ width: "100%", justifyContent: "flex-end" }}>
             <Button onClick={closeSpecDrawer} disabled={specSaving}>

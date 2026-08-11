@@ -271,7 +271,7 @@ export default function PayableListPage() {
       {/* 行下钻抽屉:账头 + 核销记录(哪笔付款冲了多少)+ 用余额核销一键入口。🔴红线域。 */}
       <Drawer
         title={detail ? `应付款 ${detail.inbound_order_no}` : "应付款详情"}
-        width={640}
+        size={640}
         open={detailOpen}
         onClose={() => setDetailOpen(false)}
         loading={detailLoading}

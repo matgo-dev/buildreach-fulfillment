@@ -2,7 +2,8 @@
 
 import { api } from "./api";
 
-export type RoleCode = "ADMIN" | "PRODUCT_OPERATOR" | "SALES" | "PURCHASER" | "LOGISTICS" | "FINANCE";
+export type BuiltinRoleCode = "ADMIN" | "PRODUCT_OPERATOR" | "SALES" | "PURCHASER" | "LOGISTICS" | "FINANCE";
+export type RoleCode = BuiltinRoleCode | (string & {});
 
 export interface MeData {
   id: number;

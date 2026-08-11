@@ -3,6 +3,7 @@ import { ReactNode, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { useAuthStore } from "@/stores/authStore";
+import { getDefaultPathForPermissions } from "@/config/navigation";
 import type { RoleCode } from "@/lib/auth";
 import type { PermissionCode } from "@/config/permission-matrix";
 
@@ -47,11 +48,11 @@ export function RouteGuard({
       return;
     }
     if (allowRoles && !allowRoles.some((r) => user.roles.includes(r))) {
-      router.replace("/login");
+      router.replace(getDefaultPathForPermissions(user.permissions));
       return;
     }
     if (missingPerm) {
-      router.replace("/login");
+      router.replace(getDefaultPathForPermissions(user.permissions));
     }
   }, [user, loaded, allowRoles, missingPerm, enforceChangePassword, pathname, router]);
 

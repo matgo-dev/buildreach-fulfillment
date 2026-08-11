@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { authApi } from "@/lib/auth";
 import { ApiError } from "@/lib/api";
+import { getDefaultPathForPermissions } from "@/config/navigation";
 import { useAuthStore } from "@/stores/authStore";
 
 export default function LoginPage() {
@@ -25,7 +26,7 @@ export default function LoginPage() {
       const me = await authApi.me();
       setUser(me);
       setLoaded(true);
-      router.replace(me.must_change_password ? "/change-password" : "/");
+      router.replace(me.must_change_password ? "/change-password" : getDefaultPathForPermissions(me.permissions));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "登录失败,请重试");
     } finally {

@@ -1,6 +1,6 @@
 // 用户管理前端类型 + API。对齐后端 schemas/user.py(AdminUser*)。
 import { api } from "./api";
-import type { RoleCode } from "./auth";
+import type { BuiltinRoleCode } from "./auth";
 import type { Page } from "./catalog";
 import { qs } from "./qs";
 
@@ -15,22 +15,23 @@ export const USER_STATUS_META: Record<UserStatus, { label: string; color: string
 
 /**
  * 内部角色 code→中文(声明式镜像后端 rbac/constants.py ROLE_META;权威在后端)。
- * `satisfies Record<RoleCode, string>` 强制与 RoleCode 集合完备对齐——后端新增角色
- * 时,漏更这里会是编译错误,杜绝角色下拉与类型静默漂移。
+ * 内置角色 code→中文(声明式镜像后端 rbac/constants.py ROLE_META;权威在后端)。
+ * 自定义角色由 /roles 接口返回,不在这里静态枚举。
  */
-export const ROLE_META = {
+export const BUILTIN_ROLE_META = {
   ADMIN: "系统管理员",
   PRODUCT_OPERATOR: "商品运营",
   SALES: "销售",
   PURCHASER: "采购员",
   LOGISTICS: "物流仓运",
   FINANCE: "财务",
-} satisfies Record<RoleCode, string>;
+} satisfies Record<BuiltinRoleCode, string>;
 
-export const ROLE_OPTIONS = Object.entries(ROLE_META).map(([value, label]) => ({ value, label }));
+export const ROLE_META = BUILTIN_ROLE_META;
+export const ROLE_OPTIONS = Object.entries(BUILTIN_ROLE_META).map(([value, label]) => ({ value, label }));
 
 export function roleLabel(code: string): string {
-  return (ROLE_META as Record<string, string>)[code] ?? code;
+  return (BUILTIN_ROLE_META as Record<string, string>)[code] ?? code;
 }
 
 export interface UserItem {

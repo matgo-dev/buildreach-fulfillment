@@ -345,8 +345,8 @@ export default function PaymentListPage() {
       <Drawer
         title="登记付款"
         open={createOpen}
-        width="min(520px, 92vw)"
-        destroyOnClose
+        size="min(520px, 92vw)"
+        destroyOnHidden
         onClose={() => {
           setCreateOpen(false);
           form.resetFields();
@@ -411,7 +411,7 @@ export default function PaymentListPage() {
       {/* 详情抽屉:单头 + 未分配余额高亮 + 活动核销记录。 */}
       <Drawer
         title={p ? `付款单 ${p.payment_no}` : "付款单详情"}
-        width={640}
+        size={640}
         open={detailOpen}
         onClose={() => setDetailOpen(false)}
         loading={detailLoading}

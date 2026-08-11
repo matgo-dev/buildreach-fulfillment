@@ -134,7 +134,7 @@ export function SpuForm({
     <Drawer
       open={open}
       onClose={onClose}
-      width={720}
+      size={720}
       title={spu ? "编辑 SPU" : "新建 SPU"}
       extra={
         <Space>

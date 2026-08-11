@@ -243,8 +243,8 @@ export function LogisticsTrackCard({
       <Drawer
         title={edit.id === null ? "录入物流里程碑" : "编辑物流事件"}
         open={modalOpen}
-        width="min(480px, 92vw)"
-        destroyOnClose
+        size="min(480px, 92vw)"
+        destroyOnHidden
         onClose={() => setModalOpen(false)}
         footer={
           <Space style={{ width: "100%", justifyContent: "flex-end" }}>

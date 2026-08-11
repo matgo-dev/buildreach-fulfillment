@@ -252,8 +252,8 @@ export default function SalesOrderListPage() {
         title="从锁档报价生成销售单"
         open={quoteDrawerOpen}
         onClose={() => setQuoteDrawerOpen(false)}
-        width="min(760px, 92vw)"
-        destroyOnClose
+        size="min(760px, 92vw)"
+        destroyOnHidden
         footer={
           <Space style={{ width: "100%", justifyContent: "space-between" }} wrap>
             <span style={{ color: colors.muted }}>

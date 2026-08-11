@@ -142,7 +142,11 @@ async def _sync_roles(db: AsyncSession, *, dry_run: bool) -> dict:
 
 
 async def _sync_role_permissions(db: AsyncSession, *, dry_run: bool) -> dict:
-    """RolePermission:完全镜像配置。"""
+    """RolePermission:仅对代码配置的系统角色完全镜像。
+
+    自定义只读角色同样存 role_permissions,但不在 ROLE_PERMISSIONS 中。启动同步不能把
+    这些后台配置清掉;删除差异时只清理系统角色(role.code in ROLE_PERMISSIONS)的旧关系。
+    """
     role_result = await db.execute(select(Role))
     roles_by_code = {r.code: r for r in role_result.scalars().all()}
 
@@ -150,7 +154,11 @@ async def _sync_role_permissions(db: AsyncSession, *, dry_run: bool) -> dict:
     perms_by_code = {p.code: p for p in perm_result.scalars().all()}
 
     rp_result = await db.execute(select(RolePermission))
-    existing_rps = list(rp_result.scalars().all())
+    system_role_ids = {roles_by_code[code].id for code in ROLE_PERMISSIONS if code in roles_by_code}
+    existing_rps = [
+        rp for rp in rp_result.scalars().all()
+        if rp.role_id in system_role_ids
+    ]
     existing_pairs: dict[tuple[int, int], RolePermission] = {
         (rp.role_id, rp.permission_id): rp for rp in existing_rps
     }

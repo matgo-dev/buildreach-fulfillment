@@ -356,8 +356,8 @@ export function CustomsCard({
       <Drawer
         title={declaration ? "编辑报关" : "录入报关"}
         open={modalOpen}
-        width="min(560px, 92vw)"
-        destroyOnClose
+        size="min(560px, 92vw)"
+        destroyOnHidden
         onClose={closeModalDiscard}
         footer={
           <Space style={{ width: "100%", justifyContent: "flex-end" }}>

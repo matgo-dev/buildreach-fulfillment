@@ -53,6 +53,7 @@ import { OutboundSalesOrderPicker } from "@/components/outbound/OutboundSalesOrd
 import { OutboundOrderBuilder } from "@/components/outbound/OutboundOrderBuilder";
 import { LogisticsTrackCard } from "@/components/shipment/LogisticsTrackCard";
 import { CustomsCard } from "@/components/shipment/CustomsCard";
+import { useAuthStore } from "@/stores/authStore";
 
 // 编辑按钮文案随状态变(可编辑字段集不同,直接点出能改啥):OPEN 全量柜信息 /
 // LOADED 船务信息 / DEPARTED 仅提单号·ETA·备注可补(提单常离港后签发,故点名提单/ETA)。
@@ -66,6 +67,7 @@ export default function ShipmentDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { message, modal } = App.useApp();
+  const canReadOutbound = useAuthStore((s) => s.hasPermission(Permissions.OUTBOUND_READ));
   const [form] = Form.useForm();
   const [loadForm] = Form.useForm();
   const [departForm] = Form.useForm();
@@ -235,7 +237,26 @@ export default function ShipmentDetailPage() {
   }
 
   const columns: ColumnsType<ShipmentOutboundSummary> = [
-    { title: "出库单号", dataIndex: "no", width: 150 },
+    {
+      title: "出库单号",
+      dataIndex: "no",
+      width: 150,
+      render: (v: string, r) => (
+        <Can perm={Permissions.OUTBOUND_READ} fallback={<span>{v}</span>}>
+          <Button
+            type="link"
+            size="small"
+            style={{ padding: 0 }}
+            onClick={(e) => {
+              e.stopPropagation();
+              router.push(`/outbound/${r.id}`);
+            }}
+          >
+            {v}
+          </Button>
+        </Can>
+      ),
+    },
     {
       title: "销售单号",
       dataIndex: "sales_order_no",
@@ -500,10 +521,14 @@ export default function ShipmentDetailPage() {
               </Empty>
             ),
           }}
-          onRow={(r) => ({
-            onClick: () => router.push(`/outbound/${r.id}`),
-            style: { cursor: "pointer" },
-          })}
+          onRow={(r) =>
+            canReadOutbound
+              ? {
+                  onClick: () => router.push(`/outbound/${r.id}`),
+                  style: { cursor: "pointer" },
+                }
+              : {}
+          }
         />
       </Card>
 

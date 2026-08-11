@@ -143,7 +143,7 @@ export function ProductPickerDrawer({
     <Drawer
       open={open}
       onClose={onClose}
-      width={560}
+      size={560}
       title="选择商品"
       extra={
         <Button type="primary" onClick={onClose}>

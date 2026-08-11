@@ -16,6 +16,7 @@ from app.db.models.role_permission import RolePermission
 from app.db.models.user import User, UserStatus
 from app.db.models.user_role import UserRole
 from app.rbac.constants import Permissions
+from app.services import role_service
 from app.services.repo import paginate
 
 
@@ -43,8 +44,6 @@ async def is_selectable_salesperson(db: AsyncSession, user_id: int) -> bool:
     stmt = _selectable_salespersons_stmt().where(User.id == user_id)
     return (await db.execute(stmt)).first() is not None
 
-ALLOWED_INTERNAL_ROLES = {RoleCode.ADMIN, RoleCode.PRODUCT_OPERATOR, RoleCode.SALES,
-                          RoleCode.PURCHASER, RoleCode.LOGISTICS, RoleCode.FINANCE}
 _ROLE_ORDER = {code: index for index, code in enumerate(RoleCode.ALL)}
 
 
@@ -62,11 +61,6 @@ def _normalize_role_codes(role_codes: list[str]) -> list[str]:
     if not normalized:
         raise ValidationFailedError("至少选择一个角色")
 
-    invalid = sorted(set(normalized) - ALLOWED_INTERNAL_ROLES)
-    if invalid:
-        raise ValidationFailedError(
-            f"角色必须是 {sorted(ALLOWED_INTERNAL_ROLES)} 之一,非法角色: {invalid}"
-        )
     return sorted(normalized, key=_role_sort_key)
 
 
@@ -84,7 +78,8 @@ async def _load_roles_by_code(db: AsyncSession, role_codes: list[str]) -> dict[s
     roles_by_code = {role.code: role for role in rows.scalars().all()}
     missing = [role_code for role_code in role_codes if role_code not in roles_by_code]
     if missing:
-        raise NotFoundError(f"Role not found: {missing}")
+        raise ValidationFailedError(f"角色不存在: {missing}")
+    await role_service.validate_assignable_roles(db, roles_by_code)
     return roles_by_code
 
 
@@ -428,7 +423,7 @@ async def change_roles(
     """替换用户角色集合。守卫镜像停用三件套。
 
     规则:
-    - new_roles 非空且均 ∈ ALLOWED_INTERNAL_ROLES(单一源头白名单)
+    - new_roles 非空且均为 DB 中存在的角色(系统内置 + 后台创建的自定义只读角色)
     - 不能改自己的角色(防自锁/自提权)
     - 不能改 super admin
     - 不能从最后一个可用 ADMIN 身上移除 ADMIN(防系统失联)
