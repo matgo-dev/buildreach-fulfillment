@@ -1,7 +1,16 @@
-import pytest
+import asyncio
+from uuid import uuid4
 
-from app.core.exceptions import SpecContractError
+import pytest
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
+from app.core.exceptions import ConflictError, SpecContractError
 from app.db.models.category import Category
+from app.db.models.category_spec_attribute import CategorySpecAttribute
+from app.db.models.sku import Sku
+from app.db.models.spu import Spu
+from app.services import sku_service
 from app.services import spec_template_service as svc
 
 
@@ -67,6 +76,20 @@ async def test_upsert_enum_with_options_roundtrips(db_session):
         db_session, "10", key="grade", label_i18n={"zh": "等级"},
         value_type="enum", options=options)
     assert item["options"] == options
+
+
+@pytest.mark.asyncio
+async def test_upsert_enum_rejects_non_ascii_option_code(db_session):
+    await _seed_cat(db_session)
+    with pytest.raises(SpecContractError):
+        await svc.upsert_attribute(
+            db_session,
+            "10",
+            key="material",
+            label_i18n={"zh": "材质"},
+            value_type="enum",
+            options=[{"code": "碳钢", "label_i18n": {"zh": "碳钢"}}],
+        )
 
 
 @pytest.mark.asyncio
@@ -313,3 +336,135 @@ async def test_resolve_spec_new_attribute_takes_write_scope(db_session):
     assert new_key.startswith("a_")
     by_key = await svc.suggestions_by_key(db_session, "10")
     assert by_key[new_key]["scope"] == "spu"
+
+
+# ── 并发一致性:商品规格写入与模板破坏性变更共用模板行锁 ──
+
+async def _cleanup_committed_product_seed(Session, code: str) -> None:
+    async with Session.begin() as db:
+        spu_ids = select(Spu.id).where(Spu.category_code == code).scalar_subquery()
+        await db.execute(delete(Sku).where(Sku.spu_id.in_(spu_ids)))
+        await db.execute(delete(Spu).where(Spu.category_code == code))
+        await db.execute(
+            delete(CategorySpecAttribute).where(CategorySpecAttribute.category_code == code)
+        )
+        await db.execute(delete(Category).where(Category.code == code))
+
+
+async def _seed_committed_product_with_enum_template(Session, code: str) -> int:
+    await _cleanup_committed_product_seed(Session, code)
+    async with Session.begin() as db:
+        db.add(Category(code=code, parent_code=None, name_i18n={"zh": "并发品类"},
+                        level=1, is_leaf=True, sort_order=0))
+        await db.flush()
+        await svc.upsert_attribute(
+            db, code, key="material", label_i18n={"zh": "材质"},
+            value_type="enum",
+            options=[{"code": "v_old", "label_i18n": {"zh": "旧选项"}}],
+            scope="sku",
+        )
+        spu = Spu(
+            spu_code=f"SPU-{code}", category_code=code, name_i18n={"zh": "并发商品"},
+            spec_jsonb=[], search_text="", created_by=1,
+        )
+        db.add(spu)
+        await db.flush()
+        return spu.id
+
+
+async def _create_sku_referencing_old_option(Session, spu_id: int) -> Sku:
+    async with Session() as db:
+        return await sku_service.create_sku(
+            db, spu_id=spu_id, unit="piece", reference_price=None,
+            name_i18n={"zh": "并发 SKU"},
+            spec_items=[{"key": "material", "value": "v_old"}],
+            actor_user_id=1, actor_user_email="system@test", image_refs=[],
+        )
+
+
+async def _run_paused_sku_write(monkeypatch, Session, spu_id: int):
+    locked_template = asyncio.Event()
+    allow_commit = asyncio.Event()
+    original_resolve_spec = svc.resolve_spec
+
+    async def paused_resolve_spec(db, category_code, spec_items, *, scope="sku"):
+        resolved = await original_resolve_spec(db, category_code, spec_items, scope=scope)
+        locked_template.set()
+        await allow_commit.wait()
+        return resolved
+
+    monkeypatch.setattr(svc, "resolve_spec", paused_resolve_spec)
+    task = asyncio.create_task(_create_sku_referencing_old_option(Session, spu_id))
+    await asyncio.wait_for(locked_template.wait(), timeout=2)
+    return task, allow_commit
+
+
+@pytest.mark.asyncio
+async def test_delete_attribute_waits_for_concurrent_sku_write_then_conflicts(_engine, monkeypatch):
+    """SKU 写入已解析合法模板但未提交时,删除属性必须等同一模板行锁释放;
+    待 SKU 提交后重新查引用并冲突,不能留下商品引用已删除 key。"""
+    Session = async_sessionmaker(_engine, expire_on_commit=False)
+    code = f"t{uuid4().hex[:10]}"
+    spu_id = await _seed_committed_product_with_enum_template(Session, code)
+    create_task = delete_task = None
+    try:
+        create_task, allow_commit = await _run_paused_sku_write(monkeypatch, Session, spu_id)
+
+        async def delete_material():
+            async with Session() as db:
+                with pytest.raises(ConflictError, match="已有商品引用"):
+                    await svc.delete_attribute(db, code, "material")
+
+        delete_task = asyncio.create_task(delete_material())
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(asyncio.shield(delete_task), timeout=0.2)
+
+        allow_commit.set()
+        created_sku = await create_task
+        await delete_task
+        assert created_sku.spec_jsonb == [{"key": "material", "value": "v_old"}]
+    finally:
+        if create_task is not None and not create_task.done():
+            create_task.cancel()
+        if delete_task is not None and not delete_task.done():
+            delete_task.cancel()
+        await _cleanup_committed_product_seed(Session, code)
+
+
+@pytest.mark.asyncio
+async def test_remove_enum_option_waits_for_concurrent_sku_write_then_conflicts(
+    _engine, monkeypatch
+):
+    """SKU 写入引用 enum option 的事务未提交时,收缩 options 必须等待模板行锁;
+    待 SKU 提交后看到 v_old 已被引用并拒绝删除该 option。"""
+    Session = async_sessionmaker(_engine, expire_on_commit=False)
+    code = f"t{uuid4().hex[:10]}"
+    spu_id = await _seed_committed_product_with_enum_template(Session, code)
+    create_task = shrink_task = None
+    try:
+        create_task, allow_commit = await _run_paused_sku_write(monkeypatch, Session, spu_id)
+
+        async def remove_old_option():
+            async with Session() as db:
+                with pytest.raises(ConflictError, match="枚举选项已被商品引用"):
+                    await svc.update_attribute(
+                        db, code, "material", label_i18n={"zh": "材质"},
+                        value_type="enum",
+                        options=[{"code": "v_new", "label_i18n": {"zh": "新选项"}}],
+                        scope="sku",
+                    )
+
+        shrink_task = asyncio.create_task(remove_old_option())
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(asyncio.shield(shrink_task), timeout=0.2)
+
+        allow_commit.set()
+        created_sku = await create_task
+        await shrink_task
+        assert created_sku.spec_jsonb == [{"key": "material", "value": "v_old"}]
+    finally:
+        if create_task is not None and not create_task.done():
+            create_task.cancel()
+        if shrink_task is not None and not shrink_task.done():
+            shrink_task.cancel()
+        await _cleanup_committed_product_seed(Session, code)
