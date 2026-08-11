@@ -17,7 +17,6 @@ import {
   Select,
   Space,
   Table,
-  Tag,
   Typography,
 } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
@@ -441,9 +440,12 @@ export default function PaymentListPage() {
         {p && (
           <>
             {p.voided_at && (
-              <Tag color="error" style={{ marginBottom: 12 }}>
-                已作废{p.void_reason ? ` · ${p.void_reason}` : ""}
-              </Tag>
+              <div style={{ marginBottom: 12 }}>
+                <Space size={8}>
+                  <StatusTag meta={VOIDED_STATUS_META} value="VOIDED" />
+                  {p.void_reason && <Typography.Text type="secondary">{p.void_reason}</Typography.Text>}
+                </Space>
+              </div>
             )}
             <Descriptions column={2} size="small" bordered>
               <Descriptions.Item label="供应商">{p.supplier_display}</Descriptions.Item>
