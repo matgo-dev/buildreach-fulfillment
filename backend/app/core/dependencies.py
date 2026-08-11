@@ -27,10 +27,12 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login", auto_error=Fa
 @dataclass
 class CurrentUser:
     id: int
-    email: str
+    email: str | None
     name: str
     must_change_password: bool
     token_version: int
+    username: str | None = None
+    phone: str | None = None
     roles: list[str] = field(default_factory=list)
     permissions: list[str] = field(default_factory=list)
 
@@ -97,7 +99,9 @@ async def get_current_user(
     return CurrentUser(
         id=user.id,
         email=user.email,
+        username=user.username,
         name=user.name,
+        phone=user.phone,
         must_change_password=user.must_change_password,
         token_version=user.token_version,
         roles=role_codes,

@@ -8,8 +8,10 @@ from app.core.config import settings
 from app.core.dependencies import CurrentUser, get_current_user, oauth2_scheme
 from app.core.exceptions import BusinessError, success
 from app.db.session import get_db
+from app.rbac.guards import block_if_must_change_password
 from app.schemas.auth import ChangePasswordIn, LoginIn, MeOut, TokenOut
-from app.services import auth_service
+from app.schemas.user import SelfProfileUpdateIn
+from app.services import auth_service, user_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -82,8 +84,40 @@ async def me(current: CurrentUser = Depends(get_current_user)):
     data = MeOut(
         id=current.id,
         email=current.email,
+        username=current.username,
         name=current.name,
+        phone=current.phone,
         must_change_password=current.must_change_password,
+        roles=current.roles,
+        permissions=current.permissions,
+    ).model_dump()
+    return success(data)
+
+
+@router.put("/me", summary="更新当前用户资料(email/username/phone/name)")
+async def update_me(
+    body: SelfProfileUpdateIn,
+    request: Request,
+    current: CurrentUser = Depends(block_if_must_change_password),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await user_service.update_self_profile(
+        db,
+        user_id=current.id,
+        actor_user_email=current.email,
+        email=body.email,
+        username=body.username,
+        phone=body.phone,
+        name=body.name,
+        request=request,
+    )
+    data = MeOut(
+        id=user.id,
+        email=user.email,
+        username=user.username,
+        name=user.name,
+        phone=user.phone,
+        must_change_password=user.must_change_password,
         roles=current.roles,
         permissions=current.permissions,
     ).model_dump()

@@ -36,8 +36,10 @@ class MeOut(BaseModel):
     """当前用户资料。M0 无组织/专区概念,只暴露账号自身信息。"""
 
     id: int
-    email: str
+    email: str | None
+    username: str | None = None
     name: str
+    phone: str | None = None
     must_change_password: bool
     roles: list[str]
     permissions: list[str]

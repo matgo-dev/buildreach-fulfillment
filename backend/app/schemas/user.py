@@ -85,6 +85,17 @@ class AdminUserUpdateIn(BaseModel):
     _v_email = field_validator("email")(_valid_email_opt)
 
 
+class SelfProfileUpdateIn(BaseModel):
+    """当前用户自助维护资料。角色、状态、强制改密标记不在自助边界内。"""
+
+    email: str | None = Field(default=None, max_length=255)
+    username: str | None = Field(default=None, max_length=50)
+    phone: str | None = Field(default=None, max_length=30)
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+
+    _v_email = field_validator("email")(_valid_email_opt)
+
+
 class AdminUserResetPasswordIn(BaseModel):
     """管理员重置密码:临时密码(强度同建号),成功后强制首登改密。"""
 

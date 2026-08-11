@@ -11,7 +11,7 @@
     "dev": "next dev -p 3000",
     "build": "next build",
     "start": "next start -p 3000",
-    "lint": "next lint"
+    "lint": "node scripts/check-antd-deprecated.js && next lint"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.2",

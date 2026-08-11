@@ -144,7 +144,7 @@ export default function OutboundOrderDetailPage() {
   const { order, lines } = detail;
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Card
         title={
           <Space size={8}>
@@ -293,7 +293,7 @@ export default function OutboundOrderDetailPage() {
           }
         }}
       >
-        <Space direction="vertical" style={{ width: "100%" }}>
+        <Space orientation="vertical" style={{ width: "100%" }}>
           <span>撤销后回到草稿态,库存可发数量恢复,对应应收款将作废。若应收已有核销则不可撤销。</span>
           <Input.TextArea
             rows={2}

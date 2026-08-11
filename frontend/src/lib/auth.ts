@@ -7,11 +7,20 @@ export type RoleCode = BuiltinRoleCode | (string & {});
 
 export interface MeData {
   id: number;
-  email: string;
+  email: string | null;
+  username: string | null;
   name: string;
+  phone: string | null;
   must_change_password: boolean;
   roles: RoleCode[];
   permissions: string[];
+}
+
+export interface SelfProfileUpdateBody {
+  email?: string | null;
+  username?: string | null;
+  phone?: string | null;
+  name?: string | null;
 }
 
 export interface LoginResult {
@@ -27,6 +36,8 @@ export const authApi = {
     api.post<LoginResult>("/api/v1/auth/login", { identifier, password }, { noAuth: true }),
 
   me: () => api.get<MeData>("/api/v1/auth/me"),
+
+  updateMe: (body: SelfProfileUpdateBody) => api.put<MeData>("/api/v1/auth/me", body),
 
   logout: () => api.post<null>("/api/v1/auth/logout"),
 

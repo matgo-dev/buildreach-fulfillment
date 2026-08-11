@@ -112,7 +112,7 @@ export default function SalesOrderDetailPage() {
   const relatedOutbounds = order.related_outbound_orders; // undefined = 无 outbound:read,不渲染区块
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Card
         title={
           <Space size={8}>
@@ -396,7 +396,7 @@ export default function SalesOrderDetailPage() {
           }
         }}
       >
-        <Space direction="vertical" style={{ width: "100%" }}>
+        <Space orientation="vertical" style={{ width: "100%" }}>
           <span>
             取消后本单进入终态,来源报价回到锁档、可修改后重新转出;
             存在未取消的采购单时本操作会被拒绝。
