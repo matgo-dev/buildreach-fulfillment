@@ -6,10 +6,6 @@ declare global {
   interface Window {
     __ENV?: {
       API_BASE_URL?: string;
-      /** 图片存储后端:local(经后端 /media 读)| s3(公读桶直读)。默认 local。 */
-      IMAGE_BACKEND?: string;
-      /** s3 公读桶基址(如 https://cdn.example.com);IMAGE_BACKEND=s3 时用。 */
-      IMAGE_PUBLIC_BASE?: string;
     };
   }
 }
@@ -30,22 +26,4 @@ export function getApiBase(): string {
     throw new Error("API_BASE_URL 未配置,请在 .env.local 中设置 NEXT_PUBLIC_API_BASE_URL");
   }
   return base;
-}
-
-/** 图片存储后端(local / s3)。默认 local(dev 经后端 /media 读)。 */
-export function getImageBackend(): "local" | "s3" {
-  const v =
-    (typeof window !== "undefined" && window.__ENV?.IMAGE_BACKEND) ||
-    process.env.NEXT_PUBLIC_IMAGE_BACKEND ||
-    "local";
-  return v === "s3" ? "s3" : "local";
-}
-
-/** s3 公读桶基址(仅 IMAGE_BACKEND=s3 时使用)。 */
-export function getImagePublicBase(): string {
-  return (
-    (typeof window !== "undefined" && window.__ENV?.IMAGE_PUBLIC_BASE) ||
-    process.env.NEXT_PUBLIC_IMAGE_PUBLIC_BASE ||
-    ""
-  );
 }

@@ -71,13 +71,11 @@ class Storage(Protocol):
         ...
 
     def public_url(self, key: str) -> str:
-        """公开资产 URL(商品图,走 CDN);敏感件不用。"""
+        """对象存储公开 URL。生产业务图片默认不用;保留给将来显式授权的公开资产。"""
         ...
 
     def build_url(self, key: str, size: int | None = None) -> str:
-        """展示用 URL。size 是展示意图参数,但当前各实现均不做服务端变换(标准 S3 兼容
-        对象存储无 URL 传参改尺寸能力),忽略 size 返回原图。真需缩略走上传时预生成或独立
-        图片服务(imgproxy),不在 URL 拼厂商私有参数。"""
+        """展示用受控 URL。业务图片默认经 /api/v1/media 鉴权代理读取。"""
         ...
 
     def create_upload(self, key: str, content_type: str) -> dict:
@@ -135,11 +133,7 @@ class LocalDiskStorage:
 
     def build_url(self, key: str, size: int | None = None) -> str:
         # 本地存储零图像处理:忽略 size,浏览器降采样兜底。
-        # 已知限制(仅本地 dev):save() 把 key 打平成 basename(_path 用 Path(key).name),
-        # 此处却返回带 'img/' 前缀的 /media/{key},且 /media 未挂静态路由 —— 本地传的图当前
-        # 预览不出来。生产走 S3Storage(public_url 前缀一致),无此问题。待商品图上传前端
-        # 落地时一并修(挂 /media 静态路由或 save 保留 key 路径),不留在私有 ledger。
-        return f"/media/{key}"
+        return f"/api/v1/media/{key}"
 
     def create_upload(self, key: str, content_type: str) -> dict:
         # 本地后端无对象存储直传能力:指回本服务的 PUT 接收端点。
@@ -181,9 +175,8 @@ class S3Storage:
 
     def build_url(self, key: str, size: int | None = None) -> str:
         # 标准 S3 兼容对象存储(MinIO / OVH Object Storage)无 URL 传参实时改尺寸能力,
-        # 忽略 size 返回原图。内部系统不需要任意尺寸缩略(列表页浏览器降采样即可);真要
-        # 缩略走上传时预生成或独立图片服务(imgproxy),不在 URL 拼厂商私有参数。
-        return self.public_url(key)
+        # 忽略 size。业务图片默认不公读,统一经后端鉴权代理。
+        return f"/api/v1/media/{key}"
 
     def create_upload(self, key: str, content_type: str) -> dict:
         # 前端直传:PUT 预签名 URL,免经后端中转。

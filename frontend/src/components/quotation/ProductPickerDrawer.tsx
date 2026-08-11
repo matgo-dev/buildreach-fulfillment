@@ -4,8 +4,8 @@ import { Button, Drawer, Empty, Input, List, Space, Spin, Tag } from "antd";
 import { CheckOutlined, PlusOutlined } from "@ant-design/icons";
 import { catalogApi, type SkuSearchItem } from "@/lib/catalog";
 import { display } from "@/lib/i18n";
-import { imageUrl } from "@/lib/image";
 import { colors } from "@/lib/tokens";
+import { AuthenticatedImage } from "@/components/common/AuthenticatedImage";
 
 /** 选中回传:报价行需要的最小信息(id + 展示名 + 单位 code)。 */
 export interface PickedSku {
@@ -84,7 +84,6 @@ export function ProductPickerDrawer({
         dataSource={items}
         renderItem={(it) => {
           const added = addedSkuIds.has(it.id);
-          const img = imageUrl(it.spu_main_image, 80);
           return (
             <List.Item
               actions={[
@@ -118,9 +117,15 @@ export function ProductPickerDrawer({
                       flex: "none",
                     }}
                   >
-                    {img ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    {it.spu_main_image ? (
+                      <AuthenticatedImage
+                        imageKey={it.spu_main_image}
+                        alt=""
+                        width={48}
+                        height={48}
+                        preview={false}
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      />
                     ) : null}
                   </div>
                 }

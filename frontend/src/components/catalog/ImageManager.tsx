@@ -3,10 +3,10 @@ import { useState } from "react";
 import { Upload, App, Typography } from "antd";
 import { PlusOutlined, LoadingOutlined, StarFilled, StarOutlined, CloseOutlined } from "@ant-design/icons";
 import { uploadImage } from "@/lib/upload";
-import { imageUrl } from "@/lib/image";
 import { ImageRefIn } from "@/lib/catalog";
 import { resolveBizError } from "@/lib/errorMessages";
 import { colors } from "@/lib/tokens";
+import { AuthenticatedImage } from "@/components/common/AuthenticatedImage";
 
 const { Text } = Typography;
 const ACCEPT = ["image/jpeg", "image/png", "image/webp", "image/gif"];
@@ -96,10 +96,10 @@ export function ImageZone({
                 flex: "none",
               }}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={imageUrl(key, 200)}
+              <AuthenticatedImage
+                imageKey={key}
                 alt=""
+                preview={false}
                 style={{ width: "100%", height: "100%", objectFit: "cover" }}
               />
               {isCover && (

@@ -107,7 +107,3 @@ async def healthz():
 
 from app.api.v1.router import api_router  # noqa: E402
 app.include_router(api_router)
-
-# 商品图本地读取(根路径 /media,非 /api/v1;仅 local 后端生效)。
-from app.api.media import router as media_router  # noqa: E402
-app.include_router(media_router)
