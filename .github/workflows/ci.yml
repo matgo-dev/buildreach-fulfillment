@@ -68,6 +68,12 @@ jobs:
           uv export --no-dev --no-emit-project --format requirements-txt > /tmp/backend-requirements.txt
           uvx pip-audit -s osv --no-deps --disable-pip -r /tmp/backend-requirements.txt
 
+      - name: Lint database schema
+        working-directory: backend
+        run: |
+          source .venv/bin/activate
+          python scripts/schema_lint.py
+
       - name: Run tests
         working-directory: backend
         run: |

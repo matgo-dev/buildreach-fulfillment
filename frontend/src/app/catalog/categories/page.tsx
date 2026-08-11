@@ -24,6 +24,7 @@ import type { DataNode } from "antd/es/tree";
 import type { ColumnsType } from "antd/es/table";
 import { DeleteOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
 import { Can } from "@/components/common/Can";
+import { StatusTag } from "@/components/common/StatusTag";
 import { Permissions } from "@/config/permission-matrix";
 import { useAuthStore } from "@/stores/authStore";
 import {
@@ -72,6 +73,11 @@ const SCOPE_LABEL: Record<SpecScope, string> = {
   sku: "变体轴",
 };
 
+const CATEGORY_STATUS_META = {
+  ACTIVE: { label: "启用", color: "success" },
+  INACTIVE: { label: "停用", color: "default" },
+};
+
 function buildTree(nodes: CategoryNode[]): DataNode[] {
   const byParent = new Map<string | null, CategoryNode[]>();
   nodes.forEach((n) => {
@@ -90,7 +96,7 @@ function buildTree(nodes: CategoryNode[]): DataNode[] {
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             {n.code}
           </Typography.Text>
-          {!n.is_active && <Tag>停用</Tag>}
+          {!n.is_active && <StatusTag meta={CATEGORY_STATUS_META} value="INACTIVE" />}
         </Space>
       ),
       isLeaf: n.is_leaf,
@@ -520,7 +526,10 @@ export default function CategoryAdminPage() {
                 <Descriptions.Item label="叶子">{selected.is_leaf ? "是" : "否"}</Descriptions.Item>
                 <Descriptions.Item label="排序">{selected.sort_order}</Descriptions.Item>
                 <Descriptions.Item label="状态">
-                  {selected.is_active ? <Tag color="success">启用</Tag> : <Tag>停用</Tag>}
+                  <StatusTag
+                    meta={CATEGORY_STATUS_META}
+                    value={selected.is_active ? "ACTIVE" : "INACTIVE"}
+                  />
                 </Descriptions.Item>
                 <Descriptions.Item label="中文名">{selected.name_i18n.zh || "—"}</Descriptions.Item>
                 <Descriptions.Item label="英文名">{selected.name_i18n.en || "—"}</Descriptions.Item>

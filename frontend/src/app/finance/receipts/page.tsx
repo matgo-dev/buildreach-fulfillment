@@ -49,9 +49,13 @@ const STATUS_TABS = [
   { label: "已作废", value: "VOIDED" },
 ];
 
+const VOIDED_STATUS_META = {
+  VOIDED: { label: "已作废", color: "default" },
+};
+
 /** 单头/列表行状态徽标:作废优先显「已作废」,否则走派生态映射。 */
 function ReceiptStatusTag({ status, voidedAt }: { status: string; voidedAt: string | null }) {
-  if (voidedAt) return <Tag>已作废</Tag>;
+  if (voidedAt) return <StatusTag meta={VOIDED_STATUS_META} value="VOIDED" />;
   return <StatusTag meta={RECEIPT_STATUS_META} value={status} />;
 }
 

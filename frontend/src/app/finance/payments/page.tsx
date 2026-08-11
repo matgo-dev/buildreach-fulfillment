@@ -51,8 +51,12 @@ const STATUS_TABS = [
   { label: "已作废", value: "VOIDED" },
 ];
 
+const VOIDED_STATUS_META = {
+  VOIDED: { label: "已作废", color: "default" },
+};
+
 function PaymentStatusTag({ status, voidedAt }: { status: string; voidedAt: string | null }) {
-  if (voidedAt) return <Tag>已作废</Tag>;
+  if (voidedAt) return <StatusTag meta={VOIDED_STATUS_META} value="VOIDED" />;
   return <StatusTag meta={PAYMENT_STATUS_META} value={status} />;
 }
 

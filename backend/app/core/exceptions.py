@@ -43,8 +43,6 @@ from typing import Any
 
 from fastapi import HTTPException, status
 
-from app.core.message_keys import MessageKey
-
 
 class BusinessError(HTTPException):
     """所有业务异常的基类。"""
@@ -55,62 +53,58 @@ class BusinessError(HTTPException):
         biz_code: int,
         message: str,
         data: Any = None,
-        message_key: str | None = None,
-        message_params: dict | None = None,
     ):
         super().__init__(status_code=http_status, detail=message)
         self.biz_code = biz_code
         self.biz_message = message
         self.biz_data = data
-        self.message_key = message_key
-        self.message_params = message_params
 
 
 class InvalidCredentialsError(BusinessError):
     def __init__(self, message: str = "Invalid credentials"):
-        super().__init__(status.HTTP_401_UNAUTHORIZED, 40001, message, message_key=MessageKey.INVALID_CREDENTIALS)
+        super().__init__(status.HTTP_401_UNAUTHORIZED, 40001, message)
 
 
 class TooManyAttemptsError(BusinessError):
     def __init__(self, message: str = "Too many failed attempts, account locked"):
-        super().__init__(status.HTTP_429_TOO_MANY_REQUESTS, 40002, message, message_key=MessageKey.ACCOUNT_LOCKED)
+        super().__init__(status.HTTP_429_TOO_MANY_REQUESTS, 40002, message)
 
 
 class PermissionDeniedError(BusinessError):
     def __init__(self, message: str = "Permission denied"):
-        super().__init__(status.HTTP_403_FORBIDDEN, 40003, message, message_key=MessageKey.PERMISSION_DENIED)
+        super().__init__(status.HTTP_403_FORBIDDEN, 40003, message)
 
 
 class NotAuthenticatedError(BusinessError):
     def __init__(self, message: str = "Not authenticated"):
-        super().__init__(status.HTTP_401_UNAUTHORIZED, 40004, message, message_key=MessageKey.NOT_AUTHENTICATED)
+        super().__init__(status.HTTP_401_UNAUTHORIZED, 40004, message)
 
 
 class AccountDisabledError(BusinessError):
     def __init__(self, message: str = "Account disabled"):
-        super().__init__(status.HTTP_403_FORBIDDEN, 40005, message, message_key=MessageKey.ACCOUNT_DISABLED)
+        super().__init__(status.HTTP_403_FORBIDDEN, 40005, message)
 
 
 class AccountDeactivatedError(BusinessError):
     def __init__(self, message: str = "Account has been deactivated"):
-        super().__init__(status.HTTP_403_FORBIDDEN, 40305, message, message_key=MessageKey.ACCOUNT_DISABLED)
+        super().__init__(status.HTTP_403_FORBIDDEN, 40305, message)
 
 
 class ValidationFailedError(BusinessError):
     def __init__(self, message: str = "Validation failed"):
-        super().__init__(status.HTTP_400_BAD_REQUEST, 40006, message, message_key=MessageKey.VALIDATION_FAILED)
+        super().__init__(status.HTTP_400_BAD_REQUEST, 40006, message)
 
 
 class PasswordChangeRequiredError(BusinessError):
     """must_change_password=True 的账号访问非豁免端点时抛出。"""
 
     def __init__(self, message: str = "Password change required"):
-        super().__init__(status.HTTP_403_FORBIDDEN, 40007, message, message_key=MessageKey.PASSWORD_CHANGE_REQUIRED)
+        super().__init__(status.HTTP_403_FORBIDDEN, 40007, message)
 
 
 class ConflictError(BusinessError):
     def __init__(self, message: str = "Resource conflict"):
-        super().__init__(status.HTTP_409_CONFLICT, 40009, message, message_key=MessageKey.CONFLICT)
+        super().__init__(status.HTTP_409_CONFLICT, 40009, message)
 
 
 class AccountLockedError(BusinessError):
@@ -122,21 +116,19 @@ class AccountLockedError(BusinessError):
     """
 
     def __init__(self, message: str = "账号已锁定,请稍后重试或联系管理员"):
-        super().__init__(status.HTTP_429_TOO_MANY_REQUESTS, 40010, message,
-                         message_key=MessageKey.ACCOUNT_LOCKED)
+        super().__init__(status.HTTP_429_TOO_MANY_REQUESTS, 40010, message)
 
 
 class NotFoundError(BusinessError):
     def __init__(self, message: str = "Not found"):
-        super().__init__(status.HTTP_404_NOT_FOUND, 40008, message, message_key=MessageKey.NOT_FOUND)
+        super().__init__(status.HTTP_404_NOT_FOUND, 40008, message)
 
 
 class SpecContractError(BusinessError):
     """spec_jsonb 契约违规(key 唯一/来自模板/zh 必填/禁空串等)。模块段 13=SKU。"""
 
     def __init__(self, message: str = "spec_jsonb contract violated"):
-        super().__init__(status.HTTP_400_BAD_REQUEST, 41301, message,
-                         message_key=MessageKey.SPEC_CONTRACT)
+        super().__init__(status.HTTP_400_BAD_REQUEST, 41301, message)
 
 
 # 模块段 12 = 商品生命周期(SPU 状态机)。见 db/models/spu.py SpuStatus。
@@ -144,24 +136,21 @@ class ProductNotEditableError(BusinessError):
     """商品当前状态不在 EDITABLE 集(ACTIVE 已启用),需先停用再改/删。"""
 
     def __init__(self, message: str = "Product not editable in current status"):
-        super().__init__(status.HTTP_409_CONFLICT, 41201, message,
-                         message_key=MessageKey.PRODUCT_NOT_EDITABLE)
+        super().__init__(status.HTTP_409_CONFLICT, 41201, message)
 
 
 class IllegalStatusTransitionError(BusinessError):
     """状态转移不在 TRANSITIONS 白名单(如 DRAFT→INACTIVE、ACTIVE→DRAFT)。"""
 
     def __init__(self, message: str = "Illegal status transition"):
-        super().__init__(status.HTTP_409_CONFLICT, 41202, message,
-                         message_key=MessageKey.PRODUCT_ILLEGAL_TRANSITION)
+        super().__init__(status.HTTP_409_CONFLICT, 41202, message)
 
 
 class ProductIncompleteError(BusinessError):
     """启用(→ACTIVE)完备性未达标:至少需一个在售 SKU(不卡参考价,见 has_active_sku)。"""
 
     def __init__(self, message: str = "Product incomplete for activation"):
-        super().__init__(status.HTTP_409_CONFLICT, 41203, message,
-                         message_key=MessageKey.PRODUCT_INCOMPLETE)
+        super().__init__(status.HTTP_409_CONFLICT, 41203, message)
 
 
 # 模块段 14 = 报价(报价单状态机 + 整单保存)。见 db/models/quotation.py QuotationStatus。
@@ -169,64 +158,56 @@ class QuotationNotDraftError(BusinessError):
     """对非 DRAFT 报价单执行改/删/整单保存。"""
 
     def __init__(self, message: str = "Quotation is not a draft"):
-        super().__init__(status.HTTP_409_CONFLICT, 41401, message,
-                         message_key=MessageKey.QUOTATION_NOT_DRAFT)
+        super().__init__(status.HTTP_409_CONFLICT, 41401, message)
 
 
 class QuotationEmptyLinesError(BusinessError):
     """锁档要求至少一行。"""
 
     def __init__(self, message: str = "Quotation has no lines to lock"):
-        super().__init__(status.HTTP_400_BAD_REQUEST, 41402, message,
-                         message_key=MessageKey.QUOTATION_EMPTY_LINES)
+        super().__init__(status.HTTP_400_BAD_REQUEST, 41402, message)
 
 
 class QuotationInvalidTransitionError(BusinessError):
     """状态转移不在 QUOTATION_TRANSITIONS 矩阵。"""
 
     def __init__(self, message: str = "Illegal quotation status transition"):
-        super().__init__(status.HTTP_409_CONFLICT, 41403, message,
-                         message_key=MessageKey.QUOTATION_INVALID_TRANSITION)
+        super().__init__(status.HTTP_409_CONFLICT, 41403, message)
 
 
 class QuotationCannotUnlockConvertedError(BusinessError):
     """已转销售的报价不可解锁。"""
 
     def __init__(self, message: str = "Cannot unlock a converted quotation"):
-        super().__init__(status.HTTP_409_CONFLICT, 41404, message,
-                         message_key=MessageKey.QUOTATION_CANNOT_UNLOCK_CONVERTED)
+        super().__init__(status.HTTP_409_CONFLICT, 41404, message)
 
 
 class QuotationEditConflictError(BusinessError):
     """乐观锁:expected_updated_at 与库中不一致(或引用了不存在的行 id)。"""
 
     def __init__(self, message: str = "Quotation was modified by someone else"):
-        super().__init__(status.HTTP_409_CONFLICT, 41405, message,
-                         message_key=MessageKey.QUOTATION_EDIT_CONFLICT)
+        super().__init__(status.HTTP_409_CONFLICT, 41405, message)
 
 
 class QuotationInvalidLineError(BusinessError):
     """行引用的 SKU 不存在或不可报价(SKU/SPU 非 ACTIVE)。"""
 
     def __init__(self, message: str = "Quotation line references a non-quotable SKU"):
-        super().__init__(status.HTTP_400_BAD_REQUEST, 41406, message,
-                         message_key=MessageKey.QUOTATION_INVALID_LINE)
+        super().__init__(status.HTTP_400_BAD_REQUEST, 41406, message)
 
 
 class QuotationCannotVoidError(BusinessError):
     """当前状态不可作废(仅 DRAFT/LOCKED 可作废;CONVERTED 终态、VOID 已作废)。"""
 
     def __init__(self, message: str = "Cannot void a quotation in its current status"):
-        super().__init__(status.HTTP_409_CONFLICT, 41407, message,
-                         message_key=MessageKey.QUOTATION_CANNOT_VOID)
+        super().__init__(status.HTTP_409_CONFLICT, 41407, message)
 
 
 class QuotationInvalidSalespersonError(BusinessError):
     """报价人非法:须 ACTIVE 且持 quote:manage(同 /users/selectable 口径,写入口硬挡)。"""
 
     def __init__(self, message: str = "Salesperson must be an active quote-capable user"):
-        super().__init__(status.HTTP_400_BAD_REQUEST, 41408, message,
-                         message_key=MessageKey.QUOTATION_INVALID_SALESPERSON)
+        super().__init__(status.HTTP_400_BAD_REQUEST, 41408, message)
 
 
 class QuotationLineReferencedBySalesOrderError(BusinessError):
@@ -234,16 +215,14 @@ class QuotationLineReferencedBySalesOrderError(BusinessError):
     防裸 IntegrityError 500。改数量/价格不触 FK,不走此错。"""
 
     def __init__(self, message: str = "Quotation line is referenced by a sales order"):
-        super().__init__(status.HTTP_409_CONFLICT, 41411, message,
-                         message_key=MessageKey.QUOTATION_LINE_REFERENCED)
+        super().__init__(status.HTTP_409_CONFLICT, 41411, message)
 
 
 class QuotationCannotConvertError(BusinessError):
     """只有锁档态(LOCKED)报价可转销售单;其它态(草稿/已转/已作废)一律拒。"""
 
     def __init__(self, message: str = "Only a locked quotation can be converted to a sales order"):
-        super().__init__(status.HTTP_409_CONFLICT, 41409, message,
-                         message_key=MessageKey.QUOTATION_CANNOT_CONVERT)
+        super().__init__(status.HTTP_409_CONFLICT, 41409, message)
 
 
 class QuotationCustomerInactiveError(BusinessError):
@@ -264,87 +243,76 @@ class QuotationDuplicateSkuError(BusinessError):
 # 模块段 15 = 供应商(供应商主数据)。见 db/models/supplier.py SupplierStatus。
 class SupplierNotFoundError(BusinessError):
     def __init__(self, message: str = "Supplier not found"):
-        super().__init__(status.HTTP_404_NOT_FOUND, 41501, message,
-                         message_key=MessageKey.SUPPLIER_NOT_FOUND)
+        super().__init__(status.HTTP_404_NOT_FOUND, 41501, message)
 
 
 class SupplierCodeConflictError(BusinessError):
     """code 冲突(理论走发号不冲突,兜底)。"""
 
     def __init__(self, message: str = "Supplier code conflict"):
-        super().__init__(status.HTTP_409_CONFLICT, 41502, message,
-                         message_key=MessageKey.SUPPLIER_CODE_CONFLICT)
+        super().__init__(status.HTTP_409_CONFLICT, 41502, message)
 
 
 class SupplierInactiveError(BusinessError):
     """停用态供应商不可被新 PO 选用(供应商域自身报错)。"""
 
     def __init__(self, message: str = "Supplier is inactive"):
-        super().__init__(status.HTTP_409_CONFLICT, 41503, message,
-                         message_key=MessageKey.SUPPLIER_INACTIVE)
+        super().__init__(status.HTTP_409_CONFLICT, 41503, message)
 
 
 # 模块段 16 = 采购单(采购单状态机 + 建单/整单对账)。见 db/models/purchase_order.py。
 class PurchaseOrderNotFoundError(BusinessError):
     def __init__(self, message: str = "Purchase order not found"):
-        super().__init__(status.HTTP_404_NOT_FOUND, 41601, message,
-                         message_key=MessageKey.PURCHASE_ORDER_NOT_FOUND)
+        super().__init__(status.HTTP_404_NOT_FOUND, 41601, message)
 
 
 class PurchaseOrderInvalidTransitionError(BusinessError):
     """状态转移不在 PURCHASE_ORDER_TRANSITIONS 矩阵。"""
 
     def __init__(self, message: str = "Illegal purchase order status transition"):
-        super().__init__(status.HTTP_409_CONFLICT, 41602, message,
-                         message_key=MessageKey.PURCHASE_ORDER_INVALID_TRANSITION)
+        super().__init__(status.HTTP_409_CONFLICT, 41602, message)
 
 
 class PurchaseOverQuotaError(BusinessError):
     """超采:累计(非取消 PO 行,含草稿)> 对应 SO 行数量。"""
 
     def __init__(self, message: str = "Purchase quantity exceeds sales order line remaining"):
-        super().__init__(status.HTTP_409_CONFLICT, 41603, message,
-                         message_key=MessageKey.PURCHASE_ORDER_OVER_PURCHASE)
+        super().__init__(status.HTTP_409_CONFLICT, 41603, message)
 
 
 class PurchaseSourceSalesOrderInvalidError(BusinessError):
     """源 SO 无效:不存在或非 CONFIRMED(采购须基于已确认销售单发起)。"""
 
     def __init__(self, message: str = "Source sales order not found or not confirmed"):
-        super().__init__(status.HTTP_404_NOT_FOUND, 41604, message,
-                         message_key=MessageKey.PURCHASE_ORDER_SOURCE_INVALID)
+        super().__init__(status.HTTP_404_NOT_FOUND, 41604, message)
 
 
 class PurchaseOrderEditConflictError(BusinessError):
     """乐观锁:expected_updated_at 与库中不一致(或引用了不存在的行 id)。"""
 
     def __init__(self, message: str = "Purchase order was modified by someone else"):
-        super().__init__(status.HTTP_409_CONFLICT, 41605, message,
-                         message_key=MessageKey.PURCHASE_ORDER_EDIT_CONFLICT)
+        super().__init__(status.HTTP_409_CONFLICT, 41605, message)
 
 
 class PurchaseOrderSupplierInactiveError(BusinessError):
     """建 PO 选用的供应商为停用态。"""
 
     def __init__(self, message: str = "Cannot create purchase order for an inactive supplier"):
-        super().__init__(status.HTTP_409_CONFLICT, 41606, message,
-                         message_key=MessageKey.PURCHASE_ORDER_SUPPLIER_INACTIVE)
+        super().__init__(status.HTTP_409_CONFLICT, 41606, message)
 
 
 class PurchaseOrderNotDraftError(BusinessError):
     """对非 DRAFT 采购单执行编辑 / 硬删。"""
 
     def __init__(self, message: str = "Purchase order is not a draft"):
-        super().__init__(status.HTTP_409_CONFLICT, 41607, message,
-                         message_key=MessageKey.PURCHASE_ORDER_NOT_DRAFT)
+        super().__init__(status.HTTP_409_CONFLICT, 41607, message)
 
 
 class PurchaseOrderEmptyError(BusinessError):
     """空采购单(无行):建单 / 编辑对账后 / 确认前均杜绝。"""
 
     def __init__(self, message: str = "Purchase order must have at least one line"):
-        super().__init__(status.HTTP_400_BAD_REQUEST, 41608, message,
-                         message_key=MessageKey.PURCHASE_ORDER_EMPTY)
+        super().__init__(status.HTTP_400_BAD_REQUEST, 41608, message)
 
 
 class PurchaseOrderHasActiveInboundError(BusinessError):
@@ -352,8 +320,7 @@ class PurchaseOrderHasActiveInboundError(BusinessError):
     货已在途/已收,订货承诺不可单方作废(契约 D5)。"""
 
     def __init__(self, message: str = "Cannot cancel a purchase order with active inbound orders"):
-        super().__init__(status.HTTP_409_CONFLICT, 41609, message,
-                         message_key=MessageKey.PURCHASE_ORDER_HAS_ACTIVE_INBOUND)
+        super().__init__(status.HTTP_409_CONFLICT, 41609, message)
 
 
 class PurchaseOrderDuplicateLineError(BusinessError):
@@ -367,72 +334,63 @@ class PurchaseOrderDuplicateLineError(BusinessError):
 # 模块段 17 = 入库单 / 应付款。见 db/models/inbound_order.py、db/models/payable.py。
 class InboundOrderNotFoundError(BusinessError):
     def __init__(self, message: str = "Inbound order not found"):
-        super().__init__(status.HTTP_404_NOT_FOUND, 41701, message,
-                         message_key=MessageKey.INBOUND_ORDER_NOT_FOUND)
+        super().__init__(status.HTTP_404_NOT_FOUND, 41701, message)
 
 
 class InboundSourcePurchaseOrderInvalidError(BusinessError):
     """源 PO 无效:不存在或非 CONFIRMED(入库须基于已确认采购单登记)。"""
 
     def __init__(self, message: str = "Source purchase order not found or not confirmed"):
-        super().__init__(status.HTTP_409_CONFLICT, 41702, message,
-                         message_key=MessageKey.INBOUND_ORDER_SOURCE_PO_INVALID)
+        super().__init__(status.HTTP_409_CONFLICT, 41702, message)
 
 
 class InboundOverReceiptError(BusinessError):
     """超收:累计(非取消入库行,含在途)> 对应 PO 行数量。"""
 
     def __init__(self, message: str = "Inbound quantity exceeds purchase order line remaining"):
-        super().__init__(status.HTTP_409_CONFLICT, 41703, message,
-                         message_key=MessageKey.INBOUND_ORDER_OVER_RECEIPT)
+        super().__init__(status.HTTP_409_CONFLICT, 41703, message)
 
 
 class InboundOrderInvalidTransitionError(BusinessError):
     """状态转移不在 INBOUND_ORDER_TRANSITIONS 矩阵。"""
 
     def __init__(self, message: str = "Illegal inbound order status transition"):
-        super().__init__(status.HTTP_409_CONFLICT, 41704, message,
-                         message_key=MessageKey.INBOUND_ORDER_INVALID_TRANSITION)
+        super().__init__(status.HTTP_409_CONFLICT, 41704, message)
 
 
 class InboundOrderNotInTransitError(BusinessError):
     """对非 IN_TRANSIT 入库单执行编辑(整单保存仅在途)。"""
 
     def __init__(self, message: str = "Inbound order is not in transit"):
-        super().__init__(status.HTTP_409_CONFLICT, 41705, message,
-                         message_key=MessageKey.INBOUND_ORDER_NOT_IN_TRANSIT)
+        super().__init__(status.HTTP_409_CONFLICT, 41705, message)
 
 
 class InboundLineNotInPurchaseOrderError(BusinessError):
     """入库行引用的 PO 行不属于该采购单。"""
 
     def __init__(self, message: str = "Inbound line references a purchase order line not on this PO"):
-        super().__init__(status.HTTP_400_BAD_REQUEST, 41706, message,
-                         message_key=MessageKey.INBOUND_ORDER_LINE_NOT_IN_PO)
+        super().__init__(status.HTTP_400_BAD_REQUEST, 41706, message)
 
 
 class InboundOrderEmptyError(BusinessError):
     """空入库单(无行):建单 / 编辑对账后均杜绝。"""
 
     def __init__(self, message: str = "Inbound order must have at least one line"):
-        super().__init__(status.HTTP_400_BAD_REQUEST, 41707, message,
-                         message_key=MessageKey.INBOUND_ORDER_EMPTY)
+        super().__init__(status.HTTP_400_BAD_REQUEST, 41707, message)
 
 
 class PayableAllocatedCannotUnreceiveError(BusinessError):
     """撤销入库被拦:对应 payable 已有核销(amount_allocated > 0),不可撤销。"""
 
     def __init__(self, message: str = "Cannot unreceive: payable has been partially allocated"):
-        super().__init__(status.HTTP_409_CONFLICT, 41708, message,
-                         message_key=MessageKey.PAYABLE_ALLOCATED_CANNOT_UNRECEIVE)
+        super().__init__(status.HTTP_409_CONFLICT, 41708, message)
 
 
 class InboundOrderEditConflictError(BusinessError):
     """乐观锁:expected_updated_at 与库中不一致(整单保存被并发修改抢先)。"""
 
     def __init__(self, message: str = "Inbound order was modified by someone else"):
-        super().__init__(status.HTTP_409_CONFLICT, 41709, message,
-                         message_key=MessageKey.INBOUND_ORDER_EDIT_CONFLICT)
+        super().__init__(status.HTTP_409_CONFLICT, 41709, message)
 
 
 class InboundUnreceiveWouldGoNegativeError(BusinessError):
@@ -458,8 +416,7 @@ class SalesOrderInvalidTransitionError(BusinessError):
     """状态转移不在 SALES_ORDER_TRANSITIONS 矩阵(重复取消等)。"""
 
     def __init__(self, message: str = "Illegal sales order status transition"):
-        super().__init__(status.HTTP_409_CONFLICT, 41801, message,
-                         message_key=MessageKey.SALES_ORDER_INVALID_TRANSITION)
+        super().__init__(status.HTTP_409_CONFLICT, 41801, message)
 
 
 class SalesOrderHasActivePurchaseError(BusinessError):
@@ -467,8 +424,7 @@ class SalesOrderHasActivePurchaseError(BusinessError):
     不级联砍下游——解链人工自下而上:先取消全部 PO 再取消 SO。"""
 
     def __init__(self, message: str = "Cannot cancel a sales order with active purchase orders"):
-        super().__init__(status.HTTP_409_CONFLICT, 41802, message,
-                         message_key=MessageKey.SALES_ORDER_HAS_ACTIVE_PURCHASE)
+        super().__init__(status.HTTP_409_CONFLICT, 41802, message)
 
 
 class SalesOrderHasActiveOutboundError(BusinessError):
