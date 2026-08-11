@@ -28,11 +28,11 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login", auto_error=Fa
 class CurrentUser:
     id: int
     email: str | None
-    username: str | None
     name: str
-    phone: str | None
     must_change_password: bool
     token_version: int
+    username: str | None = None
+    phone: str | None = None
     roles: list[str] = field(default_factory=list)
     permissions: list[str] = field(default_factory=list)
 
