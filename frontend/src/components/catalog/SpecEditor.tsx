@@ -245,7 +245,7 @@ export const SpecEditor = forwardRef<
         <Text type="secondary">该类目暂无规格模板,可用下方「新增属性」手动补充。</Text>
       )}
 
-      <Space direction="vertical" size={10} style={{ width: "100%" }}>
+      <Space orientation="vertical" size={10} style={{ width: "100%" }}>
         {templateRows.map((r) => (
           <div key={r.key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{ width: 132, flex: "none", color: colors.muted, fontSize: 13 }}>

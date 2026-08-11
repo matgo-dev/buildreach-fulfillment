@@ -140,7 +140,7 @@ export default function InboundOrderDetailPage() {
   const { order, lines, payable } = detail;
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       <Card
         title={
           <Space size={8}>
@@ -296,7 +296,7 @@ export default function InboundOrderDetailPage() {
           if (ok) setReceiveOpen(false);
         }}
       >
-        <Space direction="vertical" style={{ width: "100%" }}>
+        <Space orientation="vertical" style={{ width: "100%" }}>
           <span>确认后将生成应付账款,数量冻结,不可再编辑。</span>
           <div>
             <div style={{ marginBottom: 4 }}>实际到货日</div>
@@ -356,7 +356,7 @@ export default function InboundOrderDetailPage() {
           }
         }}
       >
-        <Space direction="vertical" style={{ width: "100%" }}>
+        <Space orientation="vertical" style={{ width: "100%" }}>
           <span>撤销后回到在途态,对应应付账款将作废。若应付已有核销则不可撤销。</span>
           <Input.TextArea
             rows={2}

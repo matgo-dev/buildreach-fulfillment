@@ -48,7 +48,7 @@ function ProfileContent() {
 
   return (
     <div style={{ maxWidth: 880 }}>
-      <Space direction="vertical" size={16} style={{ width: "100%" }}>
+      <Space orientation="vertical" size={16} style={{ width: "100%" }}>
         <Card
           size="small"
           title="个人资料"

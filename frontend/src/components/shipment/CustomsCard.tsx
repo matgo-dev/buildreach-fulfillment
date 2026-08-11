@@ -105,7 +105,7 @@ function CustomsAttachments({
       {attachments.length === 0 && !editable ? (
         <span style={{ color: colors.muted }}>无附件</span>
       ) : (
-        <Space direction="vertical" size={4} style={{ width: "100%" }}>
+        <Space orientation="vertical" size={4} style={{ width: "100%" }}>
           {attachments.map((a) => (
             <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <PaperClipOutlined style={{ color: colors.muted }} />

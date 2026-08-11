@@ -337,7 +337,7 @@ export default function ShipmentDetailPage() {
   ];
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
       {/* 顶部柜卡:柜物理信息 + 状态徽标 + 动作按钮区(按 status × SHIPMENT_MANAGE 渲染)。 */}
       <Card
         title={
@@ -620,7 +620,7 @@ export default function ShipmentDetailPage() {
         onOk={onLoad}
         forceRender
       >
-        <Space direction="vertical" style={{ width: "100%" }} size="middle">
+        <Space orientation="vertical" style={{ width: "100%" }} size="middle">
           <span>
             封柜确认后柜进入「已封柜」,柜内出库单冻结(不可撤销/编辑)。要求柜内至少 1
             张出库单且全部已确认出库。可在此补录封条号 / 柜号。
@@ -646,7 +646,7 @@ export default function ShipmentDetailPage() {
         onOk={onDepart}
         forceRender
       >
-        <Space direction="vertical" style={{ width: "100%" }} size="middle">
+        <Space orientation="vertical" style={{ width: "100%" }} size="middle">
           <span>确认后柜进入「已发运」。请填写实际离港日(ATD)。</span>
           <Form form={departForm} layout="vertical">
             <Form.Item
