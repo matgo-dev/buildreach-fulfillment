@@ -275,6 +275,81 @@ async def update_user(
     return target
 
 
+async def update_self_profile(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    actor_user_email: str | None,
+    email: str | None = None,
+    username: str | None = None,
+    phone: str | None = None,
+    name: str | None = None,
+    request: Request | None = None,
+) -> User:
+    """当前用户自助编辑资料。只改账号自身展示/登录资料,不触碰角色、状态、密码。"""
+    target = await db.get(User, user_id)
+    if target is None:
+        raise NotFoundError("User not found")
+
+    if email is not None and email != target.email and _is_super_admin(target):
+        raise ValidationFailedError("不能修改 super admin 的邮箱")
+
+    changes: dict = {}
+
+    if name is not None and name != target.name:
+        changes["name"] = {"old": target.name, "new": name}
+        target.name = name
+
+    if email is not None and email != target.email:
+        row = await db.execute(select(User.id).where(User.email == email, User.id != target.id))
+        if row.scalar_one_or_none() is not None:
+            raise ConflictError("该邮箱已被其他用户使用")
+        changes["email"] = {"old": target.email, "new": email}
+        target.email = email
+
+    if username is not None:
+        new_username = username.strip() or None
+        if new_username != target.username:
+            if new_username is not None:
+                row = await db.execute(
+                    select(User.id).where(User.username == new_username, User.id != target.id)
+                )
+                if row.scalar_one_or_none() is not None:
+                    raise ConflictError("该用户名已被其他用户使用")
+            changes["username"] = {"old": target.username, "new": new_username}
+            target.username = new_username
+
+    if phone is not None:
+        new_phone = phone.strip() or None
+        if new_phone != target.phone:
+            if new_phone is not None:
+                row = await db.execute(
+                    select(User.id).where(User.phone == new_phone, User.id != target.id)
+                )
+                if row.scalar_one_or_none() is not None:
+                    raise ConflictError("该手机号已被其他用户使用")
+            changes["phone"] = {"old": target.phone, "new": new_phone}
+            target.phone = new_phone
+
+    if not changes:
+        return target
+
+    await write_audit(
+        db,
+        resource_type=AuditResourceType.USER,
+        action=AuditAction.UPDATE,
+        user_id=target.id,
+        user_email=actor_user_email,
+        resource_id=target.id,
+        request=request,
+        extra={"self_update": True, "changes": changes},
+        commit=False,
+    )
+    await db.commit()
+    await db.refresh(target)
+    return target
+
+
 async def _count_active_admins(db: AsyncSession, *, lock: bool = False) -> int:
     """可用 ADMIN 数。lock=True 时对命中的 ADMIN 用户行 `FOR UPDATE`(按 id 升序取锁、消死锁环)。
 

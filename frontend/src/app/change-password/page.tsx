@@ -11,6 +11,7 @@ import { useAuthStore } from "@/stores/authStore";
 function ChangePasswordContent() {
   const router = useRouter();
   const { setAccessToken, setUser } = useAuthStore();
+  const user = useAuthStore((s) => s.user);
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -44,7 +45,9 @@ function ChangePasswordContent() {
         onSubmit={handleSubmit}
         className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-8 shadow-sm"
       >
-        <h1 className="text-lg font-semibold text-brand">首次登录,请修改密码</h1>
+        <h1 className="text-lg font-semibold text-brand">
+          {user?.must_change_password ? "首次登录,请修改密码" : "修改密码"}
+        </h1>
         <p className="mt-1 text-sm text-slate-500">密码须 6-20 位,仅限字母和数字</p>
 
         <label className="mt-6 block text-sm text-slate-700">

@@ -2,6 +2,7 @@
 import { ReactNode, useEffect, useState } from "react";
 import { Layout, Menu, Breadcrumb, Dropdown, Avatar, Button } from "antd";
 import {
+  KeyOutlined,
   UserOutlined,
   LogoutOutlined,
   MenuFoldOutlined,
@@ -153,6 +154,18 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Dropdown
             menu={{
               items: [
+                {
+                  key: "profile",
+                  icon: <UserOutlined />,
+                  label: "个人资料",
+                  onClick: () => router.push("/profile"),
+                },
+                {
+                  key: "password",
+                  icon: <KeyOutlined />,
+                  label: "修改密码",
+                  onClick: () => router.push("/change-password"),
+                },
                 {
                   key: "logout",
                   icon: <LogoutOutlined />,
