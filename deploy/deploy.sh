@@ -23,6 +23,55 @@ FRONTEND_HOST_PORT="${FRONTEND_HOST_PORT:-3001}"
 IMAGE_TAG="${IMAGE_TAG:-}"
 DEPLOY_SKIP_CODE_UPDATE="${DEPLOY_SKIP_CODE_UPDATE:-false}"
 COMPOSE_FILE="docker-compose.production.yml"
+DEPLOY_ENV_OVERRIDE="${DEPLOY_ENV:-}"
+COMPOSE_PROFILES_OVERRIDE="${COMPOSE_PROFILES:-}"
+
+is_placeholder() {
+    local value="${1:-}"
+    case "$value" in
+        ""|change-me*|ChangeMe*|*"CHANGE_ME"*|*"<"*|*">"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+validate_storage_config() {
+    local endpoint="${S3_ENDPOINT_URL:-}"
+    local env_name="${DEPLOY_ENV:-production}"
+
+    case "$env_name" in
+        production)
+            if [ "${STORAGE_BACKEND:-}" != "s3" ]; then
+                echo "[deploy] ❌ 生产环境必须使用 STORAGE_BACKEND=s3"
+                exit 1
+            fi
+            if is_placeholder "$endpoint" || is_placeholder "${S3_ACCESS_KEY:-}" \
+                || is_placeholder "${S3_SECRET_KEY:-}" || is_placeholder "${S3_BUCKET:-}"; then
+                echo "[deploy] ❌ 生产对象存储配置不完整或仍为占位值(S3_ENDPOINT_URL/S3_ACCESS_KEY/S3_SECRET_KEY/S3_BUCKET)"
+                exit 1
+            fi
+            if ! printf '%s' "$endpoint" | grep -Eq '^https://'; then
+                echo "[deploy] ❌ 生产对象存储 S3_ENDPOINT_URL 必须使用 https://"
+                exit 1
+            fi
+            if printf '%s' "$endpoint" | grep -Eqi '(^|//)(minio|localhost|127\.0\.0\.1|0\.0\.0\.0)([:/]|$)'; then
+                echo "[deploy] ❌ 生产环境禁止使用本机 MinIO/localhost 作为对象存储"
+                exit 1
+            fi
+            if printf ',%s,' "${COMPOSE_PROFILES:-}" | grep -q ',local-minio,'; then
+                echo "[deploy] ❌ 生产环境禁止启用 COMPOSE_PROFILES=local-minio"
+                exit 1
+            fi
+            ;;
+        *)
+            if [ "${STORAGE_BACKEND:-}" = "s3" ] \
+                && printf '%s' "$endpoint" | grep -Eqi '(^|//)(minio)([:/]|$)' \
+                && ! printf ',%s,' "${COMPOSE_PROFILES:-}" | grep -q ',local-minio,'; then
+                echo "[deploy] ❌ 当前对象存储指向容器 MinIO,需显式设置 COMPOSE_PROFILES=local-minio"
+                exit 1
+            fi
+            ;;
+    esac
+}
 
 cd "$APP_DIR"
 
@@ -40,9 +89,17 @@ set -a
 # shellcheck disable=SC1091
 source .env.production
 set +a
+if [ -n "$DEPLOY_ENV_OVERRIDE" ]; then
+    DEPLOY_ENV="$DEPLOY_ENV_OVERRIDE"
+fi
+if [ -n "$COMPOSE_PROFILES_OVERRIDE" ]; then
+    COMPOSE_PROFILES="$COMPOSE_PROFILES_OVERRIDE"
+fi
 
 IMAGE_TAG="${IMAGE_TAG:-${RELEASE_TAG:-latest}}"
+DEPLOY_ENV="${DEPLOY_ENV:-production}"
 echo "[deploy] IMAGE_TAG=$IMAGE_TAG"
+echo "[deploy] DEPLOY_ENV=$DEPLOY_ENV"
 
 # 允许 CI/手动部署不改 .env.production 覆盖本次发布参数
 if [ -n "${DEPLOY_CORS_ORIGINS:-}" ]; then
@@ -60,6 +117,10 @@ elif [ -n "${DEPLOY_PUBLIC_ORIGIN:-}" ]; then
     export API_BASE_URL="$PUBLIC_ORIGIN"
 fi
 export BACKEND_HOST_PORT FRONTEND_HOST_PORT IMAGE_TAG API_BASE_URL
+export DEPLOY_ENV
+
+# ---- 0.1 生产对象存储安全校验 ----
+validate_storage_config
 
 # ---- 1. 备份数据库(只在 DB 容器已运行时)。OVH 切托管 PG 后无 db 容器 → 跳过,依赖托管自动备份 ----
 mkdir -p "$BACKUP_DIR"

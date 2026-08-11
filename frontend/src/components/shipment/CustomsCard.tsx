@@ -12,7 +12,6 @@ import {
   Input,
   Popconfirm,
   Space,
-  Tag,
   Upload,
 } from "antd";
 import {
@@ -25,6 +24,7 @@ import {
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { Can } from "@/components/common/Can";
+import { StatusTag } from "@/components/common/StatusTag";
 import { useAuthStore } from "@/stores/authStore";
 import { Permissions } from "@/config/permission-matrix";
 import { colors } from "@/lib/tokens";
@@ -323,9 +323,7 @@ export function CustomsCard({
         <Space size={8}>
           <span>报关</span>
           {declaration ? (
-            <Tag color={CUSTOMS_STATUS_META[declaration.status].color}>
-              {CUSTOMS_STATUS_META[declaration.status].label}
-            </Tag>
+            <StatusTag meta={CUSTOMS_STATUS_META} value={declaration.status} />
           ) : null}
         </Space>
       }

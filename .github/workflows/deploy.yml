@@ -157,6 +157,8 @@ jobs:
             cd /opt/fulfillment
             DEPLOY_SKIP_CODE_UPDATE=1 \
             DEPLOY_REF=${{ github.sha }} \
+            DEPLOY_ENV=staging \
+            COMPOSE_PROFILES=local-minio \
             IMAGE_TAG=${{ needs.build.outputs.image_tag }} \
             IMAGE_REGISTRY=${{ vars.ACR_IMAGE_REGISTRY }} \
             DEPLOY_API_BASE_URL=http://${{ secrets.ECS_HOST }} \
@@ -186,6 +188,7 @@ jobs:
             git fetch origin --tags --force
             git reset --hard ${{ github.sha }}
             DEPLOY_REF="${{ github.sha }}" \
+            DEPLOY_ENV=production \
             IMAGE_TAG=${{ needs.build.outputs.image_tag }} \
             GHCR_TOKEN=${{ secrets.GHCR_TOKEN }} \
             DEPLOY_API_BASE_URL=${{ secrets.OVH_PUBLIC_ORIGIN }} \

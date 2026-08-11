@@ -8,8 +8,9 @@
 # 用法(一般由 deploy/deploy.sh 调,手动亦可):
 #   IMAGE_TAG=<tag> docker compose -f docker-compose.production.yml --env-file .env.production up -d
 #
-# 数据库/对象存储当前为容器(与前台一致);OVH 上线前切 OVH 托管 PG / Object Storage
-# —— 见 README「上线前切托管」。
+# PG 短期取舍:单机 Docker PG + named volume + 发布前本机 pg_dump;
+# 异地备份/托管 PG 暂缓。生产对象存储必须使用外部 S3 兼容服务;
+# 本机 MinIO 仅限 staging/local-minio profile,见 deploy/README-deploy.md。
 # ============================================================
 
 x-logging: &default-logging
@@ -41,10 +42,11 @@ services:
 
   minio:
     image: minio/minio:RELEASE.2024-01-16T16-07-38Z
+    profiles: ["local-minio"]
     restart: unless-stopped
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-}
     volumes:
       - miniodata:/data
     command: server /data --console-address ":9001"
@@ -53,15 +55,16 @@ services:
     # 不设 healthcheck:minio 镜像无 curl/wget(仅 mc),原 curl 健康检查必挂;就绪靠 minio-init 重试。
     logging: *default-logging
 
-  # 一次性建桶(幂等)。OVH 切 Object Storage 后 bucket 由面板预建,可删本服务。
+  # 一次性建桶(幂等)。仅随 local-minio profile 启动;生产 bucket 由外部对象存储面板预建。
   minio-init:
     image: minio/mc:RELEASE.2024-01-13T08-44-48Z
+    profiles: ["local-minio"]
     depends_on:
       minio:
         condition: service_started
     entrypoint: >
       /bin/sh -c "
-      until mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD} >/dev/null 2>&1 && mc ls local >/dev/null 2>&1; do echo 'waiting for minio...'; sleep 2; done &&
+      until mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minio} ${MINIO_ROOT_PASSWORD:-} >/dev/null 2>&1 && mc ls local >/dev/null 2>&1; do echo 'waiting for minio...'; sleep 2; done &&
       mc mb --ignore-existing local/${S3_BUCKET:-fulfillment-attachments}
       "
     logging: *default-logging
@@ -72,18 +75,14 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      minio:
-        condition: service_started
-      minio-init:
-        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
-      STORAGE_BACKEND: ${STORAGE_BACKEND:-s3}
-      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://minio:9000}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:?STORAGE_BACKEND is required}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:?S3_ENDPOINT_URL is required}
       S3_REGION: ${S3_REGION:-us-east-1}
-      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-${MINIO_ROOT_USER}}
-      S3_SECRET_KEY: ${S3_SECRET_KEY:-${MINIO_ROOT_PASSWORD}}
-      S3_BUCKET: ${S3_BUCKET:-fulfillment-attachments}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY is required}
+      S3_BUCKET: ${S3_BUCKET:?S3_BUCKET is required}
       S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
