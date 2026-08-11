@@ -47,7 +47,7 @@ bg     #f4f7f9   页面背景
 
 > **成功为什么走青而不是绿**：品牌已是祖母绿，绿再兼任「成功」语义会在密集表格里与主按钮/激活块抢视觉。青与品牌绿**色相拉开**、语义仍读作「好/正常」，叠加「实心按钮 vs 浅底 chip」的形态差异，同屏共存不糊。
 > **info 必须显式钉蓝**：AntD 的 `colorInfo` 默认跟随 `colorPrimary`，不钉死则所有「处理中」态会一起变绿、与成功态糊成一片。
-> 实现：状态色**只经 AntD 语义令牌**（`colorSuccess`/`colorInfo`/…）下发，各域 `*_STATUS_META` 只写语义名（`success`/`processing`/`warning`/`error`/`default`），**不写色值**；上表底/边为 AntD 派生的设计基准。
+> 实现：各域 `*_STATUS_META` 只写语义名（`success`/`processing`/`warning`/`error`/`default`），**不写色值、不把语义名透传给 AntD `Tag color`**；统一由 `StatusTag` 从 `src/lib/tokens.ts` 取上表精确色值，渲染「浅底 + 边 + 圆点 + 文字」。
 
 ---
 

@@ -12,11 +12,11 @@ import {
   Select,
   Space,
   Timeline,
-  Tag,
 } from "antd";
 import { EditOutlined, PlusOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { Can } from "@/components/common/Can";
+import { StatusTag } from "@/components/common/StatusTag";
 import { useAuthStore } from "@/stores/authStore";
 import { Permissions } from "@/config/permission-matrix";
 import { colors } from "@/lib/tokens";
@@ -213,9 +213,7 @@ export function LogisticsTrackCard({
         <Space size={8}>
           <span>物流轨迹</span>
           {currentStatus ? (
-            <Tag color={LOGISTICS_MILESTONE_META[currentStatus].color}>
-              {LOGISTICS_MILESTONE_META[currentStatus].label}
-            </Tag>
+            <StatusTag meta={LOGISTICS_MILESTONE_META} value={currentStatus} />
           ) : null}
         </Space>
       }
