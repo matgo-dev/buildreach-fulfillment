@@ -6,9 +6,9 @@ import { ArrowLeftOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { catalogApi, SkuDetailItem, SpuDetail, UnitOut, specAxisText, specDisplayText } from "@/lib/catalog";
 import { display } from "@/lib/i18n";
-import { imageUrl } from "@/lib/image";
 import { colors } from "@/lib/tokens";
 import { resolveBizError } from "@/lib/errorMessages";
+import { AuthenticatedImage } from "@/components/common/AuthenticatedImage";
 import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
 import { PageLoading } from "@/components/common/PageLoading";
@@ -234,24 +234,24 @@ export default function SpuDetailPage() {
             return (
               <Image.PreviewGroup>
                 <div style={{ flex: "none" }}>
-                  <Image
-                    src={imageUrl(cover, 400)}
-                    preview={{ src: imageUrl(cover, 1600) }}
+                  <AuthenticatedImage
+                    imageKey={cover}
                     alt="主图"
                     width={160}
                     height={160}
+                    preview
                     style={{ objectFit: "cover", borderRadius: 8, cursor: "pointer" }}
                   />
                   {rest.length > 0 && (
                     <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap", maxWidth: 160 }}>
                       {rest.map((g) => (
-                        <Image
+                        <AuthenticatedImage
                           key={g.id}
-                          src={imageUrl(g.image_key, 120)}
-                          preview={{ src: imageUrl(g.image_key, 1600) }}
+                          imageKey={g.image_key}
                           alt=""
                           width={36}
                           height={36}
+                          preview
                           style={{
                             objectFit: "cover",
                             borderRadius: 4,

@@ -57,7 +57,7 @@
     `units.code`(`ON DELETE RESTRICT`);单位种子唯一源头 = `app/seed.py::seed_units`。
   - **品类子树过滤**:`GET /api/v1/spus?category_code=...&include_descendants=1` 走 `text_pattern_ops` 前缀索引。
   - **已知限制**:SPU 列表关键词只匹配中文名 + `spu_code`(SKU 搜索走 `search_text` 覆盖全语言)。
-    (local 图片预览已由前端落地时新增的 `GET /media/{key}` 补齐,见下方商品管理前端条目。)
+    图片预览走登录态下的 `GET /api/v1/media/{key}` 鉴权代理,见下方商品管理前端条目。
   - **迁移(开发初期净片)**:因未上线,商品目录迁移已合入终态、删除补丁链——`0003_spec_attributes`
     (规格属性正规化)、`0006_units`(单位专表)、`0007_spu_sku`(SPU/SKU 一次建成:编码/软删/图片/单位 FK/
     双索引/CHECK)。旧 `0008–0012` 补丁迁移已废除。**重建库**:改历史后 dev/test 库需 `dropdb && createdb`
@@ -77,8 +77,8 @@
     OSS 直传与 local PUT,表单只存 object key。
   - **权限显隐**:`<Can perm="product:manage">` 控新建/编辑/上下架/删除/参考价/图片;后端 `require_permission` +
     `reference_price` 脱敏是安全底线,前端只是 UX 层。**ADMIN 只读**、**PRODUCT_OPERATOR 全权**。
-  - **本地图片预览**:后端 `GET /media/{key}`(**仅 `STORAGE_BACKEND=local`**,key 形状白名单、公开读)补齐
-    `LocalDiskStorage.build_url` 的服务端点——local dev 上传图现可预览(生产走 S3/OSS 公读桶,不经本端点)。
+  - **业务图片预览**:后端 `GET /api/v1/media/{key}` 校验登录后代理读取 storage(local/MinIO/OVH Object Storage),
+    key 形状白名单只匹配 `img/<uuid>_<name>` 商品图;不走公读桶,未登录不可看。
 
 - **报价(主流程第一步,已完成,分支 `feat/quotation-increment`)**:客户销售报价单,SKU 维度整单增改 + 生命周期。
   - **状态机(四态)**:`DRAFT`(草稿,可编辑可硬删)→ `LOCKED`(锁档,冻结基准,手动)→ `CONVERTED`(已转销售,终态)/
@@ -397,8 +397,8 @@ pnpm dev
 | 变量 | 说明 |
 |---|---|
 | `NEXT_PUBLIC_API_BASE_URL` | 后端公网地址(**必填**;登录/接口在浏览器侧发起,故须 `NEXT_PUBLIC_` 前缀才注入 bundle。SSR 亦读 `API_BASE_URL`) |
-| `NEXT_PUBLIC_IMAGE_BACKEND` | `local`(默认,经后端 `/media` 读)/ `s3`(公读桶直读) |
-| `NEXT_PUBLIC_IMAGE_PUBLIC_BASE` | `s3` 时的公读桶基址(如 `https://cdn.example.com`) |
+
+业务图片默认不公开。前端通过后端 `/api/v1/media/{key}` 鉴权代理读取图片,不配置公读桶地址。
 
 **账号**:启动 seed 只种 `SUPER_ADMIN_*` 的 **ADMIN**(对商品**只读**)。商品增改需 **PRODUCT_OPERATOR**
 角色的账号 —— 生产由 ADMIN 经用户/角色管理授予;本地 QA 走一次性脚本(先启动过一次后端让 rbac 同步建好角色):

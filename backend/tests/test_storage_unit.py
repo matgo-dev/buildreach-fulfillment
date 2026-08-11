@@ -18,9 +18,9 @@ def test_local_disk_build_url_ignores_size(tmp_path):
     from app.services.storage import LocalDiskStorage
 
     s = LocalDiskStorage(tmp_path)
-    assert s.build_url("img/a.jpg") == "/media/img/a.jpg"
+    assert s.build_url("img/a.jpg") == "/api/v1/media/img/a.jpg"
     # size 传了也忽略(本地零图像处理,浏览器降采样)
-    assert s.build_url("img/a.jpg", size=80) == "/media/img/a.jpg"
+    assert s.build_url("img/a.jpg", size=80) == "/api/v1/media/img/a.jpg"
 
 
 def test_local_disk_create_upload_points_back_to_upload_endpoint(tmp_path):
@@ -47,13 +47,13 @@ def _s3_storage(**overrides):
 
 def test_s3_build_url_no_size():
     s = _s3_storage()
-    assert s.build_url("img/a.jpg") == "https://cdn.example.com/img/a.jpg"
+    assert s.build_url("img/a.jpg") == "/api/v1/media/img/a.jpg"
 
 
 def test_s3_build_url_ignores_size_returns_original():
-    # 标准 S3 兼容存储(MinIO / OVH Object Storage)无 URL 传参改尺寸能力,size 被忽略返回原图。
+    # 标准 S3 兼容存储(MinIO / OVH Object Storage)无 URL 传参改尺寸能力,size 被忽略。
     s = _s3_storage()
-    assert s.build_url("img/a.jpg", size=80) == "https://cdn.example.com/img/a.jpg"
+    assert s.build_url("img/a.jpg", size=80) == "/api/v1/media/img/a.jpg"
 
 
 def test_s3_create_upload_returns_presigned_put_url():

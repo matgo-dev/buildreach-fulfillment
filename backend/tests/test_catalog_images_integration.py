@@ -1,4 +1,4 @@
-"""图片上传端点契约(POST /uploads、PUT /uploads/{key})+ 安全加固 + /media 本地读取。
+"""图片上传端点契约(POST /uploads、PUT /uploads/{key})+ 安全加固 + 鉴权图片读取。
 
 商品图与 SPU/SKU 的关联(main/gallery/detail/SKU 图)已规范化到 product_images 表,
 其契约见 test_product_images_integration.py;本文件只覆盖存储直传端点本身与读取。
@@ -126,7 +126,7 @@ async def test_put_upload_accepts_valid_generated_key(client, product_operator_h
     storage.delete(key)
 
 
-# ── /media 本地读取:build_url 返回的 /media/{key} 现可服务(前端 <img> 无需鉴权)──
+# ── /api/v1/media 鉴权读取:商品图默认不公开,登录用户经后端代理读取 ──
 
 @pytest.mark.asyncio
 async def test_media_get_serves_uploaded_local_image(client, product_operator_headers):
@@ -136,30 +136,46 @@ async def test_media_get_serves_uploaded_local_image(client, product_operator_he
     await client.put(f"/api/v1/uploads/{key}", headers=product_operator_headers,
                      content=b"PNGDATA")
 
-    r = await client.get(f"/media/{key}")
+    r = await client.get(f"/api/v1/media/{key}", headers=product_operator_headers)
     assert r.status_code == 200, r.text
     assert r.content == b"PNGDATA"
     assert r.headers["content-type"].startswith("image/png")
+    assert "private" in r.headers["cache-control"]
 
     from app.services.storage import get_attachment_storage
     get_attachment_storage().delete(key)
 
 
 @pytest.mark.asyncio
-async def test_media_get_missing_key_404(client):
+async def test_media_get_requires_login(client):
+    r = await client.get("/api/v1/media/img/00000000000000000000000000000000_absent.png")
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_legacy_public_media_route_is_not_mounted(client):
     r = await client.get("/media/img/00000000000000000000000000000000_absent.png")
     assert r.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_media_get_rejects_bad_key_shape(client):
-    r = await client.get("/media/img/../../etc/passwd")
+async def test_media_get_missing_key_404(client, product_readonly_headers):
+    r = await client.get(
+        "/api/v1/media/img/00000000000000000000000000000000_absent.png",
+        headers=product_readonly_headers,
+    )
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_media_get_rejects_bad_key_shape(client, product_readonly_headers):
+    r = await client.get("/api/v1/media/img/../../etc/passwd", headers=product_readonly_headers)
     assert r.status_code in (400, 404)
 
 
 @pytest.mark.asyncio
-async def test_media_get_serves_via_object_storage_backend(client, monkeypatch):
-    """s3 后端下 /media 由后端代理对象存储(私有桶也可读),不再一律 404。"""
+async def test_media_get_serves_via_object_storage_backend(client, product_readonly_headers, monkeypatch):
+    """s3 后端下 /api/v1/media 由后端代理对象存储(私有桶也可读)。"""
     from io import BytesIO
     import app.api.media as media_mod
 
@@ -171,6 +187,9 @@ async def test_media_get_serves_via_object_storage_backend(client, monkeypatch):
             return BytesIO(b"S3BYTES")
 
     monkeypatch.setattr(media_mod, "get_attachment_storage", lambda: _FakeStorage())
-    r = await client.get("/media/img/00000000000000000000000000000000_x.png")
+    r = await client.get(
+        "/api/v1/media/img/00000000000000000000000000000000_x.png",
+        headers=product_readonly_headers,
+    )
     assert r.status_code == 200, r.text
     assert r.content == b"S3BYTES"

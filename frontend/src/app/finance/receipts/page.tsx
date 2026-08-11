@@ -15,7 +15,6 @@ import {
   Select,
   Space,
   Table,
-  Tag,
   Typography,
 } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
@@ -468,9 +467,12 @@ export default function ReceiptListPage() {
         {r && (
           <>
             {r.voided_at && (
-              <Tag color="error" style={{ marginBottom: 12 }}>
-                已作废{r.void_reason ? ` · ${r.void_reason}` : ""}
-              </Tag>
+              <div style={{ marginBottom: 12 }}>
+                <Space size={8}>
+                  <StatusTag meta={VOIDED_STATUS_META} value="VOIDED" />
+                  {r.void_reason && <Typography.Text type="secondary">{r.void_reason}</Typography.Text>}
+                </Space>
+              </div>
             )}
             <Descriptions column={2} size="small" bordered>
               <Descriptions.Item label="客户">
