@@ -286,8 +286,8 @@ export function PurchaseOrderBuilder({
       title={mode === "create" ? "发起采购" : "编辑采购单"}
       open={open}
       onClose={onClose}
-      width="min(900px, 96vw)"
-      destroyOnClose
+      size="min(900px, 96vw)"
+      destroyOnHidden
       footer={
         <Space style={{ width: "100%", justifyContent: "space-between" }} wrap>
           <span style={{ fontWeight: 600, color: colors.navy }}>

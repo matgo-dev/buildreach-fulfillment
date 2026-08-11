@@ -298,8 +298,8 @@ export function InboundOrderBuilder({
       title={mode === "create" ? "登记入库" : "编辑入库单"}
       open={open}
       onClose={onClose}
-      width="min(920px, 96vw)"
-      destroyOnClose
+      size="min(920px, 96vw)"
+      destroyOnHidden
       footer={
         <Space style={{ width: "100%", justifyContent: "space-between" }} wrap>
           <span style={{ fontWeight: 600, color: colors.navy }}>

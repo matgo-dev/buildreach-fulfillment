@@ -272,7 +272,7 @@ export default function ReceivableListPage() {
       {/* 行下钻抽屉:账头 + 核销记录(哪笔收款冲了多少)+ 用余额核销一键入口。 */}
       <Drawer
         title={detail ? `应收款 ${detail.outbound_order_no}` : "应收款详情"}
-        width={640}
+        size={640}
         open={detailOpen}
         onClose={() => setDetailOpen(false)}
         loading={detailLoading}

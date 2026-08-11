@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   App,
   Button,
@@ -25,7 +25,6 @@ import { useCrudDrawer } from "@/hooks/useCrudDrawer";
 import { useAuthStore } from "@/stores/authStore";
 import { resolveBizError } from "@/lib/errorMessages";
 import {
-  ROLE_OPTIONS,
   USER_STATUS_META,
   roleLabel,
   userAdminApi,
@@ -33,6 +32,7 @@ import {
   type UserItem,
   type UserUpdateBody,
 } from "@/lib/user";
+import { roleApi, type RoleOut } from "@/lib/role";
 import { colors } from "@/lib/tokens";
 
 const STATUS_TABS = [
@@ -49,6 +49,7 @@ export default function UserAdminPage() {
   const [status, setStatus] = useState("ACTIVE");
   const [q, setQ] = useState("");
   const [rowBusyId, setRowBusyId] = useState<number | null>(null);
+  const [roles, setRoles] = useState<RoleOut[]>([]);
 
   // 改角色 / 重置密码 小 Modal
   const [roleTarget, setRoleTarget] = useState<UserItem | null>(null);
@@ -70,6 +71,29 @@ export default function UserAdminPage() {
   const { rows, setPage, loading, loadError, load, pagination } = useListQuery<UserItem>(fetcher, {
     errorMessage: "加载用户列表失败",
   });
+
+  const loadRoles = useCallback(async () => {
+    try {
+      setRoles(await roleApi.list());
+    } catch (e) {
+      message.error(resolveBizError(e, "加载角色列表失败"));
+    }
+  }, [message]);
+
+  useEffect(() => {
+    loadRoles();
+  }, [loadRoles]);
+
+  const roleOptions = useMemo(
+    () => roles
+      .filter((r) => r.is_system || r.is_custom_readonly)
+      .map((r) => ({ value: r.code, label: r.name })),
+    [roles],
+  );
+  const roleNameMap = useMemo(
+    () => Object.fromEntries(roles.map((r) => [r.code, r.name])),
+    [roles],
+  );
 
   // 列表行即完整编辑数据(无详情接口),openEdit 直接吃行对象;回显仅取可编辑子集。
   const drawer = useCrudDrawer<UserItem, UserCreateBody & UserUpdateBody>({
@@ -142,7 +166,7 @@ export default function UserAdminPage() {
       dataIndex: "roles",
       width: 220,
       render: (roles: string[]) =>
-        roles.length ? roles.map((r) => <Tag key={r}>{roleLabel(r)}</Tag>) : "—",
+        roles.length ? roles.map((r) => <Tag key={r}>{roleNameMap[r] ?? roleLabel(r)}</Tag>) : "—",
     },
     {
       title: "状态",
@@ -253,8 +277,8 @@ export default function UserAdminPage() {
         title={mode === "create" ? "新建用户" : "编辑用户"}
         open={mode !== null}
         onClose={closeDrawer}
-        width="min(520px, 92vw)"
-        destroyOnClose
+        size="min(520px, 92vw)"
+        destroyOnHidden
         footer={
           <Space style={{ width: "100%", justifyContent: "flex-end" }}>
             <Button onClick={closeDrawer} disabled={saving}>
@@ -302,7 +326,12 @@ export default function UserAdminPage() {
                 label="角色"
                 rules={[{ required: true, message: "请选择角色" }]}
               >
-                <Select mode="multiple" options={ROLE_OPTIONS} placeholder="选择角色" />
+                <Select
+                  mode="multiple"
+                  options={roleOptions}
+                  optionFilterProp="label"
+                  placeholder="选择角色"
+                />
               </Form.Item>
               <Form.Item
                 name="must_change_password"
@@ -332,7 +361,7 @@ export default function UserAdminPage() {
         confirmLoading={modalBusy}
         okText="确认更新"
         okButtonProps={{ disabled: rolePick.length === 0 }}
-        destroyOnClose
+        destroyOnHidden
       >
         <p style={{ color: colors.muted, marginBottom: 12 }}>
           权限即时生效,无需该用户重新登录。
@@ -340,7 +369,8 @@ export default function UserAdminPage() {
         <Select
           mode="multiple"
           style={{ width: "100%" }}
-          options={ROLE_OPTIONS}
+          options={roleOptions}
+          optionFilterProp="label"
           value={rolePick}
           onChange={setRolePick}
           placeholder="选择角色"
@@ -355,7 +385,7 @@ export default function UserAdminPage() {
         confirmLoading={modalBusy}
         okText="确认重置"
         okButtonProps={{ danger: true }}
-        destroyOnClose
+        destroyOnHidden
       >
         <p style={{ color: colors.muted, marginBottom: 12 }}>
           重置后该用户全部旧会话立即失效,须用临时密码登录并改密。

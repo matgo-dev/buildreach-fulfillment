@@ -42,6 +42,27 @@ async def test_change_roles_take_effect_immediately(client, superadmin_headers):
 
 
 @pytest.mark.asyncio
+async def test_custom_role_can_be_assigned_and_takes_effect(client, superadmin_headers):
+    role = await client.post("/api/v1/roles", headers=superadmin_headers, json={
+        "code": "PRODUCT_VIEWER",
+        "name": "商品只读",
+        "permissions": ["product:read"],
+    })
+    assert role.status_code == 200, role.text
+    u, h = await _create_and_login(client, superadmin_headers,
+                                   email="custom-role@fulfillment.local", role="SALES")
+    assert (await client.get("/api/v1/customers", headers=h)).status_code == 200
+
+    r = await client.put(f"/api/v1/users/{u['id']}/roles", headers=superadmin_headers,
+                         json={"roles": ["PRODUCT_VIEWER"]})
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["roles"] == ["PRODUCT_VIEWER"]
+
+    assert (await client.get("/api/v1/customers", headers=h)).status_code == 403
+    assert (await client.get("/api/v1/spus", headers=h)).status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_change_role_guards(client, superadmin_headers, db_session):
     sa_id = await _super_id(db_session)
     u, _ = await _create_and_login(client, superadmin_headers,

@@ -61,7 +61,7 @@ export function PickerDrawer<T extends object>({
   ];
 
   return (
-    <Drawer title={title} width={720} open={open} onClose={onClose} destroyOnClose>
+    <Drawer title={title} size={720} open={open} onClose={onClose} destroyOnHidden>
       <Space style={{ marginBottom: 16 }} wrap>
         {toolbar({ resetPage: () => setPage(1) })}
       </Space>

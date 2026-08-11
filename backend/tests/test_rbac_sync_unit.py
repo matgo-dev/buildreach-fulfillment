@@ -143,3 +143,31 @@ def test_logistics_role_permissions():
     assert Permissions.QUOTE_MANAGE not in perms
     assert Permissions.CUSTOMER_MANAGE not in perms
     assert Permissions.USER_MANAGE not in perms
+
+
+@pytest.mark.asyncio
+async def test_sync_preserves_custom_role_permissions(db_session):
+    from sqlalchemy import select
+
+    from app.db.models.permission import Permission
+    from app.db.models.role import Role, RoleScope
+    from app.db.models.role_permission import RolePermission
+    from app.rbac.sync import sync_rbac
+
+    role = Role(code="VIEWER_SYNC_TEST", name="同步保留只读",
+                scope=RoleScope.GLOBAL, description="custom")
+    db_session.add(role)
+    await db_session.flush()
+    perm = (await db_session.execute(
+        select(Permission).where(Permission.code == Permissions.PRODUCT_READ)
+    )).scalar_one()
+    db_session.add(RolePermission(role_id=role.id, permission_id=perm.id))
+    await db_session.commit()
+
+    await sync_rbac(db_session)
+
+    still_there = (await db_session.execute(
+        select(RolePermission)
+        .where(RolePermission.role_id == role.id, RolePermission.permission_id == perm.id)
+    )).scalar_one_or_none()
+    assert still_there is not None

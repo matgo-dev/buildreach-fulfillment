@@ -244,8 +244,8 @@ export default function ShipmentListPage() {
       <Drawer
         title="新建发运柜"
         open={createOpen}
-        width="min(480px, 92vw)"
-        destroyOnClose
+        size="min(480px, 92vw)"
+        destroyOnHidden
         onClose={() => {
           setCreateOpen(false);
           form.resetFields();

@@ -194,8 +194,8 @@ export default function SupplierListPage() {
         title={mode === "create" ? "新建供应商" : mode === "edit" ? "编辑供应商" : "供应商详情"}
         open={mode !== null}
         onClose={closeDrawer}
-        width="min(560px, 92vw)"
-        destroyOnClose
+        size="min(560px, 92vw)"
+        destroyOnHidden
         extra={
           readOnly && canManage && current ? (
             <Button type="primary" onClick={() => openEdit(current.id)}>
