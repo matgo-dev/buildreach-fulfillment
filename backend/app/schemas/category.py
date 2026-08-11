@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 _CATEGORY_CODE_RE = re.compile(r"^(?!00(?:\.|$))\d{2}(?:\.(?!000)\d{3}){0,2}$")
 _CATEGORY_CODE_MESSAGE = "分类编码格式应为 01 / 01.001 / 01.001.003"
+_SPEC_OPTION_CODE_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 
 
 def _valid_category_code(v: str) -> str:
@@ -71,6 +72,20 @@ class CategoryOut(BaseModel):
 class CategorySpecOptionIn(BaseModel):
     code: str | None = Field(default=None, max_length=32)
     label_i18n: dict = Field(..., min_length=1)
+
+    @field_validator("code", mode="before")
+    @classmethod
+    def _valid_code(cls, v):
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            return v
+        code = v.strip()
+        if not code:
+            return None
+        if not _SPEC_OPTION_CODE_RE.fullmatch(code):
+            raise ValueError("enum option code 必须是 1-32 位 ASCII 机器码")
+        return code
 
     _v_label = field_validator("label_i18n")(_valid_name_i18n)
 

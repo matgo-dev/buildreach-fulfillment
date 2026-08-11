@@ -79,6 +79,20 @@ async def test_upsert_enum_with_options_roundtrips(db_session):
 
 
 @pytest.mark.asyncio
+async def test_upsert_enum_rejects_non_ascii_option_code(db_session):
+    await _seed_cat(db_session)
+    with pytest.raises(SpecContractError):
+        await svc.upsert_attribute(
+            db_session,
+            "10",
+            key="material",
+            label_i18n={"zh": "材质"},
+            value_type="enum",
+            options=[{"code": "碳钢", "label_i18n": {"zh": "碳钢"}}],
+        )
+
+
+@pytest.mark.asyncio
 async def test_create_new_attribute_generates_random_ascii_key(db_session):
     """新属性 key 由应用层独立随机生成(a_ + 8 位 base62),绝非中文/用户原文,
     绝非 id/计数派生。两次调用互不相同(唯一性靠 UNIQUE(category_code,key) 兜底,

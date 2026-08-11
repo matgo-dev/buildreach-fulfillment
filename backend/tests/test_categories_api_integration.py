@@ -318,6 +318,27 @@ async def test_category_spec_attribute_admin_crud(
 
 
 @pytest.mark.asyncio
+async def test_category_spec_attribute_rejects_non_ascii_option_code(
+    client, product_operator_headers
+):
+    cat = await client.post("/api/v1/categories", headers=product_operator_headers, json={
+        "code": "97",
+        "name_i18n": {"zh": "非法选项码类"},
+        "sort_order": 0,
+    })
+    assert cat.status_code == 200, cat.text
+
+    create = await client.post("/api/v1/categories/97/spec-attributes",
+                               headers=product_operator_headers, json={
+        "label_i18n": {"zh": "材质"},
+        "value_type": "enum",
+        "options": [{"code": "碳钢", "label_i18n": {"zh": "碳钢"}}],
+        "scope": "spu",
+    })
+    assert create.status_code == 422, create.text
+
+
+@pytest.mark.asyncio
 async def test_category_spec_attribute_requires_product_manage(
     client, product_operator_headers, product_readonly_headers
 ):

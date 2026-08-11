@@ -6,6 +6,7 @@ modify-write)的丢更新问题。
 """
 from __future__ import annotations
 
+import re
 import secrets
 import string
 
@@ -20,6 +21,7 @@ from app.db.models.spu import Spu
 from app.schemas.sku import validate_spec_items
 
 _KEY_ALPHABET = string.ascii_letters + string.digits
+_OPTION_CODE_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 
 
 def _random_attribute_key() -> str:
@@ -32,6 +34,17 @@ def _random_option_code() -> str:
     """enum 选项 code:前缀 v_ + 8 位 base62,规矩同 _random_attribute_key(独立随机、
     稳定、非中文、不翻译,secrets 生成)。"""
     return "v_" + "".join(secrets.choice(_KEY_ALPHABET) for _ in range(8))
+
+
+def _normalize_option_code(raw: str | None) -> str | None:
+    if raw is None:
+        return None
+    code = raw.strip()
+    if not code:
+        return None
+    if not _OPTION_CODE_RE.fullmatch(code):
+        raise SpecContractError("enum option code 必须是 1-32 位 ASCII 机器码")
+    return code
 
 
 def _to_item(row: CategorySpecAttribute) -> dict:
@@ -84,7 +97,7 @@ def _normalize_options(value_type: str, options: list[dict] | None) -> list[dict
             raise SpecContractError("enum option label_i18n.zh 必填")
         if any(v in ("", None) for v in label.values()):
             raise SpecContractError("enum option label_i18n 禁止空串/空值")
-        code = (opt.get("code") or "").strip()
+        code = _normalize_option_code(opt.get("code"))
         if not code:
             for _ in range(5):
                 code = _random_option_code()
