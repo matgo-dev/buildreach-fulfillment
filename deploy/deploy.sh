@@ -34,6 +34,19 @@ is_placeholder() {
     esac
 }
 
+is_true() {
+    case "${1:-}" in
+        1|true|TRUE|yes|YES) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+is_public_https_url() {
+    local value="${1:-}"
+    printf '%s' "$value" | grep -Eq '^https://' \
+        && ! printf '%s' "$value" | grep -Eqi '(^|//)(minio|localhost|127\.0\.0\.1|0\.0\.0\.0)([:/]|$)'
+}
+
 validate_storage_config() {
     local endpoint="${S3_ENDPOINT_URL:-}"
     local env_name="${DEPLOY_ENV:-production}"
@@ -71,6 +84,61 @@ validate_storage_config() {
             fi
             ;;
     esac
+}
+
+validate_production_security_config() {
+    local env_name="${DEPLOY_ENV:-production}"
+    if [ "$env_name" != "production" ]; then
+        return
+    fi
+
+    if is_placeholder "${JWT_SECRET_KEY:-}" || is_placeholder "${SUPER_ADMIN_INITIAL_PASSWORD:-}" \
+        || is_placeholder "${POSTGRES_PASSWORD:-}"; then
+        echo "[deploy] ❌ 生产密钥/密码不能为空或保留示例占位值(JWT_SECRET_KEY/SUPER_ADMIN_INITIAL_PASSWORD/POSTGRES_PASSWORD)"
+        exit 1
+    fi
+    if is_true "${ENABLE_API_DOCS:-false}"; then
+        echo "[deploy] ❌ 生产环境必须关闭 ENABLE_API_DOCS"
+        exit 1
+    fi
+    if ! is_true "${REFRESH_COOKIE_SECURE:-false}"; then
+        echo "[deploy] ❌ 生产 HTTPS 环境必须启用 REFRESH_COOKIE_SECURE=true"
+        exit 1
+    fi
+    if ! is_true "${ENABLE_HSTS:-false}"; then
+        echo "[deploy] ❌ 生产 HTTPS 环境必须启用 ENABLE_HSTS=true"
+        exit 1
+    fi
+    case "${REFRESH_COOKIE_SAMESITE:-lax}" in
+        lax|Lax|LAX|strict|Strict|STRICT) ;;
+        *)
+            echo "[deploy] ❌ 生产 REFRESH_COOKIE_SAMESITE 仅允许 lax 或 strict"
+            exit 1
+            ;;
+    esac
+
+    if ! is_public_https_url "${API_BASE_URL:-}"; then
+        echo "[deploy] ❌ 生产 API_BASE_URL 必须是外部 https:// 域名"
+        exit 1
+    fi
+    if ! is_public_https_url "$PUBLIC_ORIGIN"; then
+        echo "[deploy] ❌ 生产 PUBLIC_ORIGIN/CORS_ORIGINS 必须是外部 https:// 域名"
+        exit 1
+    fi
+
+    local raw origin
+    if [ -z "${CORS_ORIGINS:-}" ]; then
+        echo "[deploy] ❌ 生产 CORS_ORIGINS 必须配置"
+        exit 1
+    fi
+    IFS=',' read -ra _origins <<< "${CORS_ORIGINS:-}"
+    for raw in "${_origins[@]}"; do
+        origin="$(printf '%s' "$raw" | xargs)"
+        if [ "$origin" = "*" ] || ! is_public_https_url "$origin"; then
+            echo "[deploy] ❌ 生产 CORS_ORIGINS 仅允许外部 https:// 域名: ${origin:-<empty>}"
+            exit 1
+        fi
+    done
 }
 
 cd "$APP_DIR"
@@ -117,10 +185,11 @@ elif [ -n "${DEPLOY_PUBLIC_ORIGIN:-}" ]; then
     export API_BASE_URL="$PUBLIC_ORIGIN"
 fi
 export BACKEND_HOST_PORT FRONTEND_HOST_PORT IMAGE_TAG API_BASE_URL
-export DEPLOY_ENV
+export DEPLOY_ENV COMPOSE_PROFILES
 
 # ---- 0.1 生产对象存储安全校验 ----
 validate_storage_config
+validate_production_security_config
 
 # ---- 1. 备份数据库(只在 DB 容器已运行时)。OVH 切托管 PG 后无 db 容器 → 跳过,依赖托管自动备份 ----
 mkdir -p "$BACKUP_DIR"

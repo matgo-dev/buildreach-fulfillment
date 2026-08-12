@@ -33,8 +33,8 @@ sudo mkdir -p /opt/fulfillment && cd /opt/fulfillment
 cp .env.example .env.production   # 按注释改:强口令、API_BASE_URL、CORS_ORIGINS、外部对象存储等
 ```
 
-- ECS:`.env.production` 里 `API_BASE_URL` / `CORS_ORIGINS` = `http://<ECS_IP>`;`REFRESH_COOKIE_SECURE=false`。
-- OVH:改 `https://<域名>`;`REFRESH_COOKIE_SECURE=true` + `ENABLE_HSTS=true`;对象存储必须指向外部 S3 兼容服务。
+- ECS staging:`DEPLOY_ENV=staging`;`API_BASE_URL` / `CORS_ORIGINS` = `http://<ECS_IP>`;HTTP 阶段可 `REFRESH_COOKIE_SECURE=false`。
+- OVH production:`DEPLOY_ENV=production`;改 `https://<域名>`;`REFRESH_COOKIE_SECURE=true` + `ENABLE_HSTS=true`;对象存储必须指向外部 S3 兼容服务。
 - 1Panel 建反向代理:`/api` → `127.0.0.1:17858`,其余 → `127.0.0.1:7858`;OVH 签证书(同前台流程)。
 
 ## 三、发布
@@ -45,7 +45,25 @@ cp .env.example .env.production   # 按注释改:强口令、API_BASE_URL、CORS
 - **破坏性迁移**被 `check-migration-safety.sh` 拦截;确需 → commit message 加 `[allow-destructive-migration]`。
 - **发布后核对版本**:`GET /api/v1/version` 返回当前部署的 commit / 分支 / 构建时间(CI build-args → 镜像 ENV 注入,同前台;本地 dev 显 `dev`)。
 
-## 四、PG 数据持久化与备份取舍(当前)
+## 四、生产安全配置硬拦截
+
+`DEPLOY_ENV=production` 时采用双层 fail-fast:
+
+- `deploy.sh` 在拉镜像/起容器前检查 `.env.production`。
+- 后端启动时再次执行 production guard,防止绕过部署脚本直接启动容器。
+
+生产必须满足:
+
+- `JWT_SECRET_KEY` / `SUPER_ADMIN_INITIAL_PASSWORD` / `POSTGRES_PASSWORD` 不得为空或保留示例占位值。
+- `API_BASE_URL` / `CORS_ORIGINS` 必须是外部 HTTPS 域名,不能是 `*`、HTTP、localhost、`127.0.0.1`。
+- `REFRESH_COOKIE_SECURE=true`、`ENABLE_HSTS=true`。
+- `REFRESH_COOKIE_SAMESITE` 只能为 `lax` 或 `strict`。
+- `ENABLE_API_DOCS=false`。
+- 对象存储满足下方生产规则。
+
+Staging/local 不套 production 硬约束;需要 HTTP、本机 MinIO 时必须显式设置 `DEPLOY_ENV=staging`。
+
+## 五、PG 数据持久化与备份取舍(当前)
 
 当前 PG 采用**单机 Docker 容器 + named volume**:
 
@@ -88,7 +106,7 @@ docker compose -f docker-compose.production.yml exec -T db pg_dump -U "$POSTGRES
 4. 恢复演练文档与演练记录。
 5. 如维护成本可接受,再评估托管 PG 或主备方案。
 
-## 五、对象存储生产规则
+## 六、对象存储生产规则
 
 生产环境必须使用**外部 S3 兼容对象存储**(如 OVH Object Storage),不得把业务附件/商品图片长期放在应用服务器本机 MinIO 中。
 
