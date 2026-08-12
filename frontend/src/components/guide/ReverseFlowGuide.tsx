@@ -25,7 +25,7 @@ export function ReverseFlowGuide() {
       <Alert
         type="info"
         showIcon
-        message="逆向/纠错不是自动级联"
+        title="逆向/纠错不是自动级联"
         description="当前平台采用受控纠错:系统在每个写入口做最终守卫,操作者按下游到上游的顺序逐步撤销。"
       />
 
