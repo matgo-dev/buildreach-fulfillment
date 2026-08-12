@@ -30,11 +30,14 @@ export function OperationBlockedNotice({
   framed = true,
   items = [],
 }: Props) {
+  const helperText = nextAction ?? (items.length > 0 ? undefined : fallbackText);
   const description = (
     <Space orientation="vertical" size={8} style={{ width: "100%" }}>
-      <span style={{ color: colors.status.danger.text, fontWeight: 500 }}>
-        {nextAction ?? fallbackText}
-      </span>
+      {helperText ? (
+        <span style={{ color: colors.status.danger.text, fontWeight: 500 }}>
+          {helperText}
+        </span>
+      ) : null}
       {items.length > 0 ? (
         <div style={{ display: "grid", gap: 8 }}>
           {items.map((item) => (

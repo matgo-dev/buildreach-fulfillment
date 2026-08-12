@@ -413,13 +413,15 @@ export default function SalesOrderDetailPage() {
       >
         <Space orientation="vertical" style={{ width: "100%" }}>
           <span>
-            取消后本单进入终态,来源报价回到锁档、可修改后重新转出;
-            存在未处理的下游单据时本操作会被拒绝。
+            取消后本单进入终态,来源报价回到锁档,可修改后重新转出。
           </span>
           {cancelBlocked?.blocking_documents?.length ? (
             <OperationBlockedNotice
-              title="请先处理下游单据"
-              nextAction={cancelBlocked.next_action}
+              title={
+                cancelBlocked.blocking_kind === "outbound_order"
+                  ? "无法取消:存在未取消出库单"
+                  : "无法取消:存在未取消采购单"
+              }
               items={cancelBlocked.blocking_documents.map((doc) => {
                 const canOpen = doc.type === "purchase_order" ? canReadPurchase : canReadOutbound;
                 return {

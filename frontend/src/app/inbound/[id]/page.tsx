@@ -363,8 +363,8 @@ export default function InboundOrderDetailPage() {
           <span>撤销后回到在途态,对应应付账款将作废。若应付已有核销则不可撤销。</span>
           {unreceiveBlocked ? (
             <OperationBlockedNotice
-              title="库存已被出库消费,无法撤销入库"
-              nextAction="请先撤销以下销售单对应的出库单,再回来撤销入库。"
+              title="无法撤销:库存已被出库消费"
+              nextAction="先撤销对应出库单,再回来撤销入库。"
               fallbackText="部分货物已被出库消费,请先撤销对应出库单再撤销入库。"
               items={unreceiveBlocked}
             />
