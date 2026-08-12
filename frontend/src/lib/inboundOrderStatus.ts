@@ -31,8 +31,8 @@ export const inboundOrderUnreceivable = (s: InboundOrderStatus): boolean =>
   INBOUND_ORDER_TRANSITIONS[s].includes("IN_TRANSIT");
 
 /**
- * 收货进度映射(PO 相对入库覆盖度)。经 ProgressCell 渲染成分级状态标记(描边 chip + 方块图标),
- * 与「单据状态」实心 pill 换形区分;三态由 color 判级(default 未开始 / processing 进行中 / success 完成)。
+ * 收货进度映射(PO 相对入库覆盖度)。经 ProgressCell 复用 StatusTag 视觉规则:
+ * 状态圆点 + 精确语义色,与单据状态保持同一套徽标样式。
  */
 export const RECEIPT_PROGRESS_META: Record<ReceiptProgress, { label: string; color: string }> = {
   NOT_RECEIVED: { label: "未入库", color: "default" },
