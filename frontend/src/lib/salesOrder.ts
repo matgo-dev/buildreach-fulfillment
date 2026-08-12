@@ -75,6 +75,20 @@ export interface SalesOrderListItem {
   purchase_progress?: PurchaseProgress;
 }
 
+export interface SalesOrderCancelBlockingDocument {
+  type: "purchase_order" | "outbound_order";
+  id: number;
+  no: string;
+  status: string;
+  path: string;
+}
+
+export interface SalesOrderCancelBlockedData {
+  blocking_kind?: "purchase_order" | "outbound_order";
+  next_action?: string;
+  blocking_documents?: SalesOrderCancelBlockingDocument[];
+}
+
 /** 🔴 售价红线渲染:null(无 receivable:read)→ 静音「—」,绝不显示 0。镜像采购侧 formatCost。 */
 export function formatPrice(v: number | string | null | undefined): string {
   return v === null || v === undefined ? "—" : formatMoney(v);
@@ -99,7 +113,7 @@ export const salesOrderApi = {
     api.get<Page<SalesOrderListItem>>(`/api/v1/sales-orders${qs(p as Record<string, unknown>)}`),
   get: (id: number) =>
     api.get<{ order: SalesOrderOut; lines: SalesOrderLineOut[] }>(`/api/v1/sales-orders/${id}`),
-  // 整单取消(sales:manage):41802=存在活动采购单(后端中文 message 直显)。
+  // 整单取消(sales:manage):41802/41803 的 data 带真实下游阻塞单据列表。
   cancel: (id: number, reason?: string | null) =>
     api.post<{ order: SalesOrderOut; lines: SalesOrderLineOut[] }>(
       `/api/v1/sales-orders/${id}/cancel`, { reason: reason ?? null }),

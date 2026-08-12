@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { App, Button, Card, Descriptions, Input, Modal, Space, Table } from "antd";
+import { Alert, App, Button, Card, Descriptions, Input, Modal, Space, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ArrowLeftOutlined, ShoppingCartOutlined } from "@ant-design/icons";
 import { Can } from "@/components/common/Can";
@@ -11,11 +11,14 @@ import { PageLoading } from "@/components/common/PageLoading";
 import { ListErrorState } from "@/components/common/ListErrorState";
 import { Permissions } from "@/config/permission-matrix";
 import { useAuthStore } from "@/stores/authStore";
+import { ApiError } from "@/lib/api";
 import { formatDateTime, formatQty } from "@/lib/format";
 import { resolveBizError } from "@/lib/errorMessages";
 import {
   formatPrice,
   salesOrderApi,
+  type SalesOrderCancelBlockedData,
+  type SalesOrderCancelBlockingDocument,
   type SalesOrderLineOut,
   type SalesOrderOut,
 } from "@/lib/salesOrder";
@@ -40,6 +43,8 @@ export default function SalesOrderDetailPage() {
   // 🔴 红线可见性:无权者后端已脱敏为 null,渲染层再整列/整项藏掉(DESIGN.md §9)。
   const canSeePrice = useAuthStore((s) => s.hasPermission(Permissions.RECEIVABLE_READ));
   const canSeeCost = useAuthStore((s) => s.hasPermission(Permissions.PURCHASE_READ_COST));
+  const canReadPurchase = useAuthStore((s) => s.hasPermission(Permissions.PURCHASE_READ));
+  const canReadOutbound = useAuthStore((s) => s.hasPermission(Permissions.OUTBOUND_READ));
 
   const [order, setOrder] = useState<SalesOrderOut | null>(null);
   const [lines, setLines] = useState<SalesOrderLineOut[]>([]);
@@ -50,6 +55,7 @@ export default function SalesOrderDetailPage() {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelling, setCancelling] = useState(false);
+  const [cancelBlocked, setCancelBlocked] = useState<SalesOrderCancelBlockedData | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -143,7 +149,13 @@ export default function SalesOrderDetailPage() {
             )}
             {salesOrderCancellable(order.status) && (
               <Can perm={Permissions.SALES_MANAGE}>
-                <Button danger onClick={() => setCancelOpen(true)}>
+                <Button
+                  danger
+                  onClick={() => {
+                    setCancelBlocked(null);
+                    setCancelOpen(true);
+                  }}
+                >
                   取消销售单
                 </Button>
               </Can>
@@ -389,8 +401,12 @@ export default function SalesOrderDetailPage() {
             setCancelReason("");
             load();
           } catch (e) {
-            // 41802(存在活动采购单)等后端 message 为中文,直显。
-            message.error(resolveBizError(e, "取消失败"));
+            if (e instanceof ApiError && (e.code === 41802 || e.code === 41803)) {
+              setCancelBlocked(e.data as SalesOrderCancelBlockedData);
+              message.warning(resolveBizError(e, "取消失败"));
+            } else {
+              message.error(resolveBizError(e, "取消失败"));
+            }
           } finally {
             setCancelling(false);
           }
@@ -399,17 +415,110 @@ export default function SalesOrderDetailPage() {
         <Space orientation="vertical" style={{ width: "100%" }}>
           <span>
             取消后本单进入终态,来源报价回到锁档、可修改后重新转出;
-            存在未取消的采购单时本操作会被拒绝。
+            存在未处理的下游单据时本操作会被拒绝。
           </span>
+          {cancelBlocked?.blocking_documents?.length ? (
+            <CancelBlockerAlert
+              data={cancelBlocked}
+              canOpenDocument={(doc) =>
+                doc.type === "purchase_order" ? canReadPurchase : canReadOutbound
+              }
+              onOpenDocument={(doc) => {
+                setCancelOpen(false);
+                router.push(doc.path);
+              }}
+            />
+          ) : null}
           <Input.TextArea
             rows={2}
             maxLength={500}
             placeholder="取消原因(选填,留痕)"
             value={cancelReason}
-            onChange={(e) => setCancelReason(e.target.value)}
+            onChange={(e) => {
+              setCancelBlocked(null);
+              setCancelReason(e.target.value);
+            }}
           />
         </Space>
       </Modal>
     </Space>
+  );
+}
+
+function CancelBlockerAlert({
+  data,
+  canOpenDocument,
+  onOpenDocument,
+}: {
+  data: SalesOrderCancelBlockedData;
+  canOpenDocument: (doc: SalesOrderCancelBlockingDocument) => boolean;
+  onOpenDocument: (doc: SalesOrderCancelBlockingDocument) => void;
+}) {
+  const documents = data.blocking_documents ?? [];
+  return (
+    <Alert
+      type="warning"
+      showIcon
+      title="请先处理下游单据"
+      description={
+        <Space orientation="vertical" size={8} style={{ width: "100%" }}>
+          <span>{data.next_action ?? "请先处理以下单据,再回来取消销售单。"}</span>
+          <div style={{ display: "grid", gap: 8 }}>
+            {documents.map((doc) => (
+              <CancelBlockerDocumentRow
+                key={`${doc.type}-${doc.id}`}
+                doc={doc}
+                canOpen={canOpenDocument(doc)}
+                onOpen={onOpenDocument}
+              />
+            ))}
+          </div>
+        </Space>
+      }
+    />
+  );
+}
+
+function CancelBlockerDocumentRow({
+  doc,
+  canOpen,
+  onOpen,
+}: {
+  doc: SalesOrderCancelBlockingDocument;
+  canOpen: boolean;
+  onOpen: (doc: SalesOrderCancelBlockingDocument) => void;
+}) {
+  const label = doc.no || `#${doc.id}`;
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+      }}
+    >
+      <Space size={8} wrap>
+        <span>{doc.type === "purchase_order" ? "采购单" : "出库单"}</span>
+        {canOpen ? (
+          <Button type="link" style={{ padding: 0 }} onClick={() => onOpen(doc)}>
+            {label}
+          </Button>
+        ) : (
+          <span style={{ fontWeight: 600 }}>{label}</span>
+        )}
+        {doc.type === "purchase_order" ? (
+          <StatusTag meta={PURCHASE_ORDER_STATUS_META} value={doc.status} />
+        ) : (
+          <StatusTag meta={OUTBOUND_ORDER_STATUS_META} value={doc.status} />
+        )}
+        {!canOpen ? <span style={{ color: colors.muted }}>无访问权限</span> : null}
+      </Space>
+      {canOpen ? (
+        <Button size="small" onClick={() => onOpen(doc)}>
+          去处理
+        </Button>
+      ) : null}
+    </div>
   );
 }

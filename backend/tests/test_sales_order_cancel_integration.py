@@ -65,11 +65,35 @@ async def test_cancel_blocked_by_active_po_then_allowed(
         "source_sales_order_id": so["id"], "supplier_id": sup["id"], "currency": "USD",
         "lines": [{"source_sales_order_line_id": so_lines[0]["id"], "qty": 3,
                    "unit_price": 5}]})).json()["data"]["order"]
+    po2 = (await client.post("/api/v1/purchase-orders", headers=purchaser_headers, json={
+        "source_sales_order_id": so["id"], "supplier_id": sup["id"], "currency": "USD",
+        "lines": [{"source_sales_order_line_id": so_lines[0]["id"], "qty": 2,
+                   "unit_price": 5}]})).json()["data"]["order"]
 
     r = await _cancel(client, sales_headers, so["id"])  # DRAFT PO 也算活动
     assert r.status_code == 409 and r.json()["code"] == 41802
+    data = r.json()["data"]
+    assert data["blocking_kind"] == "purchase_order"
+    assert data["next_action"] == "请先取消全部采购单"
+    assert data["blocking_documents"] == [
+        {
+            "type": "purchase_order",
+            "id": po["id"],
+            "no": po["no"],
+            "status": "DRAFT",
+            "path": f"/purchasing/orders/{po['id']}",
+        },
+        {
+            "type": "purchase_order",
+            "id": po2["id"],
+            "no": po2["no"],
+            "status": "DRAFT",
+            "path": f"/purchasing/orders/{po2['id']}",
+        },
+    ]
 
     await client.post(f"/api/v1/purchase-orders/{po['id']}/cancel", headers=purchaser_headers)
+    await client.post(f"/api/v1/purchase-orders/{po2['id']}/cancel", headers=purchaser_headers)
     r2 = await _cancel(client, sales_headers, so["id"])
     assert r2.status_code == 200, r2.text
 
@@ -88,11 +112,37 @@ async def test_cancel_blocked_by_active_outbound_then_allowed(
                                lines=[{"sales_order_line_id": so_lines[0]["id"], "qty": 1}])
     assert cr.status_code == 200, cr.text
     ob_id = cr.json()["data"]["order"]["id"]
+    ship2 = await create_shipment(client, logistics_headers)
+    cr2 = await create_outbound(client, logistics_headers, sales_order_id=so["id"],
+                                shipment_id=ship2["id"],
+                                lines=[{"sales_order_line_id": so_lines[0]["id"], "qty": 1}])
+    assert cr2.status_code == 200, cr2.text
+    ob2_id = cr2.json()["data"]["order"]["id"]
 
     r = await _cancel(client, sales_headers, so["id"])  # DRAFT 出库单也算活动
     assert r.status_code == 409 and r.json()["code"] == 41803
+    data = r.json()["data"]
+    assert data["blocking_kind"] == "outbound_order"
+    assert data["next_action"] == "请先取消草稿出库单;已出库的单据需先撤销出库再取消"
+    assert data["blocking_documents"] == [
+        {
+            "type": "outbound_order",
+            "id": ob_id,
+            "no": cr.json()["data"]["order"]["no"],
+            "status": "DRAFT",
+            "path": f"/outbound/{ob_id}",
+        },
+        {
+            "type": "outbound_order",
+            "id": ob2_id,
+            "no": cr2.json()["data"]["order"]["no"],
+            "status": "DRAFT",
+            "path": f"/outbound/{ob2_id}",
+        },
+    ]
 
     await client.post(f"/api/v1/outbound-orders/{ob_id}/cancel", headers=logistics_headers)
+    await client.post(f"/api/v1/outbound-orders/{ob2_id}/cancel", headers=logistics_headers)
     r2 = await _cancel(client, sales_headers, so["id"])
     assert r2.status_code == 200, r2.text
 

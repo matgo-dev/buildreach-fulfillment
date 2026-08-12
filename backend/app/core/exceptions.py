@@ -423,16 +423,18 @@ class SalesOrderHasActivePurchaseError(BusinessError):
     """取消被拦:存在非 CANCELLED 的采购单(镜像 41609,方向相反)。
     不级联砍下游——解链人工自下而上:先取消全部 PO 再取消 SO。"""
 
-    def __init__(self, message: str = "Cannot cancel a sales order with active purchase orders"):
-        super().__init__(status.HTTP_409_CONFLICT, 41802, message)
+    def __init__(self, message: str = "Cannot cancel a sales order with active purchase orders",
+                 data: dict | None = None):
+        super().__init__(status.HTTP_409_CONFLICT, 41802, message, data=data)
 
 
 class SalesOrderHasActiveOutboundError(BusinessError):
     """取消被拦:存在非 CANCELLED 的出库单(镜像 41802,下游轴从采购扩到出库)。
     不级联砍下游——解链人工自下而上:先取消/撤销全部出库单再取消 SO。"""
 
-    def __init__(self, message: str = "Cannot cancel a sales order with active outbound orders"):
-        super().__init__(status.HTTP_409_CONFLICT, 41803, message)
+    def __init__(self, message: str = "Cannot cancel a sales order with active outbound orders",
+                 data: dict | None = None):
+        super().__init__(status.HTTP_409_CONFLICT, 41803, message, data=data)
 
 
 # 模块段 19 = 出库单(出库单状态机 + 确认出库可发闸)。见 db/models/outbound_order.py。

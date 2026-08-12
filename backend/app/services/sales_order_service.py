@@ -130,20 +130,52 @@ async def cancel_order(db: AsyncSession, *, order_id: int, reason: str | None, a
     so = await get_order_for_update(db, order_id)
     assert_transition(SALES_ORDER_TRANSITIONS, so.status, SalesOrderStatus.CANCELLED,
                       SalesOrderInvalidTransitionError)
-    active_po = (await db.execute(
-        select(PurchaseOrder.id).where(
+    active_pos = list((await db.execute(
+        select(PurchaseOrder.id, PurchaseOrder.no, PurchaseOrder.status).where(
             PurchaseOrder.source_sales_order_id == so.id,
-            PurchaseOrder.status != PurchaseOrderStatus.CANCELLED).limit(1))).first()
-    if active_po:
+            PurchaseOrder.status != PurchaseOrderStatus.CANCELLED)
+        .order_by(PurchaseOrder.id))).all())
+    if active_pos:
         raise SalesOrderHasActivePurchaseError(
-            f"存在活动采购单(如 #{active_po[0]}),请先取消全部采购单")
-    active_ob = (await db.execute(
-        select(OutboundOrder.id).where(
+            "存在活动采购单,请先取消全部采购单",
+            data={
+                "blocking_kind": "purchase_order",
+                "next_action": "请先取消全部采购单",
+                "blocking_documents": [
+                    {
+                        "type": "purchase_order",
+                        "id": row.id,
+                        "no": row.no,
+                        "status": row.status,
+                        "path": f"/purchasing/orders/{row.id}",
+                    }
+                    for row in active_pos
+                ],
+            },
+        )
+    active_obs = list((await db.execute(
+        select(OutboundOrder.id, OutboundOrder.no, OutboundOrder.status).where(
             OutboundOrder.sales_order_id == so.id,
-            OutboundOrder.status != OutboundOrderStatus.CANCELLED).limit(1))).first()
-    if active_ob:
+            OutboundOrder.status != OutboundOrderStatus.CANCELLED)
+        .order_by(OutboundOrder.id))).all())
+    if active_obs:
         raise SalesOrderHasActiveOutboundError(
-            f"存在活动出库单(如 #{active_ob[0]}),请先取消/撤销全部出库单")
+            "存在活动出库单,请先取消或撤销全部出库单",
+            data={
+                "blocking_kind": "outbound_order",
+                "next_action": "请先取消草稿出库单;已出库的单据需先撤销出库再取消",
+                "blocking_documents": [
+                    {
+                        "type": "outbound_order",
+                        "id": row.id,
+                        "no": row.no,
+                        "status": row.status,
+                        "path": f"/outbound/{row.id}",
+                    }
+                    for row in active_obs
+                ],
+            },
+        )
 
     so.status = SalesOrderStatus.CANCELLED
     so.cancelled_at = datetime.now(timezone.utc).replace(tzinfo=None)
