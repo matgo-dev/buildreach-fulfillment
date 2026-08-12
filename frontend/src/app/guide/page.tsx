@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Checkbox, Segmented, Space, Typography } from "antd";
+import { Checkbox, Segmented, Space, Tabs, Typography } from "antd";
 import { RouteGuard } from "@/components/auth/RouteGuard";
 import { GuideChart } from "@/components/guide/GuideChart";
 import { GuideDrawer } from "@/components/guide/GuideDrawer";
 import { GuideTour } from "@/components/guide/GuideTour";
+import { ReverseFlowGuide } from "@/components/guide/ReverseFlowGuide";
 import { GUIDE_NODES, GUIDE_ROLE_OPTIONS, TOUR_SEQUENCE, guideNodeById } from "@/config/guideFlow";
 import type { GuideNode, GuideRole } from "@/config/guideFlow";
 
@@ -59,45 +60,62 @@ export default function GuidePage() {
           一单货从接到客户询价,到最后收清货款,在这个平台里要经过下面这些步骤。点任意一步看详细说明。
         </Typography.Paragraph>
 
-        <div style={{ marginBottom: 16 }}>
-          <Space size={20} style={{ marginBottom: 12 }}>
-            <Checkbox checked={showMoney} onChange={(e) => setShowMoney(e.target.checked)}>
-              看钱怎么走
-            </Checkbox>
-            <Checkbox checked={showMaster} onChange={(e) => setShowMaster(e.target.checked)}>
-              看基础资料从哪来
-            </Checkbox>
-          </Space>
-          <div>
-            <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
-              按岗位看:选一个岗位,和它相关的步骤会亮起来,其余变淡(不隐藏 —— 你需要知道自己这步的上下游是谁)。
-            </Typography.Text>
-            <Segmented
-              value={highlightRole ?? "ALL"}
-              onChange={(v) => setHighlightRole(v === "ALL" ? null : (v as GuideRole))}
-              options={[{ value: "ALL", label: "全部" }, ...GUIDE_ROLE_OPTIONS]}
-            />
-          </div>
-        </div>
+        <Tabs
+          items={[
+            {
+              key: "forward",
+              label: "正向流程",
+              children: (
+                <>
+                  <div style={{ marginBottom: 16 }}>
+                    <Space size={20} style={{ marginBottom: 12 }}>
+                      <Checkbox checked={showMoney} onChange={(e) => setShowMoney(e.target.checked)}>
+                        看钱怎么走
+                      </Checkbox>
+                      <Checkbox checked={showMaster} onChange={(e) => setShowMaster(e.target.checked)}>
+                        看基础资料从哪来
+                      </Checkbox>
+                    </Space>
+                    <div>
+                      <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
+                        按岗位看:选一个岗位,和它相关的步骤会亮起来,其余变淡(不隐藏 —— 你需要知道自己这步的上下游是谁)。
+                      </Typography.Text>
+                      <Segmented
+                        value={highlightRole ?? "ALL"}
+                        onChange={(v) => setHighlightRole(v === "ALL" ? null : (v as GuideRole))}
+                        options={[{ value: "ALL", label: "全部" }, ...GUIDE_ROLE_OPTIONS]}
+                      />
+                    </div>
+                  </div>
 
-        <GuideTour
-          stepIndex={tourStep}
-          onStart={startTour}
-          onPrev={() => setTourStep((s) => (s === null ? s : Math.max(0, s - 1)))}
-          onNext={() =>
-            setTourStep((s) => (s === null ? s : Math.min(TOUR_SEQUENCE.length - 1, s + 1)))
-          }
-          onExit={exitTour}
-        />
+                  <GuideTour
+                    stepIndex={tourStep}
+                    onStart={startTour}
+                    onPrev={() => setTourStep((s) => (s === null ? s : Math.max(0, s - 1)))}
+                    onNext={() =>
+                      setTourStep((s) => (s === null ? s : Math.min(TOUR_SEQUENCE.length - 1, s + 1)))
+                    }
+                    onExit={exitTour}
+                  />
 
-        <GuideChart
-          showMoney={showMoney}
-          showMaster={showMaster}
-          highlightRole={highlightRole}
-          activeId={tourNodeId ?? activeNode?.id ?? null}
-          onNodeClick={setActiveNode}
+                  <GuideChart
+                    showMoney={showMoney}
+                    showMaster={showMaster}
+                    highlightRole={highlightRole}
+                    activeId={tourNodeId ?? activeNode?.id ?? null}
+                    onNodeClick={setActiveNode}
+                  />
+                  <GuideDrawer node={activeNode} onClose={() => setActiveNode(null)} />
+                </>
+              ),
+            },
+            {
+              key: "reverse",
+              label: "逆向/纠错",
+              children: <ReverseFlowGuide />,
+            },
+          ]}
         />
-        <GuideDrawer node={activeNode} onClose={() => setActiveNode(null)} />
       </div>
     </RouteGuard>
   );

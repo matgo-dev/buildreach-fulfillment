@@ -9,13 +9,16 @@ import { StatusTag } from "@/components/common/StatusTag";
 import { ProgressCell } from "@/components/common/ProgressCell";
 import { PageLoading } from "@/components/common/PageLoading";
 import { ListErrorState } from "@/components/common/ListErrorState";
+import { OperationBlockedNotice } from "@/components/common/OperationBlockedNotice";
 import { Permissions } from "@/config/permission-matrix";
 import { useAuthStore } from "@/stores/authStore";
+import { ApiError } from "@/lib/api";
 import { formatDateTime, formatQty } from "@/lib/format";
 import { resolveBizError } from "@/lib/errorMessages";
 import {
   formatPrice,
   salesOrderApi,
+  type SalesOrderCancelBlockedData,
   type SalesOrderLineOut,
   type SalesOrderOut,
 } from "@/lib/salesOrder";
@@ -40,6 +43,8 @@ export default function SalesOrderDetailPage() {
   // 🔴 红线可见性:无权者后端已脱敏为 null,渲染层再整列/整项藏掉(DESIGN.md §9)。
   const canSeePrice = useAuthStore((s) => s.hasPermission(Permissions.RECEIVABLE_READ));
   const canSeeCost = useAuthStore((s) => s.hasPermission(Permissions.PURCHASE_READ_COST));
+  const canReadPurchase = useAuthStore((s) => s.hasPermission(Permissions.PURCHASE_READ));
+  const canReadOutbound = useAuthStore((s) => s.hasPermission(Permissions.OUTBOUND_READ));
 
   const [order, setOrder] = useState<SalesOrderOut | null>(null);
   const [lines, setLines] = useState<SalesOrderLineOut[]>([]);
@@ -50,6 +55,7 @@ export default function SalesOrderDetailPage() {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelling, setCancelling] = useState(false);
+  const [cancelBlocked, setCancelBlocked] = useState<SalesOrderCancelBlockedData | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -143,7 +149,13 @@ export default function SalesOrderDetailPage() {
             )}
             {salesOrderCancellable(order.status) && (
               <Can perm={Permissions.SALES_MANAGE}>
-                <Button danger onClick={() => setCancelOpen(true)}>
+                <Button
+                  danger
+                  onClick={() => {
+                    setCancelBlocked(null);
+                    setCancelOpen(true);
+                  }}
+                >
                   取消销售单
                 </Button>
               </Can>
@@ -389,8 +401,11 @@ export default function SalesOrderDetailPage() {
             setCancelReason("");
             load();
           } catch (e) {
-            // 41802(存在活动采购单)等后端 message 为中文,直显。
-            message.error(resolveBizError(e, "取消失败"));
+            if (e instanceof ApiError && (e.code === 41802 || e.code === 41803)) {
+              setCancelBlocked(e.data as SalesOrderCancelBlockedData);
+            } else {
+              message.error(resolveBizError(e, "取消失败"));
+            }
           } finally {
             setCancelling(false);
           }
@@ -398,15 +413,47 @@ export default function SalesOrderDetailPage() {
       >
         <Space orientation="vertical" style={{ width: "100%" }}>
           <span>
-            取消后本单进入终态,来源报价回到锁档、可修改后重新转出;
-            存在未取消的采购单时本操作会被拒绝。
+            取消后本单进入终态,来源报价回到锁档,可修改后重新转出。
           </span>
+          {cancelBlocked?.blocking_documents?.length ? (
+            <OperationBlockedNotice
+              title={
+                cancelBlocked.blocking_kind === "outbound_order"
+                  ? "无法取消:存在未取消出库单"
+                  : "无法取消:存在未取消采购单"
+              }
+              items={cancelBlocked.blocking_documents.map((doc) => {
+                const canOpen = doc.type === "purchase_order" ? canReadPurchase : canReadOutbound;
+                return {
+                  key: `${doc.type}-${doc.id}`,
+                  label: doc.type === "purchase_order" ? "采购单" : "出库单",
+                  title: doc.no || `#${doc.id}`,
+                  status:
+                    doc.type === "purchase_order" ? (
+                      <StatusTag meta={PURCHASE_ORDER_STATUS_META} value={doc.status} />
+                    ) : (
+                      <StatusTag meta={OUTBOUND_ORDER_STATUS_META} value={doc.status} />
+                    ),
+                  onAction: canOpen
+                    ? () => {
+                        setCancelOpen(false);
+                        router.push(doc.path);
+                      }
+                    : undefined,
+                  disabledReason: canOpen ? undefined : "无访问权限",
+                };
+              })}
+            />
+          ) : null}
           <Input.TextArea
             rows={2}
             maxLength={500}
             placeholder="取消原因(选填,留痕)"
             value={cancelReason}
-            onChange={(e) => setCancelReason(e.target.value)}
+            onChange={(e) => {
+              setCancelBlocked(null);
+              setCancelReason(e.target.value);
+            }}
           />
         </Space>
       </Modal>

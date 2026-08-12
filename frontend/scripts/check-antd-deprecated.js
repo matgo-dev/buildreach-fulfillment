@@ -27,6 +27,30 @@ const CHECKS = [
     replacement: "open",
     pattern: /<(?:Modal|Drawer)\b(?:(?!\/?>)[\s\S])*\bvisible\s*=/g,
   },
+  {
+    component: "Alert",
+    prop: "message",
+    replacement: "title",
+    pattern: /<Alert\b(?:(?!\/?>)[\s\S])*\bmessage\s*=/g,
+  },
+  {
+    component: "Alert",
+    prop: "closeText",
+    replacement: "closable.closeIcon",
+    pattern: /<Alert\b(?:(?!\/?>)[\s\S])*\bcloseText\s*=/g,
+  },
+  {
+    component: "Alert",
+    prop: "onClose",
+    replacement: "closable.onClose",
+    pattern: /<Alert\b(?:(?!\/?>)[\s\S])*\bonClose\s*=/g,
+  },
+  {
+    component: "Alert",
+    prop: "afterClose",
+    replacement: "closable.afterClose",
+    pattern: /<Alert\b(?:(?!\/?>)[\s\S])*\bafterClose\s*=/g,
+  },
 ];
 
 function walk(dir) {
@@ -64,4 +88,3 @@ if (findings.length > 0) {
   }
   process.exit(1);
 }
-

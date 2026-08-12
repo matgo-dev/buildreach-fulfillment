@@ -27,8 +27,8 @@ export const purchaseOrderCancellable = (s: PurchaseOrderStatus): boolean =>
   PURCHASE_ORDER_TRANSITIONS[s].includes("CANCELLED");
 
 /**
- * 采购进度映射(销售单相对采购覆盖度)。经 ProgressCell 渲染成分级状态标记(描边 chip + 方块图标),
- * 与「单据状态」实心 pill 换形区分;三态由 color 判级(default 未开始 / processing 进行中 / success 完成)。
+ * 采购进度映射(销售单相对采购覆盖度)。经 ProgressCell 复用 StatusTag 视觉规则:
+ * 状态圆点 + 精确语义色,与单据状态保持同一套徽标样式。
  */
 export const PURCHASE_PROGRESS_META: Record<PurchaseProgress, { label: string; color: string }> = {
   NOT_ORDERED: { label: "未下单", color: "default" },

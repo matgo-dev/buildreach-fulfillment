@@ -8,6 +8,7 @@ import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
 import { PageLoading } from "@/components/common/PageLoading";
 import { ListErrorState } from "@/components/common/ListErrorState";
+import { OperationBlockedNotice } from "@/components/common/OperationBlockedNotice";
 import { Permissions } from "@/config/permission-matrix";
 import { ApiError } from "@/lib/api";
 import { formatDateTime, formatQty } from "@/lib/format";
@@ -103,20 +104,25 @@ export default function OutboundOrderDetailPage() {
         const rows = parseShortages(e.data);
         modal.error({
           title: "可发数量不足,无法出库",
-          content:
-            rows.length > 0 ? (
-              <div style={{ marginTop: 8 }}>
-                {rows.map((s, i) => (
-                  <div key={i} style={{ fontSize: 13, marginBottom: 4 }}>
-                    {s.label}
-                    {s.required !== undefined && `:本次需 ${formatQty(s.required)}`}
-                    {s.available !== undefined && `,可发 ${formatQty(s.available)}`}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              "部分行可发库存不足,请减少数量或撤回后重试。"
-            ),
+          content: (
+            <OperationBlockedNotice
+              framed={false}
+              title="可发数量不足,无法出库"
+              nextAction="请减少本次出库数量,或先补足/释放可发库存后重试。"
+              fallbackText="部分行可发库存不足,请减少数量或撤回后重试。"
+              items={rows.map((s, i) => ({
+                key: `${s.label}-${i}`,
+                label: "库存明细",
+                title: s.label,
+                detail: [
+                  s.required !== undefined ? `本次需 ${formatQty(s.required)}` : null,
+                  s.available !== undefined ? `可发 ${formatQty(s.available)}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · "),
+              }))}
+            />
+          ),
         });
       } else {
         message.error(resolveBizError(e, "操作失败"));

@@ -1,6 +1,6 @@
 """物流轨迹事件服务(发运柜子资源)。货离港后在途里程碑(中转/到港)手动录入。
 
-锁序(TOCTOU 闭合):录/改/删事件一律先锁柜头 FOR UPDATE(复用 get_order_for_update)再校验
+锁序(TOCTOU 闭合):录/改/作废事件一律先锁柜头 FOR UPDATE(复用 get_order_for_update)再校验
 DEPARTED——与「undepart 前置无活动事件」串行化,杜绝并发下「LOADED 柜带事件」。事件表是柜的
 下游,锁柜头后只碰事件行,不破坏既有「柜头恒为叶子锁」。无红线字段。
 
@@ -29,7 +29,7 @@ from app.services import shipment_service
 
 
 async def _lock_departed_shipment(db: AsyncSession, shipment_id: int) -> ShipmentOrder:
-    """锁柜头(FOR UPDATE)+ 校验 DEPARTED。录/改/删事件的统一前置,串行化并发。"""
+    """锁柜头(FOR UPDATE)+ 校验 DEPARTED。录/改/作废事件的统一前置,串行化并发。"""
     ship = await shipment_service.get_order_for_update(db, shipment_id)
     if ship.status != ShipmentOrderStatus.DEPARTED:
         raise ShipmentNotDepartedError()
@@ -148,8 +148,8 @@ async def update_event(db: AsyncSession, *, shipment_id: int, event_id: int, fie
 
 async def delete_event(db: AsyncSession, *, shipment_id: int, event_id: int, actor_user_id,
                        actor_user_email, request: Request | None = None) -> None:
-    """软删事件(置 deleted_at)。管线:锁柜头 → DEPARTED → 取活动事件+归属 → 软删。
-    软删后行保留供追溯,且退出到港偏唯一(旧到港软删后可重录);extra 带整行快照。"""
+    """作废物流节点(底层置 deleted_at)。管线:锁柜头 → DEPARTED → 取活动事件+归属 → 作废。
+    作废后行保留供追溯,且退出到港偏唯一(旧到港作废后可重录);extra 带整行快照。"""
     await _lock_departed_shipment(db, shipment_id)
     ev = await _get_active_event(db, shipment_id, event_id)
     snapshot = {"event_type": ev.event_type, "event_at": ev.event_at.isoformat(),

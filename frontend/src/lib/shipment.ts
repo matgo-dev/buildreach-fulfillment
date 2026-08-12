@@ -236,14 +236,14 @@ export const shipmentApi = {
   /** 撤离港 DEPARTED→LOADED(清 atd;守卫:柜下有活动物流事件则 42007)。 */
   undepart: (id: number) => api.post<ShipmentDetail>(`/api/v1/shipments/${id}/undepart`),
   cancel: (id: number) => api.post<ShipmentDetail>(`/api/v1/shipments/${id}/cancel`),
-  // ---- 物流轨迹事件(发运柜子资源;录/改/删前置柜 DEPARTED)----
+  // ---- 物流轨迹事件(发运柜子资源;录/改/作废前置柜 DEPARTED)----
   /** 录入里程碑(中转/到港)。守卫:非 DEPARTED 42008 / 到港唯一 42009 / event_at<atd 400。 */
   createEvent: (id: number, b: ShipmentEventCreateBody) =>
     api.post<ShipmentDetail>(`/api/v1/shipments/${id}/logistics-events`, b),
   /** 改事件(纠错)。 */
   updateEvent: (id: number, eventId: number, b: ShipmentEventUpdateBody) =>
     api.patch<ShipmentDetail>(`/api/v1/shipments/${id}/logistics-events/${eventId}`, b),
-  /** 软删事件。 */
+  /** 作废物流节点(底层软删留痕)。 */
   deleteEvent: (id: number, eventId: number) =>
     api.del<ShipmentDetail>(`/api/v1/shipments/${id}/logistics-events/${eventId}`),
   // ---- 报关(发运柜子资源;柜 LOADED/DEPARTED 才可录,至多一条活动记录)----
@@ -253,7 +253,7 @@ export const shipmentApi = {
   /** 改报关(编辑/回填放行日)。必带 expected_updated_at;冲突 42015。 */
   updateCustoms: (id: number, declId: number, b: CustomsUpdateBody) =>
     api.patch<ShipmentDetail>(`/api/v1/shipments/${id}/customs-declarations/${declId}`, b),
-  /** 软删报关(纠错重录;级联软删附件)。 */
+  /** 作废报关(纠错重录;底层软删记录并归档附件)。 */
   deleteCustoms: (id: number, declId: number) =>
     api.del<ShipmentDetail>(`/api/v1/shipments/${id}/customs-declarations/${declId}`),
 };

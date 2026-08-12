@@ -24,6 +24,7 @@ import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
 import { PageLoading } from "@/components/common/PageLoading";
 import { ListErrorState } from "@/components/common/ListErrorState";
+import { OperationBlockedNotice } from "@/components/common/OperationBlockedNotice";
 import { Permissions } from "@/config/permission-matrix";
 import { ApiError } from "@/lib/api";
 import { formatDateTime, formatQty } from "@/lib/format";
@@ -187,14 +188,16 @@ export default function ShipmentDetailPage() {
         modal.error({
           title: "柜内存在草稿出库单,不可封柜",
           content: (
-            <div style={{ marginTop: 8 }}>
-              <div style={{ marginBottom: 6 }}>请先确认或移除以下草稿出库单后再封柜:</div>
-              {nos.map((no) => (
-                <div key={no} style={{ fontSize: 13 }}>
-                  {no}
-                </div>
-              ))}
-            </div>
+            <OperationBlockedNotice
+              framed={false}
+              title="柜内存在草稿出库单,不可封柜"
+              nextAction="请先确认或移除以下草稿出库单后再封柜。"
+              items={nos.map((no) => ({
+                key: no,
+                label: "出库单",
+                title: no,
+              }))}
+            />
           ),
         });
       } else {

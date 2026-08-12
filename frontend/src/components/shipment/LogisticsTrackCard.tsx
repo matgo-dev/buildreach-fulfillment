@@ -132,14 +132,14 @@ export function LogisticsTrackCard({
     }
   }
 
-  async function onDelete(eventId: number) {
+  async function onVoid(eventId: number) {
     setBusy(true);
     try {
       await shipmentApi.deleteEvent(shipmentId, eventId);
-      message.success("已删除");
+      message.success("已作废物流节点");
       onChanged();
     } catch (e) {
-      message.error(resolveBizError(e, "删除失败"));
+      message.error(resolveBizError(e, "作废失败"));
     } finally {
       setBusy(false);
     }
@@ -150,13 +150,13 @@ export function LogisticsTrackCard({
       <Space size={4} style={{ marginLeft: 8 }}>
         <Button type="text" size="small" icon={<EditOutlined />} onClick={() => openEdit(ev)} />
         <Popconfirm
-          title="删除该物流事件?"
-          description="软删除,行保留供追溯。到港删除后可重录。"
+          title="作废该物流节点?"
+          description="用于纠错重录;该节点退出当前有效时间线,底层保留痕迹。"
           okButtonProps={{ danger: true }}
-          onConfirm={() => onDelete(ev.id)}
+          onConfirm={() => onVoid(ev.id)}
         >
           <Button type="text" size="small" danger disabled={busy}>
-            删除
+            作废
           </Button>
         </Popconfirm>
       </Space>
