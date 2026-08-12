@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Alert, App, Button, Card, Descriptions, Input, Modal, Space, Table } from "antd";
+import { App, Button, Card, Descriptions, Input, Modal, Space, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ArrowLeftOutlined, ShoppingCartOutlined } from "@ant-design/icons";
 import { Can } from "@/components/common/Can";
@@ -9,6 +9,7 @@ import { StatusTag } from "@/components/common/StatusTag";
 import { ProgressCell } from "@/components/common/ProgressCell";
 import { PageLoading } from "@/components/common/PageLoading";
 import { ListErrorState } from "@/components/common/ListErrorState";
+import { OperationBlockedNotice } from "@/components/common/OperationBlockedNotice";
 import { Permissions } from "@/config/permission-matrix";
 import { useAuthStore } from "@/stores/authStore";
 import { ApiError } from "@/lib/api";
@@ -18,7 +19,6 @@ import {
   formatPrice,
   salesOrderApi,
   type SalesOrderCancelBlockedData,
-  type SalesOrderCancelBlockingDocument,
   type SalesOrderLineOut,
   type SalesOrderOut,
 } from "@/lib/salesOrder";
@@ -418,15 +418,31 @@ export default function SalesOrderDetailPage() {
             存在未处理的下游单据时本操作会被拒绝。
           </span>
           {cancelBlocked?.blocking_documents?.length ? (
-            <CancelBlockerAlert
-              data={cancelBlocked}
-              canOpenDocument={(doc) =>
-                doc.type === "purchase_order" ? canReadPurchase : canReadOutbound
-              }
-              onOpenDocument={(doc) => {
-                setCancelOpen(false);
-                router.push(doc.path);
-              }}
+            <OperationBlockedNotice
+              title="请先处理下游单据"
+              nextAction={cancelBlocked.next_action}
+              items={cancelBlocked.blocking_documents.map((doc) => {
+                const canOpen = doc.type === "purchase_order" ? canReadPurchase : canReadOutbound;
+                return {
+                  key: `${doc.type}-${doc.id}`,
+                  label: doc.type === "purchase_order" ? "采购单" : "出库单",
+                  title: doc.no || `#${doc.id}`,
+                  status:
+                    doc.type === "purchase_order" ? (
+                      <StatusTag meta={PURCHASE_ORDER_STATUS_META} value={doc.status} />
+                    ) : (
+                      <StatusTag meta={OUTBOUND_ORDER_STATUS_META} value={doc.status} />
+                    ),
+                  actionLabel: canOpen ? "去处理" : undefined,
+                  onAction: canOpen
+                    ? () => {
+                        setCancelOpen(false);
+                        router.push(doc.path);
+                      }
+                    : undefined,
+                  disabledReason: canOpen ? undefined : "无访问权限",
+                };
+              })}
             />
           ) : null}
           <Input.TextArea
@@ -442,83 +458,5 @@ export default function SalesOrderDetailPage() {
         </Space>
       </Modal>
     </Space>
-  );
-}
-
-function CancelBlockerAlert({
-  data,
-  canOpenDocument,
-  onOpenDocument,
-}: {
-  data: SalesOrderCancelBlockedData;
-  canOpenDocument: (doc: SalesOrderCancelBlockingDocument) => boolean;
-  onOpenDocument: (doc: SalesOrderCancelBlockingDocument) => void;
-}) {
-  const documents = data.blocking_documents ?? [];
-  return (
-    <Alert
-      type="warning"
-      showIcon
-      title="请先处理下游单据"
-      description={
-        <Space orientation="vertical" size={8} style={{ width: "100%" }}>
-          <span>{data.next_action ?? "请先处理以下单据,再回来取消销售单。"}</span>
-          <div style={{ display: "grid", gap: 8 }}>
-            {documents.map((doc) => (
-              <CancelBlockerDocumentRow
-                key={`${doc.type}-${doc.id}`}
-                doc={doc}
-                canOpen={canOpenDocument(doc)}
-                onOpen={onOpenDocument}
-              />
-            ))}
-          </div>
-        </Space>
-      }
-    />
-  );
-}
-
-function CancelBlockerDocumentRow({
-  doc,
-  canOpen,
-  onOpen,
-}: {
-  doc: SalesOrderCancelBlockingDocument;
-  canOpen: boolean;
-  onOpen: (doc: SalesOrderCancelBlockingDocument) => void;
-}) {
-  const label = doc.no || `#${doc.id}`;
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-      }}
-    >
-      <Space size={8} wrap>
-        <span>{doc.type === "purchase_order" ? "采购单" : "出库单"}</span>
-        {canOpen ? (
-          <Button type="link" style={{ padding: 0 }} onClick={() => onOpen(doc)}>
-            {label}
-          </Button>
-        ) : (
-          <span style={{ fontWeight: 600 }}>{label}</span>
-        )}
-        {doc.type === "purchase_order" ? (
-          <StatusTag meta={PURCHASE_ORDER_STATUS_META} value={doc.status} />
-        ) : (
-          <StatusTag meta={OUTBOUND_ORDER_STATUS_META} value={doc.status} />
-        )}
-        {!canOpen ? <span style={{ color: colors.muted }}>无访问权限</span> : null}
-      </Space>
-      {canOpen ? (
-        <Button size="small" onClick={() => onOpen(doc)}>
-          去处理
-        </Button>
-      ) : null}
-    </div>
   );
 }

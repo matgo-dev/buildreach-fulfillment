@@ -20,6 +20,7 @@ import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
 import { PageLoading } from "@/components/common/PageLoading";
 import { ListErrorState } from "@/components/common/ListErrorState";
+import { OperationBlockedNotice, type OperationBlockedItem } from "@/components/common/OperationBlockedNotice";
 import { Permissions } from "@/config/permission-matrix";
 import { formatDateTime, formatQty } from "@/lib/format";
 import { ApiError } from "@/lib/api";
@@ -60,7 +61,7 @@ function parseUnreceiveNegatives(data: unknown): UnreceiveNegative[] {
 export default function InboundOrderDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { message, modal } = App.useApp();
+  const { message } = App.useApp();
   const id = Number(params.id);
 
   const [detail, setDetail] = useState<InboundOrderDetail | null>(null);
@@ -74,6 +75,7 @@ export default function InboundOrderDetailPage() {
   // 撤销入库对话框:留痕原因(可空)。
   const [unreceiveOpen, setUnreceiveOpen] = useState(false);
   const [voidReason, setVoidReason] = useState("");
+  const [unreceiveBlocked, setUnreceiveBlocked] = useState<OperationBlockedItem[] | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -175,7 +177,13 @@ export default function InboundOrderDetailPage() {
                 </Button>
               )}
               {inboundOrderUnreceivable(order.status) && (
-                <Button loading={busy} onClick={() => setUnreceiveOpen(true)}>
+                <Button
+                  loading={busy}
+                  onClick={() => {
+                    setUnreceiveBlocked(null);
+                    setUnreceiveOpen(true);
+                  }}
+                >
                   撤销入库
                 </Button>
               )}
@@ -330,24 +338,20 @@ export default function InboundOrderDetailPage() {
             // 41710 穿仓:按 (SO,SKU) 明细展示,指明先撤销哪些出库(镜像出库 41902 明细弹窗)。
             if (e instanceof ApiError && e.code === 41710) {
               const rows = parseUnreceiveNegatives(e.data);
-              modal.error({
-                title: "库存已被出库消费,无法撤销入库",
-                content:
-                  rows.length > 0 ? (
-                    <div style={{ marginTop: 8 }}>
-                      <div style={{ marginBottom: 4 }}>请先撤销以下销售单对应的出库单:</div>
-                      {rows.map((s, i) => (
-                        <div key={i} style={{ fontSize: 13, marginBottom: 4 }}>
-                          {s.label}
-                          {s.salesOrderNo && `(${s.salesOrderNo})`}
-                          {s.available !== undefined && `:撤回后可发 ${formatQty(s.available)}`}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    "部分货物已被出库消费,请先撤销对应出库单再撤销入库。"
-                  ),
-              });
+              setUnreceiveBlocked(
+                rows.map((s, i) => ({
+                  key: `${s.salesOrderNo ?? "so"}-${s.label}-${i}`,
+                  label: "库存明细",
+                  title: s.label,
+                  detail: [
+                    s.salesOrderNo ? `销售单 ${s.salesOrderNo}` : null,
+                    s.available !== undefined ? `撤回后可发 ${formatQty(s.available)}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · "),
+                })),
+              );
+              message.warning("库存已被出库消费,无法撤销入库");
             } else {
               message.error(resolveBizError(e, "操作失败"));
             }
@@ -358,11 +362,22 @@ export default function InboundOrderDetailPage() {
       >
         <Space orientation="vertical" style={{ width: "100%" }}>
           <span>撤销后回到在途态,对应应付账款将作废。若应付已有核销则不可撤销。</span>
+          {unreceiveBlocked ? (
+            <OperationBlockedNotice
+              title="库存已被出库消费,无法撤销入库"
+              nextAction="请先撤销以下销售单对应的出库单,再回来撤销入库。"
+              fallbackText="部分货物已被出库消费,请先撤销对应出库单再撤销入库。"
+              items={unreceiveBlocked}
+            />
+          ) : null}
           <Input.TextArea
             rows={2}
             placeholder="撤销原因(选填,留痕)"
             value={voidReason}
-            onChange={(e) => setVoidReason(e.target.value)}
+            onChange={(e) => {
+              setUnreceiveBlocked(null);
+              setVoidReason(e.target.value);
+            }}
           />
         </Space>
       </Modal>
