@@ -1,6 +1,6 @@
-"""报关记录服务(发运柜子资源)。整柜一次报关,回填结果,软删重录纠错。
+"""报关记录服务(发运柜子资源)。整柜一次报关,回填结果,作废重录纠错。
 
-锁序(TOCTOU 闭合):录/改/删一律先锁柜头 FOR UPDATE(复用 get_order_for_update)再校验柜态
+锁序(TOCTOU 闭合):录/改/作废一律先锁柜头 FOR UPDATE(复用 get_order_for_update)再校验柜态
 {LOADED, DEPARTED} —— 与「撤封柜前置无活动报关」串行化。柜头恒为叶子锁,锁后只碰报关/附件行。
 
 报关状态纯派生(derive_status,唯一口径),不落柜头/记录冗余状态列。无红线字段。
@@ -97,7 +97,7 @@ async def _commit_mapping_declno_conflict(db: AsyncSession) -> None:
 
 
 async def _lock_declarable_shipment(db: AsyncSession, shipment_id: int) -> ShipmentOrder:
-    """锁柜头(FOR UPDATE)+ 校验柜态 ∈ {LOADED, DEPARTED}。录/改/删的统一前置。"""
+    """锁柜头(FOR UPDATE)+ 校验柜态 ∈ {LOADED, DEPARTED}。录/改/作废的统一前置。"""
     ship = await shipment_service.get_order_for_update(db, shipment_id)
     if ship.status not in _DECLARABLE_STATUSES:
         raise CustomsShipmentNotDeclarableError()
@@ -186,7 +186,7 @@ async def update(db: AsyncSession, *, shipment_id: int, decl_id: int, fields: di
 
 async def delete(db: AsyncSession, *, shipment_id: int, decl_id: int, actor_user_id,
                  actor_user_email, request: Request | None = None) -> None:
-    """软删报关(纠错重录),级联软删其附件。extra 带被删附件 id + 记录快照,供精确追溯。"""
+    """作废报关(底层软删留痕),级联归档其附件。extra 带附件 id + 记录快照,供精确追溯。"""
     await _lock_declarable_shipment(db, shipment_id)
     decl = await _get_active_decl(db, shipment_id, decl_id)
     removed = await attachment_service.cascade_soft_delete(db, decl.id)

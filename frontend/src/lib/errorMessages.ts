@@ -57,7 +57,7 @@ const OUTBOUND_ERROR_MESSAGES: Record<number, string> = {
 
 // 报关域(段 420xx 尾)+ 附件域(段 421xx)。未列出的沿用后端 message。
 const CUSTOMS_ERROR_MESSAGES: Record<number, string> = {
-  42011: "撤封柜前请先删除报关记录",
+  42011: "撤封柜前请先作废报关记录",
   42012: "当前柜状态不可报关",
   42013: "该柜已有报关记录",
   42014: "报关记录不属于该柜",

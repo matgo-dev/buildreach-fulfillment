@@ -177,7 +177,7 @@ async def cancel_shipment(shipment_id: int, request: Request,
     return success(await _detail_payload(db, ship))
 
 
-# ---------- 物流轨迹事件(发运柜子资源;录/改/删前置柜 DEPARTED,锁柜头串行化)----------
+# ---------- 物流轨迹事件(发运柜子资源;录/改/作废前置柜 DEPARTED,锁柜头串行化)----------
 
 
 @router.post("/{shipment_id}/logistics-events", summary="录入物流里程碑(中转/到港)")
@@ -204,7 +204,7 @@ async def update_logistics_event(shipment_id: int, event_id: int, body: Shipment
     return success(await _detail_payload(db, ship))
 
 
-@router.delete("/{shipment_id}/logistics-events/{event_id}", summary="软删物流事件")
+@router.delete("/{shipment_id}/logistics-events/{event_id}", summary="作废物流节点(底层软删留痕)")
 async def delete_logistics_event(shipment_id: int, event_id: int, request: Request,
                                  current: CurrentUser = _MANAGE,
                                  db: AsyncSession = Depends(get_db)):
@@ -245,7 +245,7 @@ async def update_customs(shipment_id: int, decl_id: int, body: CustomsDeclaratio
     return success(await _detail_payload(db, ship))
 
 
-@router.delete("/{shipment_id}/customs-declarations/{decl_id}", summary="软删报关(级联软删附件)")
+@router.delete("/{shipment_id}/customs-declarations/{decl_id}", summary="作废报关(归档附件)")
 async def delete_customs(shipment_id: int, decl_id: int, request: Request,
                          current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
     await customs_service.delete(

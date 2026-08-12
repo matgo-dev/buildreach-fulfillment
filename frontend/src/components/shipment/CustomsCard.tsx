@@ -48,7 +48,7 @@ import {
 } from "@/lib/attachment";
 
 // 报关卡:发运柜封柜/离港后的报关子资源(录入即已申报,回填放行日 → 已放行)。
-// 一柜至多一条活动记录;软删=纠错重录。附件=报关单/放行扫描件,中转上传、鉴权下载。
+// 一柜至多一条活动记录;作废=纠错重录(底层软删留痕)。附件=报关单/放行扫描件,中转上传、鉴权下载。
 // customs_status===null(OPEN/CANCELLED 柜)不适用 —— 由详情页据此决定不挂本卡。
 
 /**
@@ -254,10 +254,10 @@ export function CustomsCard({
     setBusy(true);
     try {
       await shipmentApi.deleteCustoms(shipmentId, declaration.id);
-      message.success("已删除报关记录");
+      message.success("已作废报关记录");
       onChanged();
     } catch (e) {
-      message.error(resolveBizError(e, "删除失败"));
+      message.error(resolveBizError(e, "作废失败"));
     } finally {
       setBusy(false);
     }
@@ -335,13 +335,13 @@ export function CustomsCard({
                 编辑
               </Button>
               <Popconfirm
-                title="删除报关记录?"
-                description="软删除,用于纠错重录;附件一并归档。删除后可重新录入。"
+                title="作废报关记录?"
+                description="用于纠错重录;活动记录和附件一并归档。作废后可重新录入。"
                 okButtonProps={{ danger: true }}
                 onConfirm={onDelete}
               >
                 <Button danger disabled={busy}>
-                  删除重录
+                  作废重录
                 </Button>
               </Popconfirm>
             </Space>

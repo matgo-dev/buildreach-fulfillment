@@ -575,14 +575,14 @@ class ShipmentEditConflictError(BusinessError):
 # 42009 重复到港 / 42010 事件不属于该柜。
 class ShipmentHasActiveLogisticsEventError(BusinessError):
     """撤离港被拦:柜下存在活动物流事件(deleted_at IS NULL)。离港是物流轨迹的起点,
-    撤离港会清 atd,须先软删该柜全部物流事件再撤。"""
+    撤离港会清 atd,须先作废该柜全部物流事件再撤。"""
 
     def __init__(self, message: str = "Cannot undepart: shipment has active logistics events"):
         super().__init__(status.HTTP_409_CONFLICT, 42007, message)
 
 
 class ShipmentNotDepartedError(BusinessError):
-    """录/改/删物流事件被拦:发运柜非 DEPARTED——物流轨迹从离港后接手,未离港无在途里程碑。"""
+    """录/改/作废物流事件被拦:发运柜非 DEPARTED——物流轨迹从离港后接手,未离港无在途里程碑。"""
 
     def __init__(self, message: str = "Cannot manage logistics events: shipment not departed"):
         super().__init__(status.HTTP_409_CONFLICT, 42008, message)
@@ -607,14 +607,14 @@ class ShipmentEventNotOnShipmentError(BusinessError):
 # 42016 报关单号已被占用。
 class ShipmentHasActiveCustomsError(BusinessError):
     """撤封柜(LOADED→OPEN)被拦:柜下存在活动报关记录。柜内容变了申报即失效,
-    须先删报关再撤封柜(同 42007 撤离港被活动物流事件拦的范式)。"""
+    须先作废报关再撤封柜(同 42007 撤离港被活动物流事件拦的范式)。"""
 
     def __init__(self, message: str = "Cannot unload: shipment has an active customs declaration"):
         super().__init__(status.HTTP_409_CONFLICT, 42011, message)
 
 
 class CustomsShipmentNotDeclarableError(BusinessError):
-    """录/改/删报关被拦:柜状态非 LOADED/DEPARTED(报关发生在封柜后、到货前)。"""
+    """录/改/作废报关被拦:柜状态非 LOADED/DEPARTED(报关发生在封柜后、到货前)。"""
 
     def __init__(self, message: str = "Cannot manage customs: shipment not loaded or departed"):
         super().__init__(status.HTTP_409_CONFLICT, 42012, message)

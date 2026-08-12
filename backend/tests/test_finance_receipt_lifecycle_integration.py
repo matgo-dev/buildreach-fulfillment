@@ -2,6 +2,7 @@
 import pytest
 
 from tests.finance_helpers import make_open_receivable
+from tests.outbound_helpers import create_and_confirm_outbound, create_shipment, setup_available_stock
 
 pytestmark = pytest.mark.asyncio
 
@@ -112,6 +113,46 @@ async def test_manual_allocate_takes_min_and_pays_receivable(
     body = man.json()["data"]
     assert body["receipt"]["status"] == "FULLY_ALLOCATED"
     assert body["allocations"][0]["alloc_type"] == "MANUAL"
+
+
+async def test_reverse_one_allocation_only_restores_that_amount(
+        client, db_session, sales_headers, purchaser_headers, logistics_headers, finance_headers):
+    """一张收款核销两笔应收后,反核销其中一条只恢复该条金额,另一条核销保持有效。"""
+    ctx = await setup_available_stock(
+        client, db_session, sales_headers, purchaser_headers,
+        sku_codes=("SKURCV_REV_ONE",), so_qty=10, unit_price="10.00", received=10)
+    so_id, so_line_id = ctx["sales_order_id"], ctx["so_lines"][0]["id"]
+
+    ship_a = await create_shipment(client, logistics_headers)
+    _, conf_a = await create_and_confirm_outbound(
+        client, logistics_headers, sales_order_id=so_id, shipment_id=ship_a["id"],
+        lines=[{"sales_order_line_id": so_line_id, "qty": 6}])
+    assert conf_a.status_code == 200, conf_a.text
+    ship_b = await create_shipment(client, logistics_headers)
+    _, conf_b = await create_and_confirm_outbound(
+        client, logistics_headers, sales_order_id=so_id, shipment_id=ship_b["id"],
+        lines=[{"sales_order_line_id": so_line_id, "qty": 4}])
+    assert conf_b.status_code == 200, conf_b.text
+
+    data = await _register(client, finance_headers, amount="100.00",
+                           customer_id=ctx["customer"].id)
+    rid = data["receipt"]["id"]
+    allocations = sorted(data["allocations"], key=lambda a: a["amount"], reverse=True)
+    assert [a["amount"] for a in allocations] == [60.0, 40.0]
+    assert data["receipt"]["amount_allocated"] == 100.0
+    assert data["receipt"]["amount_unallocated"] == 0.0
+
+    rev = await client.delete(
+        f"/api/v1/receipt-allocations/{allocations[0]['id']}?reverse_reason=改分配",
+        headers=finance_headers)
+    assert rev.status_code == 200, rev.text
+    body = rev.json()["data"]
+    assert body["receipt"]["id"] == rid
+    assert body["receipt"]["amount_allocated"] == 40.0
+    assert body["receipt"]["amount_unallocated"] == 60.0
+    assert len(body["allocations"]) == 1
+    assert body["allocations"][0]["id"] == allocations[1]["id"]
+    assert body["allocations"][0]["amount"] == 40.0
 
 
 async def test_manual_allocate_on_unclaimed_rejected_42207(client, finance_headers):
