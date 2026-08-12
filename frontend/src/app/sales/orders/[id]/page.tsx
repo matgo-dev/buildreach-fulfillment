@@ -434,7 +434,6 @@ export default function SalesOrderDetailPage() {
                     ) : (
                       <StatusTag meta={OUTBOUND_ORDER_STATUS_META} value={doc.status} />
                     ),
-                  actionLabel: canOpen ? "去处理" : undefined,
                   onAction: canOpen
                     ? () => {
                         setCancelOpen(false);
