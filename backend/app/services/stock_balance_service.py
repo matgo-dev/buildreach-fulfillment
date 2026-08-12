@@ -13,7 +13,7 @@
 
 **outbound 臂(出库步接入)**:`outbound_qty = SUM(qty) FROM outbound_order_lines JOIN
 outbound_orders WHERE status='ISSUED' GROUP BY (sales_order_id, sku_id)`,`available =
-inbound − outbound`。草稿出库不扣(仅 ISSUED 计),撤销出库回 DRAFT 自然恢复可发。
+inbound − outbound`。草稿出库不扣,ISSUED 为正向履约终点并持续计入已出库。
 出库确认锁内校验与 unreceive 穿仓守卫经 `available_by_sku()` 复用同一 `_balance_subquery`。
 """
 from __future__ import annotations
@@ -103,7 +103,7 @@ def _inbound_cte(sales_order_id, sku_id):
 def _outbound_cte(sales_order_id, sku_id):
     """臂3:只从 ISSUED 出库单按 (so, sku) 预聚合已出库量(so_id 取自出库单头)。
     草稿/取消出库不计(status=ISSUED,契约 §1.5)—— 确认出库是唯一扣库存事件,
-    撤销出库回 DRAFT 后本臂自然剔除,可发恢复。"""
+    0811 后 ISSUED 不可撤销,本臂保留正向履约事实。"""
     stmt = (
         select(
             OutboundOrder.sales_order_id.label("so_id"),

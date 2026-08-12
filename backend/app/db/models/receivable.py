@@ -63,7 +63,7 @@ class Receivable(Base, TimestampUpdateMixin):
         CheckConstraint(
             "amount_allocated >= 0 AND amount_allocated <= amount_original",
             name="ck_receivables_allocated_range"),
-        # 幂等键(仅约束活动行):一张出库单至多一张活动 receivable(撤销出库作废后可重建)。
+        # 幂等键(仅约束活动行):一张出库单至多一张活动 receivable。
         # 单一源头补漏:此偏唯一原仅生在迁移 0026,未落 model,create_all 的测试库缺此约束
         # (model↔迁移漂移)。镜像 payables uq_payables_inbound_active,收口回 model 层。
         Index("uq_receivables_outbound_active", "outbound_order_id", unique=True,
@@ -99,7 +99,7 @@ class Receivable(Base, TimestampUpdateMixin):
         Numeric(18, 2), Computed("amount_original - amount_allocated", persisted=True))
     # 账期主数据未建,P0 置空;账龄兜底 created_at(due_at 优先,Date 非 timestamp)。
     due_at: Mapped[date | None] = mapped_column(Date, nullable=True)
-    # void 轴(撤销出库置):非空 = 已作废,行留痕、不进余额与列表聚合。
+    # void 轴(财务纠错/后续逆向单据置):非空 = 已作废,行留痕、不进余额与列表聚合。
     voided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     voided_by: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, index=True)

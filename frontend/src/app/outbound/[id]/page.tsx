@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { App, Button, Card, Descriptions, Input, Modal, Popconfirm, Space, Table, Tooltip } from "antd";
+import { App, Button, Card, Descriptions, Popconfirm, Space, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import { Can } from "@/components/common/Can";
@@ -23,7 +23,6 @@ import {
   outboundOrderEditable,
   outboundOrderConfirmable,
   outboundOrderCancellable,
-  outboundOrderRevertable,
 } from "@/lib/outboundOrderStatus";
 import { OutboundOrderBuilder } from "@/components/outbound/OutboundOrderBuilder";
 
@@ -58,9 +57,6 @@ export default function OutboundOrderDetailPage() {
   const [loadError, setLoadError] = useState(false);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
-  // 撤销出库对话框:留痕原因(可空)。
-  const [revertOpen, setRevertOpen] = useState(false);
-  const [voidReason, setVoidReason] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -176,22 +172,6 @@ export default function OutboundOrderDetailPage() {
                   确认出库
                 </Button>
               )}
-              {outboundOrderRevertable(order.status) &&
-                // 柜非 OPEN(已封柜/发运)时撤销被后端 41910 拒;前端镜像:禁用 + tooltip 讲清路径。
-                (order.shipment_status && order.shipment_status !== "OPEN" ? (
-                  // disabled 按钮不派发鼠标事件,Tooltip 须包 span 才能触发(AntD FAQ 官方姿势)。
-                  <Tooltip title="柜已封柜/发运,请先撤封柜再撤销出库">
-                    <span style={{ display: "inline-block", cursor: "not-allowed" }}>
-                      <Button disabled style={{ pointerEvents: "none" }}>
-                        撤销出库
-                      </Button>
-                    </span>
-                  </Tooltip>
-                ) : (
-                  <Button loading={busy} onClick={() => setRevertOpen(true)}>
-                    撤销出库
-                  </Button>
-                ))}
               {outboundOrderCancellable(order.status) && (
                 <Popconfirm
                   title="取消该出库单?"
@@ -276,39 +256,6 @@ export default function OutboundOrderDetailPage() {
         }}
       />
 
-      {/* 撤销出库:二次确认 + 留痕原因,讲清后果(DESIGN §7 危险操作)。 */}
-      <Modal
-        title="撤销出库"
-        open={revertOpen}
-        okText="确认撤销"
-        okButtonProps={{ danger: true }}
-        confirmLoading={busy}
-        onCancel={() => setRevertOpen(false)}
-        onOk={async () => {
-          setBusy(true);
-          try {
-            await outboundOrderApi.revert(id, voidReason.trim() || null);
-            message.success("已撤销出库");
-            setRevertOpen(false);
-            setVoidReason("");
-            load();
-          } catch (e) {
-            message.error(resolveBizError(e, "操作失败"));
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <Space orientation="vertical" style={{ width: "100%" }}>
-          <span>撤销后回到草稿态,库存可发数量恢复,对应应收款将作废。若应收已有核销则不可撤销。</span>
-          <Input.TextArea
-            rows={2}
-            placeholder="撤销原因(选填,留痕)"
-            value={voidReason}
-            onChange={(e) => setVoidReason(e.target.value)}
-          />
-        </Space>
-      </Modal>
     </Space>
   );
 }

@@ -335,7 +335,7 @@ export default function InboundOrderDetailPage() {
             setVoidReason("");
             load();
           } catch (e) {
-            // 41710 穿仓:按 (SO,SKU) 明细展示,指明先撤销哪些出库(镜像出库 41902 明细弹窗)。
+            // 41710 穿仓:按 (SO,SKU) 明细展示;已出库后原链路不可通过撤销出库释放库存。
             if (e instanceof ApiError && e.code === 41710) {
               const rows = parseUnreceiveNegatives(e.data);
               setUnreceiveBlocked(
@@ -364,8 +364,8 @@ export default function InboundOrderDetailPage() {
           {unreceiveBlocked ? (
             <OperationBlockedNotice
               title="无法撤销:库存已被出库消费"
-              nextAction="先撤销对应出库单,再回来撤销入库。"
-              fallbackText="部分货物已被出库消费,请先撤销对应出库单再撤销入库。"
+              nextAction="已确认出库的库存不可回退原流程;当前系统暂不支持出库后线上冲正,请联系管理员处理。"
+              fallbackText="部分货物已被出库消费,不可撤销入库。"
               items={unreceiveBlocked}
             />
           ) : null}

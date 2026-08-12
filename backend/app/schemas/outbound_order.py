@@ -37,7 +37,7 @@ class OutboundOrderUpdateIn(BaseModel):
 
 
 class OutboundOrderRevertIn(BaseModel):
-    """撤销出库:作废应收留痕原因(可空)。"""
+    """旧撤销出库入口的兼容 payload。0811 后接口统一拒绝。"""
     void_reason: str | None = None
 
 
@@ -66,7 +66,7 @@ class OutboundOrderOut(BaseModel):
     note: str | None
     updated_at: datetime
     # 详情投影附带的柜状态(resolve_order_parties 回填);None = 柜缺失(异常)。
-    # 供前端「撤销出库」按钮门禁——柜非 OPEN 时禁用(镜像 41910)。default 兜 model_validate(ORM 无此列)。
+    # default 兜 model_validate(ORM 无此列)。
     shipment_status: str | None = None
 
     @classmethod

@@ -1,4 +1,4 @@
-"""出库单主流程 + 全错误路径 + 应收生成/幂等/舍入/撤销恢复(契约 §6)。"""
+"""出库单主流程 + 全错误路径 + 应收生成/幂等/舍入/出库终点(契约 §6)。"""
 import pytest
 from sqlalchemy import select
 
@@ -226,12 +226,12 @@ async def test_zero_amount_receivable_is_paid(client, db_session, sales_headers,
     assert derive_receivable_status(r.amount_original, r.amount_allocated) == ReceivableStatus.PAID
 
 
-# ---------- 撤销出库 ----------
+# ---------- 已出库终点 ----------
 
 
-async def test_revert_restores_available_and_voids_receivable(
+async def test_revert_issued_rejected_keeps_receivable_and_stock(
         client, db_session, sales_headers, purchaser_headers, logistics_headers):
-    """撤销出库:回 DRAFT + issued_at 清 + 应收作废留痕 + 可发恢复。"""
+    """0811:ISSUED 是正向终点;旧撤销入口拒绝,且不作废应收/不恢复可发。"""
     ctx = await setup_available_stock(client, db_session, sales_headers, purchaser_headers,
                                       so_qty=10, received=10)
     so_id, so_lines = ctx["sales_order_id"], ctx["so_lines"]
@@ -242,22 +242,23 @@ async def test_revert_restores_available_and_voids_receivable(
     assert conf.status_code == 200
     rev = await client.post(f"/api/v1/outbound-orders/{ob_id}/revert", headers=logistics_headers,
                             json={"void_reason": "装错柜"})
-    assert rev.status_code == 200, rev.text
-    assert rev.json()["data"]["order"]["status"] == "DRAFT"
-    assert rev.json()["data"]["order"]["issued_at"] is None
-    # 应收作废留痕。
+    assert rev.status_code == 409 and rev.json()["code"] == 41901
+    detail = await client.get(f"/api/v1/outbound-orders/{ob_id}", headers=logistics_headers)
+    assert detail.json()["data"]["order"]["status"] == "ISSUED"
+    assert detail.json()["data"]["order"]["issued_at"] is not None
+    # 应收仍为活动行。
     r = (await db_session.execute(
         select(Receivable).where(Receivable.outbound_order_id == ob_id))).scalar_one()
-    assert r.voided_at is not None and r.voided_by is not None and r.void_reason == "装错柜"
-    # 可发恢复到 10。
+    assert r.voided_at is None
+    # 可发仍为 4。
     ol = await client.get(f"/api/v1/sales-orders/{so_id}/outboundable-lines",
                           headers=logistics_headers)
-    assert find_line(ol.json()["data"]["items"], so_lines[0]["sku_id"])["available_qty"] == 10.0
+    assert find_line(ol.json()["data"]["items"], so_lines[0]["sku_id"])["available_qty"] == 4.0
 
 
-async def test_revert_blocked_when_allocated(client, db_session, sales_headers, purchaser_headers,
-                                             logistics_headers):
-    """应收已核销(allocated>0)→ 撤销拒 41907(守卫先行;直改 mock allocated)。"""
+async def test_revert_issued_rejected_even_when_receivable_allocated(
+        client, db_session, sales_headers, purchaser_headers, logistics_headers):
+    """0811:是否核销不再决定出库能否撤销;已出库统一不可回退原流程。"""
     ctx = await setup_available_stock(client, db_session, sales_headers, purchaser_headers)
     so_id, so_lines = ctx["sales_order_id"], ctx["so_lines"]
     ship = await create_shipment(client, logistics_headers)
@@ -271,7 +272,7 @@ async def test_revert_blocked_when_allocated(client, db_session, sales_headers, 
     await db_session.commit()
     rev = await client.post(f"/api/v1/outbound-orders/{ob_id}/revert", headers=logistics_headers,
                             json={})
-    assert rev.status_code == 409 and rev.json()["code"] == 41907
+    assert rev.status_code == 409 and rev.json()["code"] == 41901
 
 
 # ---------- 草稿编辑:乐观锁 ----------
@@ -327,7 +328,7 @@ async def test_edit_issued_rejected(client, db_session, sales_headers, purchaser
 
 async def test_cancel_issued_rejected(client, db_session, sales_headers, purchaser_headers,
                                       logistics_headers):
-    """已出库单不可取消(须先撤销)→ 41901。"""
+    """已出库单不可取消,当前系统暂不支持出库后线上冲正 → 41901。"""
     ctx = await setup_available_stock(client, db_session, sales_headers, purchaser_headers)
     so_id, so_lines = ctx["sales_order_id"], ctx["so_lines"]
     ship = await create_shipment(client, logistics_headers)

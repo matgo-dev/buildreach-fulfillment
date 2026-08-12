@@ -34,7 +34,7 @@ export interface OutboundOrderOut {
   sales_order_no: string;
   shipment_no: string | null;
   container_no: string | null;
-  // 柜状态(resolve_order_parties 回填):柜非 OPEN 时「撤销出库」按钮禁用(镜像 41910)。
+  // 柜状态(resolve_order_parties 回填)。
   shipment_status: ShipmentStatus | null;
 }
 
@@ -128,9 +128,5 @@ export const outboundOrderApi = {
   update: (id: number, b: OutboundOrderUpdateBody) =>
     api.put<OutboundOrderDetail>(`/api/v1/outbound-orders/${id}`, b),
   confirm: (id: number) => api.post<OutboundOrderDetail>(`/api/v1/outbound-orders/${id}/confirm`),
-  revert: (id: number, void_reason?: string | null) =>
-    api.post<OutboundOrderDetail>(`/api/v1/outbound-orders/${id}/revert`, {
-      void_reason: void_reason ?? null,
-    }),
   cancel: (id: number) => api.post<OutboundOrderDetail>(`/api/v1/outbound-orders/${id}/cancel`),
 };

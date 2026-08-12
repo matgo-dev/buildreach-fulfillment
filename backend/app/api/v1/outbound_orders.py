@@ -89,7 +89,7 @@ async def confirm_outbound_order(order_id: int, request: Request,
     return success(await _detail_payload(db, order))
 
 
-@router.post("/{order_id}/revert", summary="撤销出库(ISSUED→DRAFT,作废应收)")
+@router.post("/{order_id}/revert", summary="已停用:出库后不可撤销,当前系统暂不支持线上冲正")
 async def revert_outbound_order(order_id: int, body: OutboundOrderRevertIn, request: Request,
                                 current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
     order = await outbound_service.revert_order(

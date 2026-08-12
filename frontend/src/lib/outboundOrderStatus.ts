@@ -17,10 +17,10 @@ export const OUTBOUND_ORDER_STATUS_META: Record<
   CANCELLED: { label: "已取消", color: "default" },
 };
 
-// 镜像转移矩阵:DRAFT→{ISSUED,CANCELLED} / ISSUED→{DRAFT}(撤销出库) / CANCELLED→{}。
+// 镜像转移矩阵:DRAFT→{ISSUED,CANCELLED} / ISSUED→{} / CANCELLED→{}。
 const OUTBOUND_ORDER_TRANSITIONS: Record<OutboundOrderStatus, OutboundOrderStatus[]> = {
   DRAFT: ["ISSUED", "CANCELLED"],
-  ISSUED: ["DRAFT"],
+  ISSUED: [],
   CANCELLED: [],
 };
 
@@ -34,6 +34,3 @@ export const outboundOrderConfirmable = (s: OutboundOrderStatus): boolean =>
 /** 取消 = DRAFT→CANCELLED。 */
 export const outboundOrderCancellable = (s: OutboundOrderStatus): boolean =>
   OUTBOUND_ORDER_TRANSITIONS[s].includes("CANCELLED");
-/** 撤销出库 = ISSUED→DRAFT。 */
-export const outboundOrderRevertable = (s: OutboundOrderStatus): boolean =>
-  OUTBOUND_ORDER_TRANSITIONS[s].includes("DRAFT");

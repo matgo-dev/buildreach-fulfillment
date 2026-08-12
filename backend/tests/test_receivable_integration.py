@@ -32,15 +32,16 @@ async def test_receivable_appears_in_list(client, db_session, sales_headers, pur
     assert "outbound_order_no" in row and "sales_order_no" in row
 
 
-async def test_voided_receivable_excluded(client, db_session, sales_headers, purchaser_headers,
-                                          logistics_headers):
-    """撤销出库作废应收 → 列表(仅活动行)不再出现。"""
+async def test_receivable_stays_active_when_outbound_revert_rejected(
+        client, db_session, sales_headers, purchaser_headers, logistics_headers):
+    """0811:出库后旧撤销入口拒绝,应收仍保留为活动行。"""
     ctx, ob_id = await _confirm_one(client, db_session, sales_headers, purchaser_headers,
                                     logistics_headers)
-    await client.post(f"/api/v1/outbound-orders/{ob_id}/revert", headers=logistics_headers,
-                      json={})
+    rev = await client.post(f"/api/v1/outbound-orders/{ob_id}/revert", headers=logistics_headers,
+                            json={})
+    assert rev.status_code == 409 and rev.json()["code"] == 41901
     r = await client.get("/api/v1/receivables", headers=sales_headers)
-    assert all(it["outbound_order_id"] != ob_id for it in r.json()["data"]["items"])
+    assert any(it["outbound_order_id"] == ob_id for it in r.json()["data"]["items"])
 
 
 async def test_status_filter(client, db_session, sales_headers, purchaser_headers,

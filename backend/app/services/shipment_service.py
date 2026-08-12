@@ -5,7 +5,7 @@
 
 取消守卫:柜下存在非 CANCELLED 出库单 → 拒(42001)。先取消柜内出库单再取消柜。
 锁序:柜头恒为叶子锁——load/unload/depart/undepart 只锁柜头(FOR UPDATE)后读出库聚合
-(只读不加锁),不向下要锁;出库侧 create/confirm/revert 均「SO 头 → 出库单头 → 柜头」。
+(只读不加锁),不向下要锁;出库侧 create/confirm 均「SO 头 → 出库单头」。
 """
 from __future__ import annotations
 
@@ -196,7 +196,7 @@ async def load_order(db: AsyncSession, *, shipment_id, expected_updated_at,
 
 async def unload_order(db: AsyncSession, *, shipment_id, actor_user_id, actor_user_email,
                        request: Request | None = None) -> ShipmentOrder:
-    """撤封柜(LOADED→OPEN,纠错口)。清 loaded_at;柜内出库单随之解冻(可撤/可改)。
+    """撤封柜(LOADED→OPEN,纠错口)。清 loaded_at;恢复组柜期字段和草稿出库单管理能力。
     守卫:柜下存在活动报关记录 → 拒 42011(柜内容变了申报即失效,须先删报关再撤封柜;
     同 42007 撤离港被活动物流事件拦的范式)。锁柜头后查,与「录报关前置柜态」串行化。"""
     ship = await get_order_for_update(db, shipment_id)
