@@ -32,7 +32,9 @@ export function OperationBlockedNotice({
 }: Props) {
   const description = (
     <Space orientation="vertical" size={8} style={{ width: "100%" }}>
-      <span>{nextAction ?? fallbackText}</span>
+      <span style={{ color: colors.status.danger.text, fontWeight: 500 }}>
+        {nextAction ?? fallbackText}
+      </span>
       {items.length > 0 ? (
         <div style={{ display: "grid", gap: 8 }}>
           {items.map((item) => (
@@ -45,7 +47,14 @@ export function OperationBlockedNotice({
 
   if (!framed) return description;
 
-  return <Alert type="error" showIcon title={title} description={description} />;
+  return (
+    <Alert
+      type="error"
+      showIcon
+      title={<span style={{ color: colors.status.danger.text }}>{title}</span>}
+      description={description}
+    />
+  );
 }
 
 function OperationBlockedRow({ item }: { item: OperationBlockedItem }) {

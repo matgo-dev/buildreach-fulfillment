@@ -403,7 +403,6 @@ export default function SalesOrderDetailPage() {
           } catch (e) {
             if (e instanceof ApiError && (e.code === 41802 || e.code === 41803)) {
               setCancelBlocked(e.data as SalesOrderCancelBlockedData);
-              message.warning(resolveBizError(e, "取消失败"));
             } else {
               message.error(resolveBizError(e, "取消失败"));
             }

@@ -351,7 +351,6 @@ export default function InboundOrderDetailPage() {
                     .join(" · "),
                 })),
               );
-              message.warning("库存已被出库消费,无法撤销入库");
             } else {
               message.error(resolveBizError(e, "操作失败"));
             }
