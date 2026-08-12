@@ -1,4 +1,4 @@
-// 逆向/纠错导览页的数据源。只描述当前已落地的纠错规则,不承诺退货退款等未定业务流程。
+// 逆向/撤销导览页的数据源。只描述当前已落地的基础逆向规则,不承诺退货退款等未定业务流程。
 // 页面层负责渲染;这里保持纯数据,避免把业务文案散落在组件里。
 
 export type ReverseSeverity = "normal" | "money" | "goods" | "external";
@@ -16,9 +16,9 @@ export interface ReverseStep {
 
 export const REVERSE_FLOW_PRINCIPLES = [
   "先撤下游,再撤上游;系统不会自动级联作废正式单据。",
-  "草稿/在途类单据可以取消或作废;已经影响库存或账款的单据必须先满足回滚守卫。",
+  "草稿/在途类单据可以取消或作废;已确认出库代表正向履约终点,不能回退原单据。",
   "库存当前是按销售单履约库存,由已入库和已出库状态实时派生;不是仓库自由库存账。",
-  "作废、撤销、反核销都保留业务痕迹;当前是 P0 纠错型留痕,不是完整财务凭证或库存流水账。",
+  "作废、撤销、反核销都保留业务痕迹;当前是 P0 基础逆向留痕,不是完整财务凭证或库存流水账。",
 ];
 
 export const REVERSE_FLOW_TREES: ReverseStep[] = [
@@ -44,7 +44,7 @@ export const REVERSE_FLOW_TREES: ReverseStep[] = [
             id: "void-in-transit-inbound",
             title: "作废在途入库单",
             owner: "采购/物流视角",
-            when: "供应商发货登记错了,但尚未确认入库。",
+            when: "供应商发货计划取消、调整,或在途入库单不再需要。",
             result: "入库单进入已作废;释放采购单可收额度。",
             severity: "goods",
           },
@@ -52,10 +52,10 @@ export const REVERSE_FLOW_TREES: ReverseStep[] = [
             id: "unreceive-inbound",
             title: "撤销已入库入库单",
             owner: "采购/物流视角",
-            when: "货已经确认入库,但需要纠错回到在途。",
+            when: "货已经确认入库,但业务上需要回到在途状态。",
             result: "入库单回到在途;对应应付款作废留痕;库存派生数量回落。",
             severity: "goods",
-            blocks: "应付款已核销时先反核销付款;货已被出库消费时先撤销出库。",
+            blocks: "应付款已核销时先反核销付款;货已被确认出库消费时不可撤销入库。",
             children: [
               {
                 id: "reverse-payment-allocation",
@@ -71,27 +71,27 @@ export const REVERSE_FLOW_TREES: ReverseStep[] = [
       },
       {
         id: "cancel-outbound-order",
-        title: "先取消/撤销出库单",
+        title: "先处理出库单",
         owner: "物流视角",
         when: "销售单下还有未取消的出库单。",
-        result: "草稿出库单可取消;已出库单需先撤销回草稿,再取消。",
+        result: "草稿出库单可取消;已出库单不可回退原流程。当前系统暂不支持出库后线上冲正,需联系管理员处理。",
         severity: "goods",
-        blocks: "应收已核销或柜已封/已离港时会被拒绝。",
+        blocks: "已出库单会阻止原销售单取消;这是履约事实锁定,不是按钮权限问题。",
         children: [
           {
             id: "reverse-receipt-allocation",
             title: "反核销收款",
             owner: "财务视角",
-            when: "这张出库生成的应收款已经被收款单核销。",
-            result: "指定核销记录被反核销;收款单未分配余额和应收款余额恢复对应金额。",
+            when: "出库前的基础回退涉及应收/收款纠错时。",
+            result: "指定核销记录被反核销;收款单未分配余额和应收款余额恢复对应金额。已出库后的客户退货不靠反核销回退原单。",
             severity: "money",
           },
           {
             id: "unwind-shipment",
-            title: "先把柜退回 OPEN",
+            title: "柜状态只影响物流纠错",
             owner: "物流视角",
-            when: "出库单所在发运柜已经封柜或离港。",
-            result: "撤离港后回到已封柜;撤封柜后回到 OPEN,柜内出库单解冻。",
+            when: "发运柜封柜、离港、报关或物流轨迹录入错误。",
+            result: "撤离港后回到已封柜;撤封柜后回到 OPEN。柜状态回退不再解锁已出库单撤销。",
             severity: "external",
             blocks: "有活动物流节点时先作废物流节点;有活动报关记录时先作废报关记录。",
             children: [
@@ -121,7 +121,7 @@ export const REVERSE_FLOW_TREES: ReverseStep[] = [
     id: "void-receipt-payment",
     title: "作废收款单/付款单",
     owner: "财务视角",
-    when: "银行流水登记错了,需要作废重录。",
+    when: "收付款记录需要退出当前有效状态,后续按实际情况重录或重新核销。",
     result: "收付款单作废留痕,默认列表不再进入活动结算。",
     severity: "money",
     blocks: "存在活动核销记录时必须先逐条反核销。",
@@ -129,8 +129,9 @@ export const REVERSE_FLOW_TREES: ReverseStep[] = [
 ];
 
 export const REVERSE_FLOW_BOUNDARIES = [
-  "这张图只覆盖录错、收错、发错、状态误点一类纠错动作。",
-  "客户退货、供应商退货、退款、贷项、跨期冲销、库存转配、自由库存仍需业务确认后另行设计。",
+  "这张图只覆盖出库确认前的取消、撤销、作废、反核销等基础逆向动作。",
+  "出库确认后原流程不可逆;当前系统暂不支持出库后退货、退款、贷项、跨期冲销或库存恢复。",
+  "出库后异常由管理员按受控方案线下登记、评估影响并处理;0812 退货退款单据上线后再改为线上闭环。",
   "报关和物流目前采用软作废退出当前有效视图;完整历史可视化属于后续增强,不靠审计日志替代业务页面。",
   "如果未来货可以脱离原销售单重新可售,库存模型需要升级为仓库维度真实库存账本。",
 ];

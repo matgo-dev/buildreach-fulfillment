@@ -1,4 +1,4 @@
-"""发运增量:封柜/离港状态机 + 封柜守卫(42003/42004)+ 出库撤销守卫(41910)
+"""发运增量:封柜/离港状态机 + 封柜守卫(42003/42004)+ 已出库终点
 + 分状态字段门禁(42005,diff 语义)+ 乐观锁(42006)+ 发运全程库存不变回归。
 
 发运不碰库存/应收:所有船务动作对 compute_stock_balance 派生结果零影响(回归断言)。
@@ -131,30 +131,29 @@ async def test_load_records_seal_and_container(
     assert b["seal_no"] == "SEALX" and b["container_no"] == "TCLU9999999"
 
 
-# ---------- 出库撤销守卫 41910 + 解冻路径 ----------
+# ---------- 已出库终点 ----------
 
 
-async def test_revert_outbound_blocked_after_load_41910(
+async def test_revert_outbound_rejected_after_load_and_unload(
         client, db_session, sales_headers, purchaser_headers, logistics_headers):
-    """柜封柜后柜内出库单不可撤(41910);撤封柜(LOADED→OPEN)后解冻,撤销成功。"""
+    """0811:已出库单不可撤销;撤封柜不会再解锁出库单回退。"""
     d = await make_loadable_shipment(client, db_session, sales_headers, purchaser_headers,
                                      logistics_headers)
     sid, ob_id = d["shipment"]["id"], d["outbound_id"]
     await _load(client, logistics_headers, sid, d["shipment"]["updated_at"])
     blocked = await client.post(f"/api/v1/outbound-orders/{ob_id}/revert",
                                 headers=logistics_headers, json={})
-    assert blocked.status_code == 409 and blocked.json()["code"] == 41910
-    # 撤封柜后解冻。
+    assert blocked.status_code == 409 and blocked.json()["code"] == 41901
+    # 撤封柜后仍不可撤销已出库单。
     await client.post(f"/api/v1/shipments/{sid}/unload", headers=logistics_headers)
     ok = await client.post(f"/api/v1/outbound-orders/{ob_id}/revert",
                            headers=logistics_headers, json={})
-    assert ok.status_code == 200, ok.text
-    assert ok.json()["data"]["order"]["status"] == "DRAFT"
+    assert ok.status_code == 409 and ok.json()["code"] == 41901
 
 
-async def test_revert_outbound_blocked_after_depart_41910(
+async def test_revert_outbound_rejected_after_depart(
         client, db_session, sales_headers, purchaser_headers, logistics_headers):
-    """柜已发运(DEPARTED,非 OPEN)柜内出库单同样不可撤 → 41910。"""
+    """柜已发运时旧撤销入口仍按已出库终点统一拒绝。"""
     d = await make_loadable_shipment(client, db_session, sales_headers, purchaser_headers,
                                      logistics_headers)
     sid, ob_id = d["shipment"]["id"], d["outbound_id"]
@@ -163,7 +162,7 @@ async def test_revert_outbound_blocked_after_depart_41910(
                       json={"atd": "2026-07-18"})
     blocked = await client.post(f"/api/v1/outbound-orders/{ob_id}/revert",
                                 headers=logistics_headers, json={})
-    assert blocked.status_code == 409 and blocked.json()["code"] == 41910
+    assert blocked.status_code == 409 and blocked.json()["code"] == 41901
 
 
 # ---------- 字段门禁 42005(diff 语义)+ 乐观锁 42006 ----------

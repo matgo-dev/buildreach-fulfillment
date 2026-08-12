@@ -17,7 +17,7 @@ from app.db.models.shipment_order import (
 def test_outbound_transitions_matrix():
     S = OutboundOrderStatus
     assert OUTBOUND_ORDER_TRANSITIONS[S.DRAFT] == {S.ISSUED, S.CANCELLED}
-    assert OUTBOUND_ORDER_TRANSITIONS[S.ISSUED] == {S.DRAFT}   # 撤销出库
+    assert OUTBOUND_ORDER_TRANSITIONS[S.ISSUED] == set()       # 已出库为正向终点
     assert OUTBOUND_ORDER_TRANSITIONS[S.CANCELLED] == set()    # 终态
 
 

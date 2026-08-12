@@ -228,7 +228,7 @@ export const shipmentApi = {
   /** 封柜确认 OPEN→LOADED(守卫:非空柜且全 ISSUED,否则 42003/42004)。 */
   load: (id: number, b: ShipmentLoadBody) =>
     api.post<ShipmentDetail>(`/api/v1/shipments/${id}/load`, b),
-  /** 撤封柜 LOADED→OPEN(清 loaded_at,解冻柜内出库单)。 */
+  /** 撤封柜 LOADED→OPEN(清 loaded_at,恢复组柜期管理能力)。 */
   unload: (id: number) => api.post<ShipmentDetail>(`/api/v1/shipments/${id}/unload`),
   /** 离港确认 LOADED→DEPARTED(录 atd)。 */
   depart: (id: number, b: ShipmentDepartBody) =>

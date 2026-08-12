@@ -404,7 +404,7 @@ async def unreceive_order(db: AsyncSession, *, order_id, void_reason: str | None
       1. 无锁预读入库行→PO 行→SO 行链,取受影响 (so_id → {sku_id}) 与 distinct so_ids(按 id 排序);
       2. 依序锁各 SO 头 FOR UPDATE(统一锁序消死锁环)→ 再锁入库单头(锁序合规);
       3. 转移守卫 + payable 守卫(原逻辑不变),状态翻转 IN_TRANSIT 并 flush;
-      4. **锁内派生校验**:翻转后受影响每 (so,sku) 的 available ≥ 0,违反 → 41710(须先撤销出库)。
+      4. **锁内派生校验**:翻转后受影响每 (so,sku) 的 available ≥ 0,违反 → 41710。
     同事务作废(void)payable —— 置 voided_at/by/reason,行留痕不硬删。撤销后重收 = 新建活动 payable。"""
     from app.db.models.sales_order import SalesOrder, SalesOrderLine
     from app.services import stock_balance_service

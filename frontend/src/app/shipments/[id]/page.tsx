@@ -303,7 +303,7 @@ export default function ShipmentDetailPage() {
 
   const { shipment, outbound_orders } = detail;
   const canEdit = shipmentEditable(shipment.status);
-  // 柜内可加/管出库单仅组柜中(封柜后柜内出库单冻结,镜像后端 41906/41910)。
+  // 柜内可加/管出库单仅组柜中(封柜后不可新增/编辑草稿出库单)。
   const isOpen = shipment.status === "OPEN";
 
   // 时间线三节点:建柜(必达)→ 封柜(loaded_at)→ 离港(atd),已发生亮蓝、未发生灰。
@@ -392,7 +392,7 @@ export default function ShipmentDetailPage() {
               {shipmentUnloadable(shipment.status) && (
                 <Popconfirm
                   title="撤封柜?"
-                  description="撤回到组柜中,清空封柜时间,柜内出库单解冻可再编辑。用于纠错未离港的误封柜。"
+                  description="撤回到组柜中,清空封柜时间,恢复组柜期字段和草稿出库单管理。用于纠错未离港的误封柜。"
                   onConfirm={() => act(() => shipmentApi.unload(id), "已撤封柜")}
                 >
                   <Button loading={busy}>撤封柜</Button>

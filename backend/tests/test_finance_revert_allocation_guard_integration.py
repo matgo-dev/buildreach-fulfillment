@@ -1,11 +1,7 @@
-"""D2:撤账 × 核销联动。核销引擎建成后,41907(撤出库)/41708(撤入库)守卫才真正生效
-(此前 amount_allocated 零写入口,守卫永不触发)。撤账路径已对活动账行 FOR UPDATE 重判,
-与核销串行化(闭合 TOCTOU)。本测试证:有活动核销 → 撤账被拦;反核销后 → 撤账放行。
+"""撤账 × 核销联动。
 
-反例回归意义:若撤账仍用裸读(不锁)且守卫失效,「有核销仍能撤账」会让这些断言失败。
-真并发交错(两连接)在 SAVEPOINT 单连接隔离夹具下不可实证,锁序正确性由代码结构 +
-本功能门保证(撤账先提交→核销候选 WHERE voided_at IS NULL FOR UPDATE 靠 EPQ 排除;
-核销先提交→撤账账行 FOR UPDATE 阻塞后读到 allocated>0 被拦)。
+0811 后出库单 ISSUED 为正向终点,不再存在“反核销后撤销出库”路径。
+入库侧仍保留应付核销挡撤销入库的基础回退能力。
 """
 import pytest
 
@@ -14,7 +10,7 @@ from tests.finance_helpers import make_open_payable, make_open_receivable
 pytestmark = pytest.mark.asyncio
 
 
-async def test_receipt_allocation_blocks_outbound_revert_then_reverse_unblocks(
+async def test_outbound_revert_rejected_even_after_receipt_allocation_reversed(
         client, db_session, sales_headers, purchaser_headers, logistics_headers, finance_headers):
     ctx, ob_id, amount = await make_open_receivable(
         client, db_session, sales_headers, purchaser_headers, logistics_headers,
@@ -24,17 +20,17 @@ async def test_receipt_allocation_blocks_outbound_revert_then_reverse_unblocks(
         "received_at": "2026-07-21"})
     alloc_id = reg.json()["data"]["allocations"][0]["id"]
 
-    # 应收已被核销 → 撤销出库被拦 41907
+    # 已出库 → 旧撤销入口统一拒绝,不再进入应收核销守卫。
     blocked = await client.post(f"/api/v1/outbound-orders/{ob_id}/revert",
                                 headers=logistics_headers, json={})
     assert blocked.status_code == 409
-    assert blocked.json()["code"] == 41907
+    assert blocked.json()["code"] == 41901
 
-    # 反核销退回 → 撤销出库放行
+    # 即使反核销退回,出库单仍不可回退原流程。
     await client.delete(f"/api/v1/receipt-allocations/{alloc_id}", headers=finance_headers)
     ok = await client.post(f"/api/v1/outbound-orders/{ob_id}/revert",
                            headers=logistics_headers, json={})
-    assert ok.status_code == 200, ok.text
+    assert ok.status_code == 409 and ok.json()["code"] == 41901
 
 
 async def test_payment_allocation_blocks_inbound_unreceive_then_reverse_unblocks(

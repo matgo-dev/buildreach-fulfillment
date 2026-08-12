@@ -19,7 +19,7 @@ class ShipmentOrderStatus:
 # 状态机单一源头(model 层常量)。发运单 = 柜:船务生命周期单线 OPEN→LOADED→DEPARTED(+CANCELLED)。
 # OPEN(组柜中)→{LOADED,CANCELLED};LOADED(已封柜)→{DEPARTED,OPEN}(撤封柜纠错口);
 # DEPARTED(已发运)→{LOADED}(撤离港纠错口,清 atd);CANCELLED 终态(仅 OPEN 可达)。
-# 封柜守卫(空柜 42004 / 含草稿 42003)与出库撤销守卫(41910)在 service 层。
+# 封柜守卫(空柜 42004 / 含草稿 42003)在 service 层。
 SHIPMENT_ORDER_TRANSITIONS: dict[str, set[str]] = {
     ShipmentOrderStatus.OPEN: {ShipmentOrderStatus.LOADED, ShipmentOrderStatus.CANCELLED},
     ShipmentOrderStatus.LOADED: {ShipmentOrderStatus.DEPARTED, ShipmentOrderStatus.OPEN},

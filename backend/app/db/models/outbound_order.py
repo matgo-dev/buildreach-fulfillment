@@ -28,11 +28,11 @@ class OutboundOrderStatus:
 
 # 状态机单一源头(model 层常量,镜像入库单)。出库单 = 销售单×柜双锚定的桥。
 # DRAFT→{ISSUED,CANCELLED}:草稿确认出库(唯一扣库存事件)/ 草稿取消;
-# ISSUED→{DRAFT}:撤销出库(守卫式纠错口,库存派生自然恢复;发运步装船后追加「柜已装船不可撤」守卫);
+# ISSUED 终态:确认出库后正向履约事实不可撤回;0812 上线前出库后异常走管理员受控线下处理。
 # CANCELLED 终态。
 OUTBOUND_ORDER_TRANSITIONS: dict[str, set[str]] = {
     OutboundOrderStatus.DRAFT: {OutboundOrderStatus.ISSUED, OutboundOrderStatus.CANCELLED},
-    OutboundOrderStatus.ISSUED: {OutboundOrderStatus.DRAFT},
+    OutboundOrderStatus.ISSUED: set(),
     OutboundOrderStatus.CANCELLED: set(),
 }
 # 可编辑集:仅草稿(整单保存)。无硬删——草稿态取消即可,出库单锚定真实出库意图。

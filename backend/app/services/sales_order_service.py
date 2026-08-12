@@ -160,10 +160,10 @@ async def cancel_order(db: AsyncSession, *, order_id: int, reason: str | None, a
         .order_by(OutboundOrder.id))).all())
     if active_obs:
         raise SalesOrderHasActiveOutboundError(
-            "存在活动出库单,请先取消或撤销全部出库单",
+            "存在活动出库单,请先取消草稿出库单;已出库单不可回退原流程",
             data={
                 "blocking_kind": "outbound_order",
-                "next_action": "请先取消草稿出库单;已出库的单据需先撤销出库再取消",
+                "next_action": "请先取消草稿出库单;已出库单不可取消,出库后异常请联系管理员处理",
                 "blocking_documents": [
                     {
                         "type": "outbound_order",

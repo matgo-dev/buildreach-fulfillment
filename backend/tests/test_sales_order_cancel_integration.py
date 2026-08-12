@@ -123,7 +123,7 @@ async def test_cancel_blocked_by_active_outbound_then_allowed(
     assert r.status_code == 409 and r.json()["code"] == 41803
     data = r.json()["data"]
     assert data["blocking_kind"] == "outbound_order"
-    assert data["next_action"] == "请先取消草稿出库单;已出库的单据需先撤销出库再取消"
+    assert data["next_action"] == "请先取消草稿出库单;已出库单不可取消,出库后异常请联系管理员处理"
     assert data["blocking_documents"] == [
         {
             "type": "outbound_order",

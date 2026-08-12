@@ -17,7 +17,7 @@
   16 | 采购单     | 416xx
   17 | 入库/应付  | 417xx(含 41710 撤销入库穿仓守卫)
   18 | 销售单     | 418xx
-  19 | 出库单     | 419xx(含 41910 撤销出库·柜已封柜/发运守卫)
+  19 | 出库单     | 419xx
   20 | 柜/发运    | 420xx(42002 非法转移·单义;42003/42004 封柜守卫;42005 字段门禁;42006 编辑冲突;
        |            |       42007 撤离港带活动事件;42008 非 DEPARTED 不可录事件;42009 重复到港;42010 事件越柜;
        |            |       42011 撤封柜带活动报关;42012 柜态不可报关;42013 重复活动报关;42014 报关越柜;42015 报关编辑冲突;
@@ -395,10 +395,10 @@ class InboundOrderEditConflictError(BusinessError):
 
 class InboundUnreceiveWouldGoNegativeError(BusinessError):
     """撤销入库被拦:货已被出库消费,撤回将使某 (SO, SKU) 可发穿仓(available < 0)。
-    须先撤销相关出库单再撤销入库(库存契约收紧型写入口守卫)。
+    0811 后出库单 ISSUED 即正向终点,不能再通过撤销出库释放库存。
     biz_data 带逐 (so,sku) 明细(销售单号/品名/穿仓后可发),镜像 41902 的明细形状。"""
 
-    def __init__(self, message: str = "Cannot unreceive: stock has been outbound, revert outbound first",
+    def __init__(self, message: str = "Cannot unreceive: stock has been outbound",
                  data: Any = None):
         super().__init__(status.HTTP_409_CONFLICT, 41710, message, data=data)
 
@@ -482,9 +482,9 @@ class OutboundShipmentNotOpenError(BusinessError):
 
 
 class ReceivableAllocatedCannotRevertError(BusinessError):
-    """撤销出库被拦:对应 receivable 已有核销(amount_allocated > 0),不可撤销(镜像 41708)。"""
+    """历史错误:0811 后出库单不再允许撤销,保留 code 兼容旧调用方。"""
 
-    def __init__(self, message: str = "Cannot revert outbound: receivable has been partially allocated"):
+    def __init__(self, message: str = "Cannot revert outbound: issued outbound is terminal"):
         super().__init__(status.HTTP_409_CONFLICT, 41907, message)
 
 
@@ -505,10 +505,9 @@ class OutboundDuplicateLineError(BusinessError):
 
 
 class OutboundShipmentLoadedCannotRevertError(BusinessError):
-    """撤销出库被拦:柜已封柜/发运(status ≠ OPEN)——封柜后柜内出库单冻结,须先撤封柜
-    (发运侧 LOADED→OPEN)再撤出库(兑现出库契约预留守卫;守卫在锁序末尾锁柜头 FOR UPDATE)。"""
+    """历史错误:0811 后出库单不再允许撤销,保留 code 兼容旧调用方。"""
 
-    def __init__(self, message: str = "Cannot revert outbound: shipment already loaded or departed"):
+    def __init__(self, message: str = "Cannot revert outbound: issued outbound is terminal"):
         super().__init__(status.HTTP_409_CONFLICT, 41910, message)
 
 
