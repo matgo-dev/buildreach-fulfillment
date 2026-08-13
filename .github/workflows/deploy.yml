@@ -93,6 +93,8 @@ jobs:
           context: ./backend
           file: ./backend/Dockerfile
           push: true
+          provenance: false
+          sbom: false
           tags: |
             ${{ env.IMAGE_REGISTRY }}/backend:${{ steps.meta.outputs.image_tag }}
             ${{ env.IMAGE_REGISTRY }}/backend:${{ steps.meta.outputs.latest_tag }}
@@ -113,6 +115,8 @@ jobs:
           context: ./frontend
           file: ./frontend/Dockerfile
           push: true
+          provenance: false
+          sbom: false
           tags: |
             ${{ env.IMAGE_REGISTRY }}/frontend:${{ steps.meta.outputs.image_tag }}
             ${{ env.IMAGE_REGISTRY }}/frontend:${{ steps.meta.outputs.latest_tag }}
