@@ -2,7 +2,7 @@
 
 API schema 对 create/save 有 lines min_length=1(空 → 422),挡不到 service 直调。
 本组测试直调 outbound_service,验证 0 行出库单在**建单/确认**两处被 service 兜底拒绝(41911):
-- 0 行草稿会占「同柜同 SO」活动槽位(_assert_no_active_order 计 status≠CANCELLED);
+- 0 行草稿会占「同柜同 SO」草稿槽位(_assert_no_draft_order 计 status=DRAFT);
 - 0 行确认会生成 0 金额应收(镜像采购 confirm 的 PurchaseOrderEmptyError)。
 """
 import pytest

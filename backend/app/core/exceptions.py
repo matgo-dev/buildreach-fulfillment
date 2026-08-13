@@ -461,9 +461,9 @@ class OutboundLineNotInSalesOrderError(BusinessError):
 
 
 class OutboundActiveOrderExistsError(BusinessError):
-    """同柜同来源 SO 已存在活动出库单(偏唯一 uq_oborders_shipment_so_active 兜底,service 前置拒绝)。"""
+    """同柜同来源 SO 已存在未确认草稿出库单(偏唯一 uq_oborders_shipment_so_draft 兜底)。"""
 
-    def __init__(self, message: str = "An active outbound order already exists for this shipment and sales order"):
+    def __init__(self, message: str = "A draft outbound order already exists for this shipment and sales order"):
         super().__init__(status.HTTP_409_CONFLICT, 41904, message)
 
 

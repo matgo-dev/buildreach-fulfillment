@@ -102,11 +102,11 @@ export default function ShipmentDetailPage() {
     load();
   }, [load]);
 
-  // 本柜已有活动出库单(非已取消)的来源 SO —— 传给 picker 做前端预拦。
-  const activeSoIds = useMemo(
+  // 本柜已有未确认草稿出库单的来源 SO —— 传给 picker 做前端预拦;已确认出库可继续追加。
+  const draftSoIds = useMemo(
     () =>
       (detail?.outbound_orders ?? [])
-        .filter((o) => o.status !== "CANCELLED")
+        .filter((o) => o.status === "DRAFT")
         .map((o) => o.sales_order_id),
     [detail],
   );
@@ -667,7 +667,7 @@ export default function ShipmentDetailPage() {
       <OutboundSalesOrderPicker
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
-        activeSoIds={activeSoIds}
+        draftSoIds={draftSoIds}
         onPick={(soId) => {
           setPickerOpen(false);
           setBuilderSoId(soId);

@@ -49,9 +49,10 @@ class OutboundOrder(Base, TimestampUpdateMixin):
             "status IN ('DRAFT','ISSUED','CANCELLED')", name="ck_oborders_status"),
         # 列表默认 status tab 过滤 + created_at DESC 排序(镜像 ix_inborders_status_created)。
         Index("ix_oborders_status_created", "status", text("created_at DESC")),
-        # 「一柜内每来源 SO 各一张」落 DB 最强层:偏唯一只约束活动行(取消行退出,可重开)。
-        Index("uq_oborders_shipment_so_active", "shipment_id", "sales_order_id",
-              unique=True, postgresql_where=text("status <> 'CANCELLED'")),
+        # 同柜同来源 SO 只能有一张未确认草稿。已确认 ISSUED 不占草稿槽,允许同柜追加出库。
+        Index("uq_oborders_shipment_so_draft", "shipment_id", "sales_order_id",
+              unique=True, postgresql_where=text("status = 'DRAFT'"),
+              sqlite_where=text("status = 'DRAFT'")),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
