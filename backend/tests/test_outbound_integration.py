@@ -81,9 +81,9 @@ async def test_create_duplicate_line_rejected(client, db_session, sales_headers,
     assert r2.status_code == 400 and r2.json()["code"] == 41909
 
 
-async def test_create_active_order_exists(client, db_session, sales_headers, purchaser_headers,
-                                          logistics_headers):
-    """同柜同 SO 已有活动出库单 → 41904;取消后可重开。"""
+async def test_create_draft_order_exists(client, db_session, sales_headers, purchaser_headers,
+                                         logistics_headers):
+    """同柜同 SO 已有 DRAFT 出库单 → 41904;取消草稿后可重开。"""
     ctx = await setup_available_stock(client, db_session, sales_headers, purchaser_headers)
     so_id, so_lines = ctx["sales_order_id"], ctx["so_lines"]
     ship = await create_shipment(client, logistics_headers)
@@ -152,6 +152,45 @@ async def test_double_outbound_over_issue_rejected(client, db_session, sales_hea
         client, logistics_headers, sales_order_id=so_id, shipment_id=ship2["id"],
         lines=[{"sales_order_line_id": so_lines[0]["id"], "qty": 4}])
     assert c2.status_code == 409 and c2.json()["code"] == 41902
+
+
+async def test_append_outbound_after_issued_same_shipment_allowed(
+        client, db_session, sales_headers, purchaser_headers, logistics_headers):
+    """同柜同 SO 已有 ISSUED 后,允许再建一张 DRAFT 追加出库;
+    但同一时间仍只能有一张未确认草稿。"""
+    ctx = await setup_available_stock(client, db_session, sales_headers, purchaser_headers,
+                                      so_qty=30, received=30)
+    so_id, so_lines = ctx["sales_order_id"], ctx["so_lines"]
+    ship = await create_shipment(client, logistics_headers)
+
+    _, c1 = await create_and_confirm_outbound(
+        client, logistics_headers, sales_order_id=so_id, shipment_id=ship["id"],
+        lines=[{"sales_order_line_id": so_lines[0]["id"], "qty": 10}])
+    assert c1.status_code == 200, c1.text
+
+    r2 = await create_outbound(client, logistics_headers, sales_order_id=so_id,
+                               shipment_id=ship["id"],
+                               lines=[{"sales_order_line_id": so_lines[0]["id"], "qty": 10}])
+    assert r2.status_code == 200, r2.text
+    ob2 = r2.json()["data"]["order"]
+    assert ob2["status"] == "DRAFT"
+
+    r3 = await create_outbound(client, logistics_headers, sales_order_id=so_id,
+                               shipment_id=ship["id"],
+                               lines=[{"sales_order_line_id": so_lines[0]["id"], "qty": 1}])
+    assert r3.status_code == 409 and r3.json()["code"] == 41904
+
+    c2 = await client.post(f"/api/v1/outbound-orders/{ob2['id']}/confirm",
+                           headers=logistics_headers)
+    assert c2.status_code == 200, c2.text
+    ol = await client.get(f"/api/v1/sales-orders/{so_id}/outboundable-lines",
+                          headers=logistics_headers)
+    assert find_line(ol.json()["data"]["items"], so_lines[0]["sku_id"])["available_qty"] == 10.0
+
+    r4 = await create_outbound(client, logistics_headers, sales_order_id=so_id,
+                               shipment_id=ship["id"],
+                               lines=[{"sales_order_line_id": so_lines[0]["id"], "qty": 5}])
+    assert r4.status_code == 200, r4.text
 
 
 async def test_confirm_generates_receivable(client, db_session, sales_headers, purchaser_headers,

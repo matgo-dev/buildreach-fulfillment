@@ -150,14 +150,14 @@ async def _assert_shipment_open(db: AsyncSession, shipment_id: int,
     return ship
 
 
-async def _assert_no_active_order(db: AsyncSession, shipment_id: int, sales_order_id: int) -> None:
-    """同柜同来源 SO 已有活动(非 CANCELLED)出库单 → 41904(service 前置友好报错;
-    偏唯一 uq_oborders_shipment_so_active 并发兜底)。"""
+async def _assert_no_draft_order(db: AsyncSession, shipment_id: int, sales_order_id: int) -> None:
+    """同柜同来源 SO 已有 DRAFT 出库单 → 41904(service 前置友好报错;
+    偏唯一 uq_oborders_shipment_so_draft 并发兜底)。ISSUED 不占草稿槽,允许追加出库。"""
     exists = (await db.execute(
         select(func.count(OutboundOrder.id)).where(
             OutboundOrder.shipment_id == shipment_id,
             OutboundOrder.sales_order_id == sales_order_id,
-            OutboundOrder.status != OutboundOrderStatus.CANCELLED))).scalar_one()
+            OutboundOrder.status == OutboundOrderStatus.DRAFT))).scalar_one()
     if exists > 0:
         raise OutboundActiveOrderExistsError()
 
@@ -194,7 +194,7 @@ async def create_order(db: AsyncSession, *, sales_order_id, shipment_id, note,
     """基于 CONFIRMED SO + OPEN 柜建一张 DRAFT 出库单(行不跨 SO、不跨柜)。"""
     so = await _lock_confirmed_so(db, sales_order_id)
     await _assert_shipment_open(db, shipment_id, for_update=True)
-    await _assert_no_active_order(db, shipment_id, sales_order_id)
+    await _assert_no_draft_order(db, shipment_id, sales_order_id)
     so_lines = await _load_so_lines(db, so.id)
     _validate_lines_in_so(lines, so_lines)
 
@@ -206,8 +206,8 @@ async def create_order(db: AsyncSession, *, sales_order_id, shipment_id, note,
         await db.flush()
     except IntegrityError as e:
         await db.rollback()
-        # 偏唯一撞 = 并发建了同柜同 SO 活动单(service 前置查后的窗口);转友好错。
-        if "uq_oborders_shipment_so_active" in str(e.orig or e):
+        # 偏唯一撞 = 并发建了同柜同 SO 草稿单(service 前置查后的窗口);转友好错。
+        if "uq_oborders_shipment_so_draft" in str(e.orig or e):
             raise OutboundActiveOrderExistsError()
         raise
     _add_lines(db, order, lines, so_lines)
@@ -351,7 +351,7 @@ async def revert_order(db: AsyncSession, *, order_id, void_reason: str | None, a
 
 async def cancel_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_email,
                        request: Request | None = None) -> OutboundOrder:
-    """取消出库单(仅 DRAFT→CANCELLED;退出偏唯一,同柜同 SO 可重开)。已出库不可取消。"""
+    """取消出库单(仅 DRAFT→CANCELLED;退出草稿唯一槽,同柜同 SO 可重开)。已出库不可取消。"""
     order = await get_order_for_update(db, order_id)
     assert_transition(OUTBOUND_ORDER_TRANSITIONS, order.status, OutboundOrderStatus.CANCELLED,
                       OutboundOrderInvalidTransitionError)
