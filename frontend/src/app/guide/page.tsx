@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { Checkbox, Segmented, Space, Tabs, Typography } from "antd";
-import { RouteGuard } from "@/components/auth/RouteGuard";
+import { ForwardFlowDraftGuide } from "@/components/guide/ForwardFlowDraftGuide";
 import { GuideChart } from "@/components/guide/GuideChart";
 import { GuideDrawer } from "@/components/guide/GuideDrawer";
 import { GuideTour } from "@/components/guide/GuideTour";
 import { ReverseFlowGuide } from "@/components/guide/ReverseFlowGuide";
+import { ReverseBoundaryDecisionGuide } from "@/components/guide/ReverseBoundaryDecisionGuide";
 import { GUIDE_NODES, GUIDE_ROLE_OPTIONS, TOUR_SEQUENCE, guideNodeById } from "@/config/guideFlow";
 import type { GuideNode, GuideRole } from "@/config/guideFlow";
 
@@ -51,8 +52,7 @@ export default function GuidePage() {
   const exitTour = () => setTourStep(null);
 
   return (
-    <RouteGuard>
-      <div style={{ padding: 24, maxWidth: 1400 }}>
+    <div style={{ padding: 24, maxWidth: 1400 }}>
         <Typography.Title level={4} style={{ marginTop: 0 }}>
           平台导览
         </Typography.Title>
@@ -110,13 +110,22 @@ export default function GuidePage() {
               ),
             },
             {
+              key: "forward-draft",
+              label: "正向草案",
+              children: <ForwardFlowDraftGuide />,
+            },
+            {
+              key: "reverse-boundary",
+              label: "退货边界确认",
+              children: <ReverseBoundaryDecisionGuide />,
+            },
+            {
               key: "reverse",
-              label: "逆向/纠错",
+              label: "逆向/撤销",
               children: <ReverseFlowGuide />,
             },
           ]}
         />
-      </div>
-    </RouteGuard>
+    </div>
   );
 }

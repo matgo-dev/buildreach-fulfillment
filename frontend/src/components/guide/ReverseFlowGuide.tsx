@@ -25,8 +25,8 @@ export function ReverseFlowGuide() {
       <Alert
         type="info"
         showIcon
-        title="逆向/纠错不是自动级联"
-        description="当前平台采用受控纠错:系统在每个写入口做最终守卫,操作者按下游到上游的顺序逐步撤销。"
+        title="逆向/撤销不是自动级联"
+        description="当前平台采用受控撤销:系统在每个写入口做最终守卫,操作者按下游到上游的顺序逐步处理。"
       />
 
       <section style={{ padding: "16px 18px", background: colors.bg, borderRadius: 8 }}>
@@ -53,7 +53,7 @@ export function ReverseFlowGuide() {
       <section style={{ padding: "16px 18px", background: colors.bg, borderRadius: 8 }}>
         <Text strong>还没有定的边界</Text>
         <Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 12 }}>
-          下面这些不在当前纠错链路里,需要确认业务规则后再开发。
+          下面这些不在当前基础逆向链路里,需要确认业务规则后再开发。
         </Paragraph>
         <div style={{ display: "grid", gap: 8 }}>
           {REVERSE_FLOW_BOUNDARIES.map((item) => (
