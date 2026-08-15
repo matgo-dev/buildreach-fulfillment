@@ -35,7 +35,7 @@ class InboundOrderCreateIn(BaseModel):
 
 
 class InboundOrderUpdateIn(BaseModel):
-    """整单保存(PUT):仅 IN_TRANSIT;必带乐观锁基线(对齐 PO)。PO 归属不可改(单据身份)。行整表重写。"""
+    """旧整单保存 payload。创建入库单即产生应付,当前 PUT 统一被履约财务边界拦截。"""
     carrier_name: str | None = None
     tracking_no: str | None = None
     shipped_at: date | None = None

@@ -1,4 +1,4 @@
-"""PO 取消守卫(锚点 6):有活动入库单 → 拒 41609;全作废后 → 允许。"""
+"""PO 取消守卫(锚点 6):创建入库单后已产生应付,PO 不可裸取消。"""
 import pytest
 
 from tests.inbound_helpers import setup_confirmed_po
@@ -18,10 +18,11 @@ async def test_cancel_po_blocked_by_active_inbound(
     r = await client.post(f"/api/v1/purchase-orders/{po_id}/cancel", headers=purchaser_headers)
     assert r.status_code == 409 and r.json()["code"] == 41609
 
-    # 作废该入库单后 → PO 可取消。
-    await client.post(f"/api/v1/inbound-orders/{inb_id}/cancel", headers=purchaser_headers)
+    # 入库单创建即有应付,不可再通过裸作废释放 PO。
+    cx = await client.post(f"/api/v1/inbound-orders/{inb_id}/cancel", headers=purchaser_headers)
+    assert cx.status_code == 409 and cx.json()["code"] == 41712
     r2 = await client.post(f"/api/v1/purchase-orders/{po_id}/cancel", headers=purchaser_headers)
-    assert r2.status_code == 200, r2.text
+    assert r2.status_code == 409 and r2.json()["code"] == 41609
 
 
 async def test_cancel_po_blocked_by_received_inbound(

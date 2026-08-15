@@ -42,10 +42,10 @@ export const REVERSE_FLOW_TREES: ReverseStep[] = [
         children: [
           {
             id: "void-in-transit-inbound",
-            title: "作废在途入库单",
+            title: "在途入库单不可直接作废",
             owner: "采购/物流视角",
-            when: "供应商发货计划取消、调整,或在途入库单不再需要。",
-            result: "入库单进入已作废;释放采购单可收额度。",
+            when: "供应商已发货/我方已拉货并创建入库单后,已产生供应商应付。",
+            result: "当前线上入口会被拦截;需要走履约中取消/逆向申请承载实物与财务处理。",
             severity: "goods",
           },
           {
@@ -53,19 +53,9 @@ export const REVERSE_FLOW_TREES: ReverseStep[] = [
             title: "撤销已入库入库单",
             owner: "采购/物流视角",
             when: "货已经确认入库,但业务上需要回到在途状态。",
-            result: "入库单回到在途;对应应付款作废留痕;库存派生数量回落。",
+            result: "入库单回到在途;库存派生数量回落;对应应付款保持活动。",
             severity: "goods",
-            blocks: "应付款已核销时先反核销付款;货已被确认出库消费时不可撤销入库。",
-            children: [
-              {
-                id: "reverse-payment-allocation",
-                title: "反核销付款",
-                owner: "财务视角",
-                when: "这张入库生成的应付款已经被付款单核销。",
-                result: "指定核销记录被反核销;付款单未分配余额和应付款余额恢复对应金额。",
-                severity: "money",
-              },
-            ],
+            blocks: "货已被确认出库消费时不可撤销入库。",
           },
         ],
       },

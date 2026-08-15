@@ -28,16 +28,16 @@ class InboundOrderStatus:
     INBOUNDED_STATUSES = (IN_TRANSIT, RECEIVED)
 
 
-# 状态机单一源头(model 层常量)。入库单 = ASN:供应商发货即建(在途本身即可编辑工作态),
-# 货到货代仓确认入库。无 DRAFT——「草稿=还没弄好」的语义在此不存在,不造投机态(见契约 D6)。
-# RECEIVED→IN_TRANSIT = 撤销入库(守卫式纠错口,镜像出库单撤销);CANCELLED 终态。
+# 状态机单一源头(model 层常量)。入库单 = ASN:供应商发货即建,
+# 货到货代仓确认入库。创建入库单即产生应付,作废/关闭需走逆向申请,service 层收口。
+# RECEIVED→IN_TRANSIT = 撤销入库库存事实;CANCELLED 保留给历史/未来逆向闭环。
 INBOUND_ORDER_TRANSITIONS: dict[str, set[str]] = {
-    InboundOrderStatus.IN_TRANSIT: {InboundOrderStatus.RECEIVED, InboundOrderStatus.CANCELLED},
+    InboundOrderStatus.IN_TRANSIT: {InboundOrderStatus.RECEIVED},
     InboundOrderStatus.RECEIVED: {InboundOrderStatus.IN_TRANSIT},
     InboundOrderStatus.CANCELLED: set(),
 }
-# 可编辑集:仅在途(改到实收再确认)。无硬删——入库单对应真实发货事件,只作废不删。
-INBOUND_ORDER_EDITABLE_STATUSES: set[str] = {InboundOrderStatus.IN_TRANSIT}
+# 创建入库单即产生应付,整单编辑/裸作废不再作为基础回退入口。
+INBOUND_ORDER_EDITABLE_STATUSES: set[str] = set()
 INBOUND_ORDER_DELETABLE_STATUSES: set[str] = set()
 
 

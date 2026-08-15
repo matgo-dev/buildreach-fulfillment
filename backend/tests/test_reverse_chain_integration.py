@@ -62,12 +62,12 @@ async def test_reverse_chain_stops_at_issued_outbound(
     assert blocked_outbound.status_code == 409
     assert blocked_outbound.json()["code"] == 41901
 
-    # 已核销应付挡住撤销入库。
+    # 已出库消费挡住撤销入库;应付是否核销不再决定库存事实撤销。
     blocked_inbound = await client.post(
         f"/api/v1/inbound-orders/{inbound_id}/unreceive",
         headers=purchaser_headers, json={"void_reason": "联动测试"})
     assert blocked_inbound.status_code == 409
-    assert blocked_inbound.json()["code"] == 41708
+    assert blocked_inbound.json()["code"] == 41710
 
     # 反核销收款后,仍不能撤销出库单。
     reverse_receipt = await client.delete(
@@ -80,7 +80,7 @@ async def test_reverse_chain_stops_at_issued_outbound(
     assert reverted_outbound.status_code == 409
     assert reverted_outbound.json()["code"] == 41901
 
-    # 反核销付款后,应付守卫解除;但库存已被出库消费,撤销入库仍被 41710 挡住。
+    # 反核销付款后,库存仍已被出库消费,撤销入库仍被 41710 挡住。
     reverse_payment = await client.delete(
         f"/api/v1/payment-allocations/{payment_alloc_id}?reverse_reason=联动测试",
         headers=finance_headers)

@@ -13,7 +13,7 @@ from app.db.models.payable import derive_payable_status
 
 
 class PayableOut(BaseModel):
-    """入库详情 payable 块(仅 RECEIVED 且持 payable:read 时下发)。"""
+    """入库详情 payable 块(有活动应付且持 payable:read 时下发)。"""
     id: int
     inbound_order_id: int
     purchase_order_id: int

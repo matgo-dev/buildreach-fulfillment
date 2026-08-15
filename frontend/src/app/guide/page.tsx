@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Checkbox, Segmented, Space, Tabs, Typography } from "antd";
+import { Checkbox, Segmented, Space, Typography } from "antd";
 import { ForwardFlowDraftGuide } from "@/components/guide/ForwardFlowDraftGuide";
 import { GuideChart } from "@/components/guide/GuideChart";
 import { GuideDrawer } from "@/components/guide/GuideDrawer";
@@ -10,8 +10,19 @@ import { ReverseFlowGuide } from "@/components/guide/ReverseFlowGuide";
 import { ReverseBoundaryDecisionGuide } from "@/components/guide/ReverseBoundaryDecisionGuide";
 import { GUIDE_NODES, GUIDE_ROLE_OPTIONS, TOUR_SEQUENCE, guideNodeById } from "@/config/guideFlow";
 import type { GuideNode, GuideRole } from "@/config/guideFlow";
+import { colors } from "@/lib/tokens";
+
+type GuideTabKey = "forward" | "forward-draft" | "reverse-boundary" | "reverse";
+
+const GUIDE_TABS: { key: GuideTabKey; label: string }[] = [
+  { key: "forward", label: "正向流程" },
+  { key: "forward-draft", label: "正向草案" },
+  { key: "reverse-boundary", label: "退货边界确认" },
+  { key: "reverse", label: "逆向/撤销" },
+];
 
 export default function GuidePage() {
+  const [activeTab, setActiveTab] = useState<GuideTabKey>("forward");
   const [activeNode, setActiveNode] = useState<GuideNode | null>(null);
   const [highlightRole, setHighlightRole] = useState<GuideRole | null>(null);
   const [showMoney, setShowMoney] = useState(false);
@@ -46,10 +57,16 @@ export default function GuidePage() {
 
   // 开始叙事先清角色筛选:否则非该角色节点被淡化,叙事点亮它们时会打架。
   const startTour = () => {
+    setActiveTab("forward");
     setHighlightRole(null);
     setTourStep(0);
   };
   const exitTour = () => setTourStep(null);
+  const switchTab = (key: GuideTabKey) => {
+    setActiveTab(key);
+    setTourStep(null);
+    setActiveNode(null);
+  };
 
   return (
     <div style={{ padding: 24, maxWidth: 1400 }}>
@@ -60,72 +77,78 @@ export default function GuidePage() {
           一单货从接到客户询价,到最后收清货款,在这个平台里要经过下面这些步骤。点任意一步看详细说明。
         </Typography.Paragraph>
 
-        <Tabs
-          items={[
-            {
-              key: "forward",
-              label: "正向流程",
-              children: (
-                <>
-                  <div style={{ marginBottom: 16 }}>
-                    <Space size={20} style={{ marginBottom: 12 }}>
-                      <Checkbox checked={showMoney} onChange={(e) => setShowMoney(e.target.checked)}>
-                        看钱怎么走
-                      </Checkbox>
-                      <Checkbox checked={showMaster} onChange={(e) => setShowMaster(e.target.checked)}>
-                        看基础资料从哪来
-                      </Checkbox>
-                    </Space>
-                    <div>
-                      <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
-                        按岗位看:选一个岗位,和它相关的步骤会亮起来,其余变淡(不隐藏 —— 你需要知道自己这步的上下游是谁)。
-                      </Typography.Text>
-                      <Segmented
-                        value={highlightRole ?? "ALL"}
-                        onChange={(v) => setHighlightRole(v === "ALL" ? null : (v as GuideRole))}
-                        options={[{ value: "ALL", label: "全部" }, ...GUIDE_ROLE_OPTIONS]}
-                      />
-                    </div>
-                  </div>
+        <div role="tablist" aria-label="平台导览视图" style={{ display: "flex", gap: 28, borderBottom: `1px solid ${colors.line}`, marginBottom: 16 }}>
+          {GUIDE_TABS.map((tab) => {
+            const active = tab.key === activeTab;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => switchTab(tab.key)}
+                style={{
+                  appearance: "none",
+                  border: 0,
+                  borderBottom: `2px solid ${active ? colors.brand : "transparent"}`,
+                  background: "transparent",
+                  color: active ? colors.brand : colors.muted,
+                  cursor: "pointer",
+                  font: "inherit",
+                  fontWeight: active ? 600 : 400,
+                  padding: "12px 0",
+                }}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
 
-                  <GuideTour
-                    stepIndex={tourStep}
-                    onStart={startTour}
-                    onPrev={() => setTourStep((s) => (s === null ? s : Math.max(0, s - 1)))}
-                    onNext={() =>
-                      setTourStep((s) => (s === null ? s : Math.min(TOUR_SEQUENCE.length - 1, s + 1)))
-                    }
-                    onExit={exitTour}
-                  />
+        {activeTab === "forward" && (
+          <>
+            <div style={{ marginBottom: 16 }}>
+              <Space size={20} style={{ marginBottom: 12 }}>
+                <Checkbox checked={showMoney} onChange={(e) => setShowMoney(e.target.checked)}>
+                  看钱怎么走
+                </Checkbox>
+                <Checkbox checked={showMaster} onChange={(e) => setShowMaster(e.target.checked)}>
+                  看基础资料从哪来
+                </Checkbox>
+              </Space>
+              <div>
+                <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
+                  按岗位看:选一个岗位,和它相关的步骤会亮起来,其余变淡(不隐藏 —— 你需要知道自己这步的上下游是谁)。
+                </Typography.Text>
+                <Segmented
+                  value={highlightRole ?? "ALL"}
+                  onChange={(v) => setHighlightRole(v === "ALL" ? null : (v as GuideRole))}
+                  options={[{ value: "ALL", label: "全部" }, ...GUIDE_ROLE_OPTIONS]}
+                />
+              </div>
+            </div>
 
-                  <GuideChart
-                    showMoney={showMoney}
-                    showMaster={showMaster}
-                    highlightRole={highlightRole}
-                    activeId={tourNodeId ?? activeNode?.id ?? null}
-                    onNodeClick={setActiveNode}
-                  />
-                  <GuideDrawer node={activeNode} onClose={() => setActiveNode(null)} />
-                </>
-              ),
-            },
-            {
-              key: "forward-draft",
-              label: "正向草案",
-              children: <ForwardFlowDraftGuide />,
-            },
-            {
-              key: "reverse-boundary",
-              label: "退货边界确认",
-              children: <ReverseBoundaryDecisionGuide />,
-            },
-            {
-              key: "reverse",
-              label: "逆向/撤销",
-              children: <ReverseFlowGuide />,
-            },
-          ]}
-        />
+            <GuideTour
+              stepIndex={tourStep}
+              onStart={startTour}
+              onPrev={() => setTourStep((s) => (s === null ? s : Math.max(0, s - 1)))}
+              onNext={() => setTourStep((s) => (s === null ? s : Math.min(TOUR_SEQUENCE.length - 1, s + 1)))}
+              onExit={exitTour}
+            />
+
+            <GuideChart
+              showMoney={showMoney}
+              showMaster={showMaster}
+              highlightRole={highlightRole}
+              activeId={tourNodeId ?? activeNode?.id ?? null}
+              onNodeClick={setActiveNode}
+            />
+            <GuideDrawer node={activeNode} onClose={() => setActiveNode(null)} />
+          </>
+        )}
+        {activeTab === "forward-draft" && <ForwardFlowDraftGuide />}
+        {activeTab === "reverse-boundary" && <ReverseBoundaryDecisionGuide />}
+        {activeTab === "reverse" && <ReverseFlowGuide />}
     </div>
   );
 }

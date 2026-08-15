@@ -69,7 +69,7 @@ export interface ReceivableLine {
   remaining_qty: number | string;
 }
 
-/** 入库详情返回(payable 仅在持 payable:read 且已入库时存在;前端按键存在与否渲染)。 */
+/** 入库详情返回(payable 仅在持 payable:read 且有活动应付时存在;前端按键存在与否渲染)。 */
 export interface InboundOrderDetail {
   order: InboundOrderOut;
   lines: InboundOrderLineOut[];

@@ -1,8 +1,8 @@
-"""入库单路由 /api/v1/inbound-orders。基于 CONFIRMED PO 收货 + 状态机 + 确认生成应付款。
+"""入库单路由 /api/v1/inbound-orders。基于 CONFIRMED PO 登记在途 + 创建时生成应付款。
 
 守 inbound:manage(写)/ inbound:read(读)。入库单据零成本列(契约 D3),读投影天然无红线;
 详情内嵌 PO 摘要走既有 PurchaseOrderOut.build(can_see_cost=...) 脱敏;payable 块仅持 payable:read
-且已入库时组装(整块门控,非字段级)。
+且存在活动应付时组装(整块门控,非字段级)。
 """
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import CurrentUser
 from app.core.exceptions import success
-from app.db.models.inbound_order import InboundOrderStatus
 from app.db.session import get_db
 from app.rbac.constants import Permissions
 from app.rbac.guards import has_permission, require_any_permission, require_permission
@@ -51,9 +50,8 @@ async def _detail_payload(db, order, current) -> dict:
             db, [InboundOrderLineOut.build(ln) for ln in lines]),
         "purchase_order": PurchaseOrderOut.build(po, parties, can_see_cost=can_see_cost(current)),
     }
-    # payable 块:仅持 payable:read 且已入库(有活动 payable)时下发。
-    if (has_permission(current, Permissions.PAYABLE_READ)
-            and order.status == InboundOrderStatus.RECEIVED):
+    # payable 块:仅持 payable:read 且有活动 payable 时下发。
+    if has_permission(current, Permissions.PAYABLE_READ):
         payable = await inbound_order_service.get_active_payable(db, order.id)
         if payable is not None:
             payload["payable"] = PayableOut.build(payable)
@@ -111,7 +109,7 @@ async def update_inbound_order(order_id: int, body: InboundOrderUpdateIn, reques
     return success(await _detail_payload(db, order, current))
 
 
-@router.post("/{order_id}/receive", summary="确认入库(IN_TRANSIT→RECEIVED,生成应付款)")
+@router.post("/{order_id}/receive", summary="确认入库(IN_TRANSIT→RECEIVED,只产生库存)")
 async def receive_inbound_order(order_id: int, body: InboundOrderReceiveIn, request: Request,
                                 current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
     order = await inbound_order_service.receive_order(
@@ -120,7 +118,7 @@ async def receive_inbound_order(order_id: int, body: InboundOrderReceiveIn, requ
     return success(await _detail_payload(db, order, current))
 
 
-@router.post("/{order_id}/unreceive", summary="撤销入库(RECEIVED→IN_TRANSIT,作废应付款)")
+@router.post("/{order_id}/unreceive", summary="撤销入库(RECEIVED→IN_TRANSIT,只撤销库存)")
 async def unreceive_inbound_order(order_id: int, body: InboundOrderUnreceiveIn, request: Request,
                                   current: CurrentUser = _MANAGE,
                                   db: AsyncSession = Depends(get_db)):
@@ -130,7 +128,7 @@ async def unreceive_inbound_order(order_id: int, body: InboundOrderUnreceiveIn, 
     return success(await _detail_payload(db, order, current))
 
 
-@router.post("/{order_id}/cancel", summary="作废入库单(仅在途)")
+@router.post("/{order_id}/cancel", summary="已收口:创建入库单后不可直接作废")
 async def cancel_inbound_order(order_id: int, request: Request,
                                current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
     order = await inbound_order_service.cancel_order(

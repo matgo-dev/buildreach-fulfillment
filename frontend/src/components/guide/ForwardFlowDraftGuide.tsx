@@ -34,8 +34,8 @@ export function ForwardFlowDraftGuide({ compact = false }: { compact?: boolean }
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       {!compact && (
         <Typography.Paragraph type="secondary" style={{ margin: 0 }}>
-          这是一版正向流程草案图:把“供应商发货/我方拉货确认”放到入库单创建处,应收和应付在这个点同时成立;
-          确认入库只产生库存,确认出库只扣库存。用于讨论,暂不代表已落库规则。
+          这是一版正向流程草案图:把“供应商发货/我方拉货确认”放到入库单创建处,供应商应付在这个点成立;
+          确认入库只产生库存,客户应收仍在确认出库时产生。用于讨论,暂不代表已落库规则。
         </Typography.Paragraph>
       )}
 
@@ -58,11 +58,11 @@ export function ForwardFlowDraftGuide({ compact = false }: { compact?: boolean }
         <div style={{ display: "grid", gap: 8 }}>
           <BoundaryPill
             label="边界一:确认发货/拉货"
-            text="在这之前只有报价、销售、采购等内部单据变化,不涉及钱和货的事实,通常可以做状态取消/回退。"
+            text="在这之前只有报价、销售、采购等内部履约单据变化,不涉及供应商应付和库存事实,通常可以做状态取消/回退;客户预收如存在,作为独立财务事项处理。"
           />
           <BoundaryPill
             label="入库单创建之后"
-            text="如果应收和应付都在这里生成,后续再撤回就不能只是改状态,需要用逆向依据单据处理应收、应付、预收、预付、核销或冲正。"
+            text="如果供应商应付在这里生成,后续再撤回就不能只是改状态,需要用逆向依据单据处理应付、预付、退款、核销或冲正;客户预收可独立处理,客户应收仍等确认出库。"
           />
           <BoundaryPill
             label="边界二:出库单形成"
@@ -139,10 +139,14 @@ function BoundaryPill({ label, text }: { label: string; text: string }) {
 function MoneyBranches({ anchorId }: { anchorId: string }) {
   const branches = DRAFT_MONEY_BRANCHES.filter((n) => n.anchorId === anchorId);
   if (branches.length === 0) return null;
+  const edgeLabel =
+    branches.length === 1
+      ? branches[0].inEdgeLabel
+      : Array.from(new Set(branches.map((branch) => branch.inEdgeLabel))).join(" / ");
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, marginTop: 8 }}>
       <div style={{ fontSize: 12, color: colors.status.warning.text, textAlign: "center", lineHeight: 1.3 }}>
-        ↓ 入库单创建时同时触发
+        ↓ {edgeLabel}
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
         {branches.map((node) => (
