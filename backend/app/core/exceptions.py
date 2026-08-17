@@ -27,6 +27,7 @@
        |            |       42204 客户/供应商不匹配;42205 反核销记录不存在/已反核销;42206 账已作废不可核销;
        |            |       42207 认领非 UNCLAIMED;42208 已有活动核销不可作废;42209 收付款单已作废不可操作;
        |            |       42210 同对已有活动核销,先反核销再重核)
+  23 | 逆向申请   | 423xx(出库前履约中取消申请)
 
 兜底码:
   40000 = 通用客户端兜底(裸 HTTPException 降级)
@@ -525,6 +526,56 @@ class OutboundOrderEmptyError(BusinessError):
 
     def __init__(self, message: str = "Outbound order must have at least one line"):
         super().__init__(status.HTTP_400_BAD_REQUEST, 41911, message)
+
+
+class OutboundBlockedByActiveReverseRequestError(BusinessError):
+    """来源 SO 存在未关闭逆向申请,正向出库链路暂停。"""
+
+    def __init__(self, message: str = "Outbound is blocked by an active reverse request",
+                 data: Any = None):
+        super().__init__(status.HTTP_409_CONFLICT, 41912, message, data=data)
+
+
+# 模块段 23 = 逆向申请。见 db/models/reverse_request.py。
+class ReverseRequestNotFoundError(BusinessError):
+    def __init__(self, message: str = "Reverse request not found"):
+        super().__init__(status.HTTP_404_NOT_FOUND, 42301, message)
+
+
+class ReverseRequestInvalidSourceError(BusinessError):
+    """逆向申请来源单据不满足当前类型边界。"""
+
+    def __init__(self, message: str = "Invalid reverse request source"):
+        super().__init__(status.HTTP_409_CONFLICT, 42302, message)
+
+
+class ReverseRequestHasActiveOutboundError(BusinessError):
+    """出库前履约中取消被拦:来源 SO 已存在活动出库单。"""
+
+    def __init__(self, message: str = "Cannot create pre-outbound cancellation after outbound order exists",
+                 data: Any = None):
+        super().__init__(status.HTTP_409_CONFLICT, 42303, message, data=data)
+
+
+class ReverseRequestDuplicateActiveError(BusinessError):
+    """同一入库单已有未完结履约中取消申请。"""
+
+    def __init__(self, message: str = "An active reverse request already exists for this inbound order"):
+        super().__init__(status.HTTP_409_CONFLICT, 42304, message)
+
+
+class ReverseRequestInvalidTransitionError(BusinessError):
+    """逆向申请状态转移不在白名单。"""
+
+    def __init__(self, message: str = "Illegal reverse request status transition"):
+        super().__init__(status.HTTP_409_CONFLICT, 42305, message)
+
+
+class ReverseRequestInvalidResolutionError(BusinessError):
+    """审核通过时缺少或传入了不适用于 MVP-1 的供应商处理结论。"""
+
+    def __init__(self, message: str = "Invalid reverse request supplier resolution"):
+        super().__init__(status.HTTP_400_BAD_REQUEST, 42306, message)
 
 
 # 模块段 20 = 柜 / 发运(发运单状态机 + 船务字段编辑门禁)。见 db/models/shipment_order.py。

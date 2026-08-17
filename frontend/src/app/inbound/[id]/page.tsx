@@ -35,6 +35,7 @@ import {
   inboundOrderUnreceivable,
 } from "@/lib/inboundOrderStatus";
 import { PAYABLE_STATUS_META, formatAmount } from "@/lib/payable";
+import { reverseRequestApi } from "@/lib/reverseRequest";
 
 /** 41710 穿仓明细行。后端 data 形状:{ items: [{ sales_order_no, name_snapshot, available_qty }] }(镜像 41902)。 */
 interface UnreceiveNegative {
@@ -71,6 +72,9 @@ export default function InboundOrderDetailPage() {
   const [unreceiveOpen, setUnreceiveOpen] = useState(false);
   const [voidReason, setVoidReason] = useState("");
   const [unreceiveBlocked, setUnreceiveBlocked] = useState<OperationBlockedItem[] | null>(null);
+  const [reverseOpen, setReverseOpen] = useState(false);
+  const [reverseReason, setReverseReason] = useState("");
+  const [reverseBlocked, setReverseBlocked] = useState<OperationBlockedItem[] | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -140,8 +144,8 @@ export default function InboundOrderDetailPage() {
           </Space>
         }
         extra={
-          <Can perm={Permissions.INBOUND_MANAGE}>
-            <Space>
+          <Space>
+            <Can perm={Permissions.INBOUND_MANAGE}>
               {inboundOrderReceivable(order.status) && (
                 <Button
                   type="primary"
@@ -166,8 +170,21 @@ export default function InboundOrderDetailPage() {
                   撤销入库
                 </Button>
               )}
-            </Space>
-          </Can>
+            </Can>
+            <Can perm={Permissions.REVERSE_MANAGE}>
+              {(order.status === "IN_TRANSIT" || order.status === "RECEIVED") && (
+                <Button
+                  loading={busy}
+                  onClick={() => {
+                    setReverseBlocked(null);
+                    setReverseOpen(true);
+                  }}
+                >
+                  发起取消申请
+                </Button>
+              )}
+            </Can>
+          </Space>
         }
       >
         <Descriptions column={2} size="small" bordered>
@@ -331,6 +348,67 @@ export default function InboundOrderDetailPage() {
             onChange={(e) => {
               setUnreceiveBlocked(null);
               setVoidReason(e.target.value);
+            }}
+          />
+        </Space>
+      </Modal>
+
+      <Modal
+        title="发起履约中取消申请"
+        open={reverseOpen}
+        okText="提交申请"
+        confirmLoading={busy}
+        okButtonProps={{ disabled: !reverseReason.trim() }}
+        onCancel={() => setReverseOpen(false)}
+        onOk={async () => {
+          setBusy(true);
+          try {
+            const created = await reverseRequestApi.create({
+              inbound_order_id: id,
+              reason: reverseReason.trim(),
+            });
+            message.success("已提交逆向申请");
+            setReverseOpen(false);
+            setReverseReason("");
+            router.push(`/reverse-requests/${created.request.id}`);
+          } catch (e) {
+            if (e instanceof ApiError && e.code === 42303) {
+              const docs = Array.isArray((e.data as { blocking_documents?: unknown })?.blocking_documents)
+                ? ((e.data as { blocking_documents: Record<string, unknown>[] }).blocking_documents)
+                : [];
+              setReverseBlocked(
+                docs.map((doc, i) => ({
+                  key: `${String(doc.type || "doc")}-${String(doc.id || i)}`,
+                  label: "出库单",
+                  title: String(doc.no || doc.id || "活动出库单"),
+                  detail: String(doc.status || ""),
+                  onAction: doc.id ? () => router.push(`/outbound/${String(doc.id)}`) : undefined,
+                })),
+              );
+            } else {
+              message.error(resolveBizError(e, "提交失败"));
+            }
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <Space orientation="vertical" style={{ width: "100%" }}>
+          <span>提交后进入待审核;原入库单、采购单和应付账款不会被自动回滚。</span>
+          {reverseBlocked ? (
+            <OperationBlockedNotice
+              title="无法发起:已存在活动出库单"
+              nextAction="这张入库单所属销售链路已进入出库阶段,请走出库后售后逆向流程。"
+              items={reverseBlocked}
+            />
+          ) : null}
+          <Input.TextArea
+            rows={3}
+            placeholder="取消原因"
+            value={reverseReason}
+            onChange={(e) => {
+              setReverseBlocked(null);
+              setReverseReason(e.target.value);
             }}
           />
         </Space>

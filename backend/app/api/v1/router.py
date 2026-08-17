@@ -3,7 +3,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     attachments, auth, categories, customers, inbound_orders, inventory, outbound_orders,
     payables, payments, purchase_orders, quotations, receipts, receivables, roles,
-    sales_orders, shipments, skus, spus, suppliers, units, uploads, users, version,
+    reverse_requests, sales_orders, shipments, skus, spus, suppliers, units, uploads, users, version,
 )
 from app.api.media import router as media_router
 from app.api.v1.payments import alloc_router as payment_alloc_router
@@ -30,6 +30,7 @@ api_router.include_router(receipts.router)
 api_router.include_router(receipt_alloc_router)
 api_router.include_router(payments.router)
 api_router.include_router(payment_alloc_router)
+api_router.include_router(reverse_requests.router)
 api_router.include_router(users.router)
 api_router.include_router(roles.router)
 api_router.include_router(uploads.router)

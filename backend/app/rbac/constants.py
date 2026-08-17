@@ -71,6 +71,10 @@ class Permissions:
     PAYMENT_READ = "payment:read"
     PAYMENT_MANAGE = "payment:manage"
 
+    # ----- 履约:逆向申请(出库前履约中取消 / 后续售后入口)-----
+    REVERSE_READ = "reverse:read"
+    REVERSE_MANAGE = "reverse:manage"
+
 
 # auth:* 是系统底层会话权限,不归任何资源域(供启动同步识别,不进矩阵)
 SYSTEM_RESERVED_CODES = frozenset({
@@ -128,6 +132,8 @@ PERMISSION_META: dict[str, dict[str, str]] = {
     Permissions.RECEIPT_MANAGE: {"name": "收款单管理", "module": ModuleLabel.FULFILLMENT},
     Permissions.PAYMENT_READ: {"name": "付款单查看", "module": ModuleLabel.FULFILLMENT},
     Permissions.PAYMENT_MANAGE: {"name": "付款单管理", "module": ModuleLabel.FULFILLMENT},
+    Permissions.REVERSE_READ: {"name": "逆向申请查看", "module": ModuleLabel.FULFILLMENT},
+    Permissions.REVERSE_MANAGE: {"name": "逆向申请管理", "module": ModuleLabel.FULFILLMENT},
 }
 
 

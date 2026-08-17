@@ -27,6 +27,7 @@ from app.core.codegen import NumberScope, format_code
 from app.core.exceptions import (
     NotFoundError,
     OutboundActiveOrderExistsError,
+    OutboundBlockedByActiveReverseRequestError,
     OutboundDuplicateLineError,
     OutboundInsufficientAvailableError,
     OutboundLineNotInSalesOrderError,
@@ -46,6 +47,7 @@ from app.db.models.outbound_order import (
 )
 from app.db.models.customer import Customer
 from app.db.models.receivable import Receivable
+from app.db.models.reverse_request import ReverseRequest, ReverseRequestStatus
 from app.db.models.sales_order import SalesOrder, SalesOrderLine, SalesOrderStatus
 from app.db.models.shipment_order import ShipmentOrder, ShipmentOrderStatus
 from app.services import stock_balance_service
@@ -162,6 +164,35 @@ async def _assert_no_draft_order(db: AsyncSession, shipment_id: int, sales_order
         raise OutboundActiveOrderExistsError()
 
 
+async def _assert_no_active_reverse_request(db: AsyncSession, sales_order_id: int) -> None:
+    """同一 SO 存在 PENDING/APPROVED 逆向申请时,正向出库暂停。
+
+    MVP-1 不自动回滚原链路,所以需要在出库建单/确认两处守住边界:
+    - REJECTED 表示供应商不接受且公司不承担,原链路继续;
+    - COMPLETED 表示逆向已线下闭环,不再占用暂停闸。
+    """
+    row = (await db.execute(
+        select(ReverseRequest.id, ReverseRequest.no, ReverseRequest.status)
+        .where(
+            ReverseRequest.sales_order_id == sales_order_id,
+            ReverseRequest.status.in_({
+                ReverseRequestStatus.PENDING_REVIEW,
+                ReverseRequestStatus.APPROVED,
+            }),
+        )
+        .order_by(ReverseRequest.id)
+        .limit(1))).first()
+    if row:
+        raise OutboundBlockedByActiveReverseRequestError(data={
+            "reverse_request": {
+                "id": row.id,
+                "no": row.no,
+                "status": row.status,
+                "path": f"/reverse-requests/{row.id}",
+            },
+        })
+
+
 def _add_lines(db: AsyncSession, order: OutboundOrder, lines: list[dict],
                so_lines: dict[int, SalesOrderLine]) -> None:
     """新增出库行:sku_id 从 SO 行派生(不采信客户端,天然「sku 与 SO 行一致」);无快照/金额列。"""
@@ -193,6 +224,7 @@ async def create_order(db: AsyncSession, *, sales_order_id, shipment_id, note,
                        request: Request | None = None) -> OutboundOrder:
     """基于 CONFIRMED SO + OPEN 柜建一张 DRAFT 出库单(行不跨 SO、不跨柜)。"""
     so = await _lock_confirmed_so(db, sales_order_id)
+    await _assert_no_active_reverse_request(db, so.id)
     await _assert_shipment_open(db, shipment_id, for_update=True)
     await _assert_no_draft_order(db, shipment_id, sales_order_id)
     so_lines = await _load_so_lines(db, so.id)
@@ -288,6 +320,7 @@ async def confirm_order(db: AsyncSession, *, order_id, actor_user_id, actor_user
                       OutboundOrderInvalidTransitionError)
     if so.status != SalesOrderStatus.CONFIRMED:
         raise OutboundSalesOrderNotConfirmedError()
+    await _assert_no_active_reverse_request(db, so.id)
     await _assert_shipment_open(db, order.shipment_id)
     lines = await list_lines(db, order.id)
     # 确认前兜底空行:0 行出库单会生成 0 金额应收(镜像采购 confirm 的 PurchaseOrderEmptyError)。

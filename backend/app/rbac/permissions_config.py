@@ -53,6 +53,8 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         Permissions.OUTBOUND_READ,
         Permissions.SHIPMENT_READ,
         Permissions.RECEIVABLE_READ,
+        Permissions.REVERSE_READ,
+        Permissions.REVERSE_MANAGE,
     ],
     # 采购员:供应商主数据全管 + 基于销售单发起采购单(建/编辑/确认/取消)。
     # sales:read = 浏览 SO 发起采购(SO 只对客售价,非红线);read_cost = 采购员当然看采购价;
@@ -73,6 +75,8 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         Permissions.PRODUCT_READ,
         # 库存(订单履约跟踪):采购看按单到货/可发,判断补采/催货。ADMIN 不授(Q25 职责分离)。
         Permissions.INVENTORY_READ,
+        Permissions.REVERSE_READ,
+        Permissions.REVERSE_MANAGE,
     ],
     # 物流仓运:组柜/封柜是仓运动作,不并入 PURCHASER(采购侧)也不并入 SALES(销售侧);
     # 出库/发运/物流/报关四步同一操作者。出库/柜零成本/售价 → 无红线泄露;不持 RECEIVABLE_READ
@@ -103,5 +107,7 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         Permissions.PAYABLE_READ,
         Permissions.SUPPLIER_READ,
         Permissions.CUSTOMER_READ,
+        Permissions.REVERSE_READ,
+        Permissions.REVERSE_MANAGE,
     ],
 }

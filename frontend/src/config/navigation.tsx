@@ -13,6 +13,7 @@ import {
   PayCircleOutlined,
   ProfileOutlined,
   ReconciliationOutlined,
+  RetweetOutlined,
   SafetyCertificateOutlined,
   ShopOutlined,
   ShoppingCartOutlined,
@@ -72,6 +73,7 @@ export const MENU_GROUPS: MenuGroupConfig[] = [
       { key: "/inventory", icon: <DatabaseOutlined />, label: "库存", perm: Permissions.INVENTORY_READ },
       { key: "/shipments", icon: <ContainerOutlined />, label: "发运柜", perm: Permissions.SHIPMENT_READ },
       { key: "/outbound", icon: <ExportOutlined />, label: "出库单", perm: Permissions.OUTBOUND_READ },
+      { key: "/reverse-requests", icon: <RetweetOutlined />, label: "逆向申请", perm: Permissions.REVERSE_READ },
     ],
   },
   {

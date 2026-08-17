@@ -44,6 +44,8 @@ export const Permissions = {
   RECEIPT_MANAGE: "receipt:manage",
   PAYMENT_READ: "payment:read",
   PAYMENT_MANAGE: "payment:manage",
+  REVERSE_READ: "reverse:read",
+  REVERSE_MANAGE: "reverse:manage",
 } as const;
 
 export type PermissionCode = (typeof Permissions)[keyof typeof Permissions];

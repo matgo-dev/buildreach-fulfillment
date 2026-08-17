@@ -27,6 +27,7 @@ class AuditResourceType(str, Enum):
     CUSTOMS_DECLARATION = "customs_declaration"
     RECEIPT = "receipt"
     PAYMENT = "payment"
+    REVERSE_REQUEST = "reverse_request"
 
 
 class AuditAction(str, Enum):
@@ -66,6 +67,9 @@ class AuditAction(str, Enum):
     CLAIM = "CLAIM"
     ALLOCATE = "ALLOCATE"
     REVERSE = "REVERSE"
+    APPROVE = "APPROVE"
+    REJECT = "REJECT"
+    COMPLETE = "COMPLETE"
     LOGIN_SUCCESS = "LOGIN_SUCCESS"
     LOGIN_FAILED = "LOGIN_FAILED"
     LOGIN_LOCKED = "LOGIN_LOCKED"
