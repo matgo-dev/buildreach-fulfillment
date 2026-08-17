@@ -1,7 +1,7 @@
 """撤账 × 核销联动。
 
 0811 后出库单 ISSUED 为正向终点,不再存在“反核销后撤销出库”路径。
-入库侧仍保留应付核销挡撤销入库的基础回退能力。
+入库侧应付已前移到创建入库单,撤销入库只撤销库存事实,不再作废应付。
 """
 import pytest
 
@@ -33,23 +33,16 @@ async def test_outbound_revert_rejected_even_after_receipt_allocation_reversed(
     assert ok.status_code == 409 and ok.json()["code"] == 41901
 
 
-async def test_payment_allocation_blocks_inbound_unreceive_then_reverse_unblocks(
+async def test_payment_allocation_does_not_block_inventory_unreceive(
         client, db_session, sales_headers, purchaser_headers, finance_headers):
-    ctx, supplier_id, pay_id, amount = await make_open_payable(
+    ctx, supplier_id, pay_id, _amount = await make_open_payable(
         client, db_session, sales_headers, purchaser_headers, po_price="5.00", received=10)
     inbound_id = ctx["inbound_order_id"]
     reg = await client.post("/api/v1/payments", headers=finance_headers, json={
         "supplier_id": supplier_id, "currency": "USD", "amount": "50.00", "paid_at": "2026-07-21"})
-    alloc_id = reg.json()["data"]["allocations"][0]["id"]
+    assert reg.status_code == 200, reg.text
 
-    # 应付已被核销 → 撤销入库被拦 41708
-    blocked = await client.post(f"/api/v1/inbound-orders/{inbound_id}/unreceive",
-                                headers=purchaser_headers, json={})
-    assert blocked.status_code == 409
-    assert blocked.json()["code"] == 41708
-
-    # 反核销退回 → 撤销入库放行
-    await client.delete(f"/api/v1/payment-allocations/{alloc_id}", headers=finance_headers)
     ok = await client.post(f"/api/v1/inbound-orders/{inbound_id}/unreceive",
                            headers=purchaser_headers, json={})
     assert ok.status_code == 200, ok.text
+    assert ok.json()["data"]["payable"]["id"] == pay_id

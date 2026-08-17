@@ -44,7 +44,7 @@ def derive_payable_status(amount_original, amount_allocated) -> str:
 
 
 class Payable(Base, TimestampUpdateMixin):
-    """应付款账层(财务域全局表)。债务在货权转移(收货=入库确认)时成立。
+    """应付款账层(财务域全局表)。债务在供应商发货/我方拉货(创建入库单)时成立。
 
     🔴 整表红线域(供应商 + 成本):端点级 payable:read 门控,不做字段级脱敏。
     粒度 = 每张入库单一张(最贴近发票粒度又不引入发票单据)。幂等键 = 活动行偏唯一。
@@ -61,8 +61,7 @@ class Payable(Base, TimestampUpdateMixin):
         CheckConstraint(
             "amount_allocated >= 0 AND amount_allocated <= amount_original",
             name="ck_payables_allocated_range"),
-        # 幂等键(仅约束活动行):一张入库单至多一张活动 payable。撤销入库作废后可重收
-        # (作废行 voided_at 非空,退出偏唯一,与新活动行共存)。
+        # 幂等键(仅约束活动行):一张入库单至多一张活动 payable。
         Index("uq_payables_inbound_active", "inbound_order_id", unique=True,
               postgresql_where=text("voided_at IS NULL")),
         # 账龄 partial composite 索引(财务步 F1):自动核销候选(供应商+币种+未结清+账龄序)
@@ -87,7 +86,7 @@ class Payable(Base, TimestampUpdateMixin):
     supplier_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("suppliers.id", ondelete="RESTRICT"), nullable=False, index=True)
     currency: Mapped[str] = mapped_column(String(10), nullable=False)
-    # = Σ(行实收 qty × PO 行 unit_price)估算,逐行 quantize 2dp 再求和;P0 创建即定死不可变。
+    # = Σ(入库单行 qty × PO 行 unit_price)估算,逐行 quantize 2dp 再求和;P0 创建即定死不可变。
     amount_original: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
     # 已核销累计(付款/核销 = 财务步)。
     amount_allocated: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
@@ -97,11 +96,11 @@ class Payable(Base, TimestampUpdateMixin):
         Numeric(18, 2), Computed("amount_original - amount_allocated", persisted=True))
     # 账期主数据未建,P0 置空;账龄兜底 created_at。
     due_at: Mapped[date | None] = mapped_column(Date, nullable=True)
-    # void 轴(撤销入库置):非空 = 已作废,行留痕、不进余额与列表聚合。
+    # void 轴(后续逆向/财务冲正置):非空 = 已作废,行留痕、不进余额与列表聚合。
     voided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     voided_by: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, index=True)
     void_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # = 确认入库操作人(created_at 即应付成立时刻)。
+    # = 创建入库单操作人(created_at 即应付成立时刻)。
     created_by: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)

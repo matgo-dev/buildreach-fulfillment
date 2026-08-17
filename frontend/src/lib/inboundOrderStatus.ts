@@ -4,28 +4,27 @@
 import type { InboundOrderStatus } from "@/lib/inboundOrder";
 import type { ReceiptProgress } from "@/lib/purchaseOrder";
 
-/** 三态:在途(可编辑)/ 已入库(冻结,生成应付款)/ 已作废(终态)。 */
+/** 三态:在途(待确认入库)/ 已入库(库存已形成)/ 已作废(历史保留态)。 */
 export const INBOUND_ORDER_STATUS_META: Record<InboundOrderStatus, { label: string; color: string }> = {
   IN_TRANSIT: { label: "在途", color: "processing" },
   RECEIVED: { label: "已入库", color: "success" },
   CANCELLED: { label: "已作废", color: "default" },
 };
 
-// 镜像转移矩阵:IN_TRANSIT→{RECEIVED,CANCELLED} / RECEIVED→{IN_TRANSIT}(撤销入库) / CANCELLED→{}。
+// 镜像转移矩阵:IN_TRANSIT→{RECEIVED} / RECEIVED→{IN_TRANSIT}(撤销入库) / CANCELLED→{}。
 const INBOUND_ORDER_TRANSITIONS: Record<InboundOrderStatus, InboundOrderStatus[]> = {
-  IN_TRANSIT: ["RECEIVED", "CANCELLED"],
+  IN_TRANSIT: ["RECEIVED"],
   RECEIVED: ["IN_TRANSIT"],
   CANCELLED: [],
 };
 
-/** 镜像可编辑集:仅在途可整单重写。 */
-export const inboundOrderEditable = (s: InboundOrderStatus): boolean => s === "IN_TRANSIT";
+/** 创建入库单即产生应付,当前不再提供裸编辑入口。 */
+export const inboundOrderEditable = (_s: InboundOrderStatus): boolean => false;
 
 /** 详情页状态门禁动作(镜像转移矩阵)。 */
 export const inboundOrderReceivable = (s: InboundOrderStatus): boolean =>
   INBOUND_ORDER_TRANSITIONS[s].includes("RECEIVED");
-export const inboundOrderCancellable = (s: InboundOrderStatus): boolean =>
-  INBOUND_ORDER_TRANSITIONS[s].includes("CANCELLED");
+export const inboundOrderCancellable = (_s: InboundOrderStatus): boolean => false;
 /** 撤销入库 = RECEIVED→IN_TRANSIT。 */
 export const inboundOrderUnreceivable = (s: InboundOrderStatus): boolean =>
   INBOUND_ORDER_TRANSITIONS[s].includes("IN_TRANSIT");

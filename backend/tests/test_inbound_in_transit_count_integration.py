@@ -51,10 +51,10 @@ async def test_list_in_transit_count_counts_only_in_transit(
     assert it["in_transit_count"] == 1
     assert it["receipt_progress"] == "PARTIALLY_RECEIVED"
 
-    # 作废另一张在途 → 在途归零(已作废不计)。
+    # 创建入库单后已产生应付,作废被边界拦截 → 在途仍保留。
     cx = await client.post(f"/api/v1/inbound-orders/{inb_b}/cancel",
                            headers=purchaser_headers, json={})
-    assert cx.status_code == 200, cx.text
+    assert cx.status_code == 409 and cx.json()["code"] == 41712
     it = await _po_item(client, purchaser_headers, po_id)
-    assert it["in_transit_count"] == 0
+    assert it["in_transit_count"] == 1
     assert it["receipt_progress"] == "PARTIALLY_RECEIVED"

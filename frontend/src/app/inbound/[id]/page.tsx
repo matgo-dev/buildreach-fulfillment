@@ -9,7 +9,6 @@ import {
   Descriptions,
   Input,
   Modal,
-  Popconfirm,
   Space,
   Table,
 } from "antd";
@@ -32,13 +31,10 @@ import {
 } from "@/lib/inboundOrder";
 import {
   INBOUND_ORDER_STATUS_META,
-  inboundOrderCancellable,
-  inboundOrderEditable,
   inboundOrderReceivable,
   inboundOrderUnreceivable,
 } from "@/lib/inboundOrderStatus";
 import { PAYABLE_STATUS_META, formatAmount } from "@/lib/payable";
-import { InboundOrderBuilder } from "@/components/inbound/InboundOrderBuilder";
 
 /** 41710 穿仓明细行。后端 data 形状:{ items: [{ sales_order_no, name_snapshot, available_qty }] }(镜像 41902)。 */
 interface UnreceiveNegative {
@@ -68,7 +64,6 @@ export default function InboundOrderDetailPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [editing, setEditing] = useState(false);
   // 确认入库对话框:到货日默认今天。
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [arrivedAt, setArrivedAt] = useState(dayjs());
@@ -94,20 +89,7 @@ export default function InboundOrderDetailPage() {
     load();
   }, [load]);
 
-  async function act(fn: () => Promise<unknown>, ok: string) {
-    setBusy(true);
-    try {
-      await fn();
-      message.success(ok);
-      load();
-    } catch (e) {
-      message.error(resolveBizError(e, "操作失败"));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  // 对话框动作:成功才关闭(act 内吞异常,故用返回布尔判定)。
+  // 对话框动作:成功才关闭(内部吞异常,故用返回布尔判定)。
   async function actDialog(fn: () => Promise<unknown>, ok: string): Promise<boolean> {
     setBusy(true);
     try {
@@ -160,9 +142,6 @@ export default function InboundOrderDetailPage() {
         extra={
           <Can perm={Permissions.INBOUND_MANAGE}>
             <Space>
-              {inboundOrderEditable(order.status) && (
-                <Button onClick={() => setEditing(true)}>编辑</Button>
-              )}
               {inboundOrderReceivable(order.status) && (
                 <Button
                   type="primary"
@@ -186,18 +165,6 @@ export default function InboundOrderDetailPage() {
                 >
                   撤销入库
                 </Button>
-              )}
-              {inboundOrderCancellable(order.status) && (
-                <Popconfirm
-                  title="作废该入库单?"
-                  description="作废后进入终态,释放对采购单的在途占用。"
-                  okButtonProps={{ danger: true }}
-                  onConfirm={() => act(() => inboundOrderApi.cancel(id), "已作废")}
-                >
-                  <Button danger loading={busy}>
-                    作废
-                  </Button>
-                </Popconfirm>
               )}
             </Space>
           </Can>
@@ -277,19 +244,7 @@ export default function InboundOrderDetailPage() {
         </Card>
       )}
 
-      <InboundOrderBuilder
-        open={editing}
-        mode="edit"
-        purchaseOrderId={order.purchase_order_id}
-        orderId={id}
-        onClose={() => setEditing(false)}
-        onSaved={() => {
-          setEditing(false);
-          load();
-        }}
-      />
-
-      {/* 确认入库:危险后果讲清(DESIGN §7 危险操作)。 */}
+      {/* 确认入库:只确认库存事实,应付已在创建入库单时生成。 */}
       <Modal
         title="确认入库"
         open={receiveOpen}
@@ -305,7 +260,7 @@ export default function InboundOrderDetailPage() {
         }}
       >
         <Space orientation="vertical" style={{ width: "100%" }}>
-          <span>确认后将生成应付账款,数量冻结,不可再编辑。</span>
+          <span>确认后将形成销售单维度库存;供应商应付已在创建入库单时生成。</span>
           <div>
             <div style={{ marginBottom: 4 }}>实际到货日</div>
             <DatePicker
@@ -360,7 +315,7 @@ export default function InboundOrderDetailPage() {
         }}
       >
         <Space orientation="vertical" style={{ width: "100%" }}>
-          <span>撤销后回到在途态,对应应付账款将作废。若应付已有核销则不可撤销。</span>
+          <span>撤销后回到在途态,只撤销库存事实;供应商应付保持不变。</span>
           {unreceiveBlocked ? (
             <OperationBlockedNotice
               title="无法撤销:库存已被出库消费"

@@ -9,7 +9,7 @@ import { qs } from "./qs";
 /** 派生状态:未付 / 部分付 / 已付清(后端由 amount_* 单一口径派生)。 */
 export type PayableStatus = "UNPAID" | "PARTIALLY_PAID" | "PAID";
 
-/** 入库详情内嵌 payable 块(仅 RECEIVED 且持 payable:read 时下发)。 */
+/** 入库详情内嵌 payable 块(有活动应付且持 payable:read 时下发)。 */
 export interface PayableOut {
   id: number;
   inbound_order_id: number;

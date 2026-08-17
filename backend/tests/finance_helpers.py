@@ -27,7 +27,7 @@ async def make_open_receivable(client, db_session, sales_headers, purchaser_head
 
 async def make_open_payable(client, db_session, sales_headers, purchaser_headers, *,
                             po_price="5.00", received=10, sku_codes=("SKUFIN_P",)):
-    """造一张 UNPAID 应付:走采购→收货链(入库确认 @ 收货生成应付)。
+    """造一张 UNPAID 应付:走采购→入库链(创建入库单即生成应付)。
     返回 (ctx, supplier_id, payable_id, amount)。payable.currency = USD(PO 币种)。"""
     ctx = await setup_available_stock(client, db_session, sales_headers, purchaser_headers,
                                       sku_codes=sku_codes, so_qty=received, unit_price="9.00",

@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>正向与逆向流程确认问题</title>
+  <style>
+    :root {
+      --brand: #16834a;
+      --ink: #17324d;
+      --muted: #68788c;
+      --line: #d9e2ec;
+      --bg: #f5f7fa;
+      --card: #ffffff;
+      --warn: #b7791f;
+      --warn-bg: #fff8e6;
+      --warn-line: #f4d58d;
+      --danger: #b42318;
+      --danger-bg: #fff1f0;
+      --info: #1f6feb;
+      --info-bg: #edf5ff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.6;
+    }
+
+    .page {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 32px 36px 56px;
+    }
+
+    .hero {
+      display: grid;
+      gap: 12px;
+      margin-bottom: 22px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 30px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    .lead {
+      max-width: 980px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 6px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--card);
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .pill::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--brand);
+    }
+
+    .pill.warn::before {
+      background: var(--warn);
+    }
+
+    .pill.danger::before {
+      background: var(--danger);
+    }
+
+    .pill.info::before {
+      background: var(--info);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .section {
+      margin-top: 18px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--card);
+    }
+
+    .section.warning {
+      background: var(--warn-bg);
+      border-color: var(--warn-line);
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.35;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 14px 0 8px;
+      font-size: 16px;
+      line-height: 1.4;
+      letter-spacing: 0;
+    }
+
+    .tag {
+      flex: none;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: var(--info-bg);
+      color: var(--info);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .tag.warn {
+      background: var(--warn-bg);
+      color: var(--warn);
+      border: 1px solid var(--warn-line);
+    }
+
+    .tag.danger {
+      background: var(--danger-bg);
+      color: var(--danger);
+    }
+
+    .summary {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .flow {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: stretch;
+      margin-top: 12px;
+    }
+
+    .node {
+      min-width: 150px;
+      max-width: 210px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--brand);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .node.money {
+      border-left-color: var(--warn);
+    }
+
+    .node.goods {
+      border-left-color: var(--info);
+    }
+
+    .node.danger {
+      border-left-color: var(--danger);
+    }
+
+    .node-title {
+      display: block;
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.35;
+    }
+
+    .node-sub {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .arrow {
+      align-self: center;
+      color: var(--muted);
+      font-size: 18px;
+      padding-top: 2px;
+    }
+
+    .questions {
+      display: grid;
+      gap: 10px;
+      margin: 12px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .question {
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .q-title {
+      display: block;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--ink);
+    }
+
+    .q-note {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .decision {
+      padding: 12px;
+      border-radius: 8px;
+      background: #fff;
+      border: 1px solid var(--line);
+    }
+
+    .decision strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .decision p,
+    .decision ul {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .decision ul {
+      padding-left: 18px;
+    }
+
+    @media (max-width: 860px) {
+      .page {
+        padding: 22px 16px 40px;
+      }
+
+      .grid,
+      .two-col {
+        grid-template-columns: 1fr;
+      }
+
+      .node {
+        max-width: none;
+        width: 100%;
+      }
+
+      .arrow {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <h1>正向与逆向流程确认问题</h1>
+      <p class="lead">
+        本页用于确认正向节点、基础回退边界、出库前取消、出库后退货退款，以及第一版财务处理模型。
+        核心口径：入库单创建后产生供应商应付，客户应收仍在确认出库时产生；逆向单据边界由是否涉及钱决定，
+        出库边界由原正向履约单据是否还允许被关闭/取消决定。
+      </p>
+      <div class="legend">
+        <span class="pill">业务单据</span>
+        <span class="pill warn">钱 / 财务</span>
+        <span class="pill info">货 / 库存</span>
+        <span class="pill danger">履约终止</span>
+      </div>
+    </header>
+
+    <section class="section warning">
+      <div class="section-title">
+        <h2>一、先确认两个边界不要混用</h2>
+        <span class="tag warn">核心口径</span>
+      </div>
+      <div class="two-col">
+        <div class="decision">
+          <strong>边界一：财务事实边界</strong>
+          <p>
+            如果正向改成“创建入库单 = 确认供应商发货/我方拉货 = 产生供应商应付”，
+            那从这个点开始，后续任何取消/退货/退款只要涉及钱，都必须有逆向申请或逆向财务单据承载。
+            客户预收可以在销售单后独立存在，但不驱动履约节点；客户应收仍在确认出库时产生。
+          </p>
+        </div>
+        <div class="decision">
+          <strong>边界二：履约终止边界</strong>
+          <p>
+            出库单形成/装柜出库的意义不是“从这里才开始需要逆向单据”，而是原正向履约链路到这里终止。
+            出库后逆向只能关联原单据，不能把原销售、采购、入库、出库单倒回取消。
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-title">
+        <h2>二、建议确认后的三段式逆向阶段</h2>
+        <span class="tag">阶段划分</span>
+      </div>
+      <div class="flow">
+        <div class="node">
+          <span class="node-title">发货/拉货确认前</span>
+          <span class="node-sub">履约单据回滚，预收另行处理</span>
+        </div>
+        <span class="arrow">→</span>
+        <div class="node money">
+          <span class="node-title">入库单创建后，出库单形成前</span>
+          <span class="node-sub">已有供应商应付，可关闭原履约链</span>
+        </div>
+        <span class="arrow">→</span>
+        <div class="node danger">
+          <span class="node-title">出库单形成后</span>
+          <span class="node-sub">售后逆向，原正向单据不回滚</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="grid">
+      <section class="section">
+        <div class="section-title">
+          <h2>三、正向流程口径</h2>
+          <span class="tag">正向草案</span>
+        </div>
+        <p class="summary">目标是把应付前移到入库单创建，应收保持在确认出库。</p>
+        <ul class="questions">
+          <li class="question">
+            <span class="q-title">1. 入库单创建是否等同于确认供应商发货/我方拉货？</span>
+            <span class="q-note">如果是，入库单创建就不再只是登记在途，而是外部履约事实发生。</span>
+          </li>
+          <li class="question">
+            <span class="q-title">2. 入库单创建时只产生供应商应付，客户应收仍在确认出库时产生。</span>
+            <span class="q-note">应付从确认入库前移到创建入库单；应收不前移。</span>
+          </li>
+          <li class="question">
+            <span class="q-title">3. 客户预收不作为正向流程节点，只作为后续应收核销对象。</span>
+            <span class="q-note">销售单成立后可以有客户预收；确认出库产生应收后，再用收款单或既有预收核销。</span>
+          </li>
+        </ul>
+      </section>
+
+      <section class="section">
+        <div class="section-title">
+          <h2>四、基础回退需要确认</h2>
+          <span class="tag">纯状态回滚</span>
+        </div>
+        <p class="summary">基础回退只讨论“不涉及供应商应付、不涉及外部发货事实”的履约单据范围；客户预收如已发生，按独立财务事项处理。</p>
+        <ul class="questions">
+          <li class="question">
+            <span class="q-title">1. 纯状态回滚是否只允许到发货/拉货确认前？</span>
+            <span class="q-note">建议口径：报价、销售、采购阶段，如果供应商未动货，可以逐级取消或作废。</span>
+          </li>
+          <li class="question">
+            <span class="q-title">2. 一旦创建入库单并产生供应商应付，是否就不再允许裸状态回滚？</span>
+            <span class="q-note">建议口径：只要涉及应付、预付、预收退回、退款等钱的处理，就必须有逆向申请或逆向财务单据。</span>
+          </li>
+          <li class="question">
+            <span class="q-title">3. 当前平台已有的单据取消状态是否够用，还是需要新增“履约中取消”状态？</span>
+            <span class="q-note">现状是销售、采购、入库、出库各自有取消状态，但没有统一逆向申请承载整条链路。</span>
+          </li>
+        </ul>
+      </section>
+    </div>
+
+    <section class="section">
+      <div class="section-title">
+        <h2>五、出库边界需要确认</h2>
+        <span class="tag danger">履约终止边界</span>
+      </div>
+      <p class="summary">
+        出库边界要确认的是：逆向处理后，原正向单据还能不能被改成取消/关闭/退回完成。
+      </p>
+      <ul class="questions">
+        <li class="question">
+          <span class="q-title">1. “出库单形成”具体指创建出库单 DRAFT，还是确认出库 ISSUED？</span>
+          <span class="q-note">建议第一版谨慎确认。如果业务上说“货装进柜/出库”，系统上更接近 ISSUED；如果只要建出库单就锁原流程，也要明确。</span>
+        </li>
+        <li class="question">
+          <span class="q-title">2. 出库前取消完成后，原销售单、采购单、入库单是否允许进入取消/关闭/退回完成？</span>
+          <span class="q-note">这是出库前取消和出库后售后的本质区别。</span>
+        </li>
+        <li class="question">
+          <span class="q-title">3. 出库后退货退款是否只能新增售后逆向链路，原正向单据保持原状态？</span>
+          <span class="q-note">建议口径：原销售、采购、入库、出库单只作为历史依据被关联，不再倒回。</span>
+        </li>
+        <li class="question">
+          <span class="q-title">4. 已装柜未封柜、已封柜、已离港、客户已收货，是否都是出库后售后流程的子状态？</span>
+          <span class="q-note">建议第一版不作为主流程边界，只影响审批层级、费用和附件要求。</span>
+        </li>
+      </ul>
+    </section>
+
+    <div class="grid">
+      <section class="section">
+        <div class="section-title">
+          <h2>六、MVP 逆向入口一：出库前取消</h2>
+          <span class="tag">履约中取消</span>
+        </div>
+        <p class="summary">适用：入库单创建后、出库单形成前。已经涉及供应商应付，所以必须有逆向单据。</p>
+        <ul class="questions">
+          <li class="question">
+            <span class="q-title">1. 是否新建“出库前取消/履约中取消申请单”？</span>
+            <span class="q-note">建议关联销售单、采购单、入库单，并记录供应商确认结果。</span>
+          </li>
+          <li class="question">
+            <span class="q-title">2. 货未到货代仓和货已到货代仓是否共用一个流程？</span>
+            <span class="q-note">建议共用；差异只在货已入仓时多处理销售单维度库存。</span>
+          </li>
+          <li class="question">
+            <span class="q-title">3. 供应商接受时，是否生成供应商退货单或在途取消单？</span>
+            <span class="q-note">未到仓：在途拦截/退回；已到仓：从销售单库存扣减并退供应商。</span>
+          </li>
+          <li class="question">
+            <span class="q-title">4. 供应商不接受时，公司不承担是否直接驳回客户取消？</span>
+            <span class="q-note">如果驳回，原履约链继续，原供应商应付继续存在；客户侧如有预收，按是否同意退款另行处理。</span>
+          </li>
+          <li class="question">
+            <span class="q-title">5. 供应商不接受但公司承担时，是否生成费用/损失并处理客户预收退回或退款？</span>
+            <span class="q-note">供应商侧不退钱，应付不冲正；出库前通常未产生客户应收，客户侧主要处理预收退回或退款。</span>
+          </li>
+        </ul>
+      </section>
+
+      <section class="section">
+        <div class="section-title">
+          <h2>七、MVP 逆向入口二：出库后退货退款</h2>
+          <span class="tag danger">售后逆向</span>
+        </div>
+        <p class="summary">适用：出库单形成后。原正向单据不回滚，只新增售后逆向流程。</p>
+        <ul class="questions">
+          <li class="question">
+            <span class="q-title">1. 是否新建“客户退货退款申请单”？</span>
+            <span class="q-note">建议关联销售单和出库单，并追溯入库单、采购单。</span>
+          </li>
+          <li class="question">
+            <span class="q-title">2. 供应商接受时，生成供应商退货单、换货单，还是第一版只做退货？</span>
+            <span class="q-note">建议 MVP 先支持退货退款主线，换货/补货作为后续扩展。</span>
+          </li>
+          <li class="question">
+            <span class="q-title">3. 供应商不接受但公司承担时，是否按费用/赔付处理？</span>
+            <span class="q-note">客户侧退款或应收冲销；供应商侧采购成本不冲正。</span>
+          </li>
+          <li class="question">
+            <span class="q-title">4. 客户退回货是否默认不进入自由库存？</span>
+            <span class="q-note">建议第一版明确不进自由库存，按退供应商/换货/待处置处理。</span>
+          </li>
+          <li class="question">
+            <span class="q-title">5. 出库后不同物流状态是否只影响审批和费用？</span>
+            <span class="q-note">已装柜未封柜、已封柜、已离港、客户已收货，不建议第一版拆成不同主流程。</span>
+          </li>
+        </ul>
+      </section>
+    </div>
+
+    <section class="section">
+      <div class="section-title">
+        <h2>八、MVP 财务处理模型</h2>
+        <span class="tag warn">先走通一条</span>
+      </div>
+      <p class="summary">
+        第一版不要把预收、预付、自动反核销、贷项通知、红字发票全部做满。建议按出库前/出库后分开：
+        出库前重点处理预收退回和供应商应付冲销，出库后再处理客户应收冲销和退款。
+      </p>
+      <div class="two-col" style="margin-top: 12px;">
+        <div class="decision">
+          <strong>客户侧</strong>
+          <ul>
+            <li>出库前未产生应收：已收款则做退款/预收退回，未收款则不做应收冲销。</li>
+            <li>出库后已产生应收：未付款则生成应收冲销单。</li>
+            <li>出库后已付款或部分付款：已付部分退款，未付部分冲销。</li>
+          </ul>
+        </div>
+        <div class="decision">
+          <strong>供应商侧</strong>
+          <ul>
+            <li>供应商接受且未付款：生成应付冲销单。</li>
+            <li>供应商接受且已付款：生成供应商退款单。</li>
+            <li>供应商不接受：应付不冲正，已付款作为采购成本保留。</li>
+          </ul>
+        </div>
+      </div>
+      <ul class="questions">
+        <li class="question">
+          <span class="q-title">1. 第一版是否确认客户侧按阶段处理：出库前预收退回/退款，出库后退款单 + 应收冲销？</span>
+          <span class="q-note">这样可以保留“客户预收不驱动流程节点”的口径，同时保证钱有单据承载。</span>
+        </li>
+        <li class="question">
+          <span class="q-title">2. 第一版是否确认使用“供应商退款单 + 应付冲销”作为供应商侧主模型？</span>
+          <span class="q-note">供应商不退钱时不做供应商侧冲销，由公司承担差额。</span>
+        </li>
+        <li class="question">
+          <span class="q-title">3. 公司承担金额是否先落“费用/损失”口径？</span>
+          <span class="q-note">后续可再细分赔付、质量损失、运费损失、坏账等科目。</span>
+        </li>
+      </ul>
+    </section>
+
+    <section class="section">
+      <div class="section-title">
+        <h2>九、第一版开发范围建议</h2>
+        <span class="tag">最小可行单元</span>
+      </div>
+      <div class="two-col">
+        <div class="decision">
+          <strong>先做</strong>
+          <ul>
+            <li>正向：入库单创建时产生供应商应付；确认出库时产生客户应收。</li>
+            <li>基础回退：发货/拉货确认前的纯状态回滚。</li>
+            <li>逆向入口一：出库前取消/履约中取消。</li>
+            <li>逆向入口二：出库后客户退货退款。</li>
+            <li>财务：退款单/供应商退款单 + 应收应付冲销 + 公司费用/损失。</li>
+          </ul>
+        </div>
+        <div class="decision">
+          <strong>后做</strong>
+          <ul>
+            <li>自动匹配预收、预付。</li>
+            <li>复杂反核销和多单分摊。</li>
+            <li>换货、补货、多级质量责任。</li>
+            <li>贷项通知、红字发票完整模型。</li>
+            <li>复杂审批流和金额阈值升级。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -15,7 +15,7 @@
   14 | 报价       | 414xx
   15 | 供应商     | 415xx
   16 | 采购单     | 416xx
-  17 | 入库/应付  | 417xx(含 41710 撤销入库穿仓守卫)
+  17 | 入库/应付  | 417xx(含 41710 撤销入库穿仓守卫;41712 入库财务边界)
   18 | 销售单     | 418xx
   19 | 出库单     | 419xx
   20 | 柜/发运    | 420xx(42002 非法转移·单义;42003/42004 封柜守卫;42005 字段门禁;42006 编辑冲突;
@@ -409,6 +409,13 @@ class InboundDuplicateLineError(BusinessError):
 
     def __init__(self, message: str = "Duplicate purchase order line in inbound payload"):
         super().__init__(status.HTTP_400_BAD_REQUEST, 41711, message)
+
+
+class InboundFinancialBoundaryError(BusinessError):
+    """创建入库单后已产生供应商应付,不可再走裸编辑/作废回退。"""
+
+    def __init__(self, message: str = "Inbound order has generated payable; use reverse workflow"):
+        super().__init__(status.HTTP_409_CONFLICT, 41712, message)
 
 
 # 模块段 18 = 销售单(SO 状态机)。见 db/models/sales_order.py SalesOrderStatus。

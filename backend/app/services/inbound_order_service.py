@@ -1,5 +1,5 @@
 """入库单服务(ASN 收货):基于 CONFIRMED PO 建入库单 + 超收守卫 + 状态机 + 收货进度派生
-+ 确认入库生成应付款 + 撤销入库作废应付款。
++ 创建入库单生成应付款 + 确认入库只产生库存口径。
 
 核心不变量(镜像 purchase_order_service 范式):
 - **收货量单一口径**:
@@ -9,7 +9,7 @@
 - **超收守卫** `assert_within_po_line_quota`:同事务内 `SELECT ... FOR UPDATE` 锁 PO 行(额度基准)
   再读聚合再写入。按 po_line_id 升序锁(消死锁环,镜像 _payload_qty_by_poline)。
 - **状态转移竞态**:receive/unreceive/cancel/save 一律先锁 inbound 头行 FOR UPDATE 再做守卫。
-- **红线**:入库单据零成本列(契约 D3),service 只在确认入库时读 PO 行价算应付额,只落 payables。
+- **红线**:入库单据零成本列(契约 D3),service 在创建入库单时读 PO 行价算应付额,只落 payables。
 """
 from __future__ import annotations
 
@@ -18,7 +18,6 @@ from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import func, select, tuple_
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
@@ -28,19 +27,16 @@ from app.core.codegen import NumberScope, format_code
 from app.core.statemachine import assert_transition
 from app.core.exceptions import (
     InboundDuplicateLineError,
+    InboundFinancialBoundaryError,
     InboundLineNotInPurchaseOrderError,
-    InboundOrderEditConflictError,
     InboundOrderEmptyError,
     InboundOrderInvalidTransitionError,
     InboundOrderNotFoundError,
-    InboundOrderNotInTransitError,
     InboundOverReceiptError,
     InboundSourcePurchaseOrderInvalidError,
     InboundUnreceiveWouldGoNegativeError,
-    PayableAllocatedCannotUnreceiveError,
 )
 from app.db.models.inbound_order import (
-    INBOUND_ORDER_EDITABLE_STATUSES,
     INBOUND_ORDER_TRANSITIONS,
     InboundOrder,
     InboundOrderLine,
@@ -54,7 +50,7 @@ from app.db.models.purchase_order import (
     PurchaseOrderStatus,
 )
 from app.services.numbering import allocate
-from app.services.repo import assert_no_edit_conflict, get_or_404, paginate
+from app.services.repo import get_or_404, paginate
 
 _CENT = Decimal("0.01")
 
@@ -216,9 +212,7 @@ async def list_lines(db: AsyncSession, order_id: int) -> list[InboundOrderLine]:
 
 async def get_active_payable(db: AsyncSession, inbound_order_id: int, *,
                              for_update: bool = False) -> Payable | None:
-    """该入库单的活动 payable(voided_at IS NULL)。详情 payable 块用(默认不锁);
-    撤销入库路径须传 for_update=True 锁账行(D2):核销引擎锁 payment+payable,与撤账原本锁集
-    不相交,TOCTOU 大开。锁下重判 amount_allocated>0,与核销串行化。"""
+    """该入库单的活动 payable(voided_at IS NULL)。详情 payable 块用(默认不锁)。"""
     stmt = select(Payable).where(
         Payable.inbound_order_id == inbound_order_id, Payable.voided_at.is_(None))
     if for_update:
@@ -272,13 +266,39 @@ def _add_lines(db: AsyncSession, order: InboundOrder, lines: list[dict],
             sort_order=ln.get("sort_order", idx), remark=ln.get("remark")))
 
 
+async def _compute_payable_amount(db: AsyncSession, order: InboundOrder,
+                                  po_lines: dict[int, PurchaseOrderLine]) -> Decimal:
+    """应付原始额 = Σ(行 qty × PO 行 unit_price),逐行 quantize 2dp 再求和。
+    舍入模式显式 ROUND_HALF_UP(财务四舍五入惯例;不写则吃 Decimal 上下文默认 half-even)。"""
+    total = Decimal("0")
+    for ln in await list_lines(db, order.id):
+        unit_price = Decimal(str(po_lines[ln.purchase_order_line_id].unit_price))
+        total += (Decimal(str(ln.qty)) * unit_price).quantize(_CENT, rounding=ROUND_HALF_UP)
+    return total
+
+
+async def _create_payable_for_order(db: AsyncSession, order: InboundOrder,
+                                    po: PurchaseOrder,
+                                    po_lines: dict[int, PurchaseOrderLine],
+                                    actor_user_id: int) -> Payable:
+    """创建入库单即成立供应商应付。入库单/行不落成本,账层单独承载金额。"""
+    amount = await _compute_payable_amount(db, order, po_lines)
+    payable = Payable(
+        inbound_order_id=order.id, purchase_order_id=po.id, supplier_id=po.supplier_id,
+        currency=po.currency, amount_original=amount, amount_allocated=0,
+        created_by=actor_user_id)
+    db.add(payable)
+    await db.flush()
+    return payable
+
+
 async def create_order(db: AsyncSession, *, purchase_order_id, carrier_name, tracking_no,
                        shipped_at, eta, remark, lines: list[dict], actor_user_id,
                        actor_user_email, request: Request | None = None) -> InboundOrder:
     """基于 CONFIRMED PO 建一张 IN_TRANSIT 入库单,平移 PO 行快照。"""
     if not lines:
         raise InboundOrderEmptyError()
-    await _lock_confirmed_po(db, purchase_order_id)
+    po = await _lock_confirmed_po(db, purchase_order_id)
     po_lines = await _load_po_lines(db, purchase_order_id)
     _validate_lines_in_po(lines, po_lines, purchase_order_id)
     # 超收守卫:按 po_line 聚合本 payload 量,逐 po_line 校验(FOR UPDATE 锁额度基准)
@@ -294,99 +314,8 @@ async def create_order(db: AsyncSession, *, purchase_order_id, carrier_name, tra
     await db.flush()
     _add_lines(db, order, lines, po_lines)
     await db.flush()
+    payable = await _create_payable_for_order(db, order, po, po_lines, actor_user_id)
     await write_audit(db, resource_type=AuditResourceType.INBOUND_ORDER, action=AuditAction.CREATE,
-                      user_id=actor_user_id, user_email=actor_user_email,
-                      resource_id=order.id, request=request, commit=False)
-    await db.commit()
-    await db.refresh(order)
-    return order
-
-
-# ---------- 整单编辑(仅在途 + 超收重校验)----------
-
-
-async def save_order(db: AsyncSession, *, order_id, carrier_name, tracking_no, shipped_at,
-                     eta, remark, lines: list[dict], expected_updated_at, actor_user_id,
-                     actor_user_email, request: Request | None = None) -> InboundOrder:
-    """整单保存(仅 IN_TRANSIT):行整表重写 + 头程物流字段 + 乐观锁 + 超收重校验(exclude self)。
-    PO 归属不可改(单据身份)。先删后加避免复合 UNIQUE 误报。"""
-    order = await get_order_for_update(db, order_id)
-    if order.status not in INBOUND_ORDER_EDITABLE_STATUSES:
-        raise InboundOrderNotInTransitError()
-    assert_no_edit_conflict(order, expected_updated_at, InboundOrderEditConflictError)
-    if not lines:
-        raise InboundOrderEmptyError()
-    po_lines = await _load_po_lines(db, order.purchase_order_id)
-    _validate_lines_in_po(lines, po_lines, order.purchase_order_id)
-    for po_line_id, add_qty in _payload_qty_by_poline(lines).items():
-        await assert_within_po_line_quota(db, po_line_id, add_qty, exclude_inbound_id=order.id)
-
-    order.carrier_name, order.tracking_no = carrier_name, tracking_no
-    order.shipped_at, order.eta, order.remark = shipped_at, eta, remark
-    for row in await list_lines(db, order.id):
-        await db.delete(row)
-    await db.flush()
-    _add_lines(db, order, lines, po_lines)
-    await db.flush()
-    await write_audit(db, resource_type=AuditResourceType.INBOUND_ORDER, action=AuditAction.UPDATE,
-                      user_id=actor_user_id, user_email=actor_user_email,
-                      resource_id=order.id, request=request, commit=False)
-    await db.commit()
-    await db.refresh(order)
-    return order
-
-
-# ---------- 状态跃迁 ----------
-
-
-async def _compute_payable_amount(db: AsyncSession, order: InboundOrder,
-                                  po_lines: dict[int, PurchaseOrderLine]) -> Decimal:
-    """应付原始额 = Σ(行实收 qty × PO 行 unit_price),逐行 quantize 2dp 再求和。
-    舍入模式显式 ROUND_HALF_UP(财务四舍五入惯例;不写则吃 Decimal 上下文默认 half-even)。"""
-    total = Decimal("0")
-    for ln in await list_lines(db, order.id):
-        unit_price = Decimal(str(po_lines[ln.purchase_order_line_id].unit_price))
-        total += (Decimal(str(ln.qty)) * unit_price).quantize(_CENT, rounding=ROUND_HALF_UP)
-    return total
-
-
-async def receive_order(db: AsyncSession, *, order_id, arrived_at: date | None, actor_user_id,
-                        actor_user_email, request: Request | None = None) -> InboundOrder:
-    """确认入库(IN_TRANSIT→RECEIVED)。同事务生成 payable:读 PO 行价算金额,只落 payables。
-    幂等:头行锁 + 转移守卫先挡重复;活动行偏唯一为并发兜底(撞则转友好非法转移错)。"""
-    order = await get_order_for_update(db, order_id)
-    assert_transition(INBOUND_ORDER_TRANSITIONS, order.status, InboundOrderStatus.RECEIVED,
-                      InboundOrderInvalidTransitionError)
-    lines = await list_lines(db, order.id)
-    if not lines:
-        raise InboundOrderEmptyError()
-    po = (await db.execute(
-        select(PurchaseOrder).where(PurchaseOrder.id == order.purchase_order_id))).scalar_one()
-    po_lines = await _load_po_lines(db, order.purchase_order_id)
-
-    order.status = InboundOrderStatus.RECEIVED
-    # 兜底默认 = UTC 当天(全仓时间一律 UTC;前端确认框恒显式传日期,此默认仅直调 API 时触达。
-    # 不引入业务时区配置——无第二个消费者,属过度设计)。
-    order.arrived_at = arrived_at or datetime.now(timezone.utc).date()
-    await db.flush()
-
-    amount = await _compute_payable_amount(db, order, po_lines)
-    payable = Payable(
-        inbound_order_id=order.id, purchase_order_id=po.id, supplier_id=po.supplier_id,
-        currency=po.currency, amount_original=amount, amount_allocated=0,
-        created_by=actor_user_id)
-    db.add(payable)
-    try:
-        await db.flush()
-    except IntegrityError as e:
-        await db.rollback()
-        # 仅活动行偏唯一撞才转友好错(已有活动 payable = 已确认过;并发兜底,头锁下极罕见)。
-        # 其它完整性冲突如实上抛,不宽映射成「已确认」掩盖真实约束违规。
-        if "uq_payables_inbound_active" in str(e.orig or e):
-            raise InboundOrderInvalidTransitionError("入库单已确认,不可重复确认")
-        raise
-    # extra 带 payable_id:一张入库单撤销/重收后有多条 payable(作废+活动),审计要能定位本次动作对应哪条。
-    await write_audit(db, resource_type=AuditResourceType.INBOUND_ORDER, action=AuditAction.RECEIVE,
                       user_id=actor_user_id, user_email=actor_user_email,
                       resource_id=order.id, request=request,
                       extra={"payable_id": payable.id}, commit=False)
@@ -395,17 +324,57 @@ async def receive_order(db: AsyncSession, *, order_id, arrived_at: date | None, 
     return order
 
 
+# ---------- 整单编辑收口 ----------
+
+
+async def save_order(db: AsyncSession, *, order_id, carrier_name, tracking_no, shipped_at,
+                     eta, remark, lines: list[dict], expected_updated_at, actor_user_id,
+                     actor_user_email, request: Request | None = None) -> InboundOrder:
+    """创建入库单即产生应付,整单编辑已收口到后续逆向/调整流程。"""
+    await get_order_for_update(db, order_id)
+    raise InboundFinancialBoundaryError(
+        "创建入库单后已产生供应商应付,不可直接编辑入库单;请走履约中取消/调整流程")
+
+
+# ---------- 状态跃迁 ----------
+
+
+async def receive_order(db: AsyncSession, *, order_id, arrived_at: date | None, actor_user_id,
+                        actor_user_email, request: Request | None = None) -> InboundOrder:
+    """确认入库(IN_TRANSIT→RECEIVED)。只确认库存事实,不再生成 payable。"""
+    order = await get_order_for_update(db, order_id)
+    assert_transition(INBOUND_ORDER_TRANSITIONS, order.status, InboundOrderStatus.RECEIVED,
+                      InboundOrderInvalidTransitionError)
+    lines = await list_lines(db, order.id)
+    if not lines:
+        raise InboundOrderEmptyError()
+    order.status = InboundOrderStatus.RECEIVED
+    # 兜底默认 = UTC 当天(全仓时间一律 UTC;前端确认框恒显式传日期,此默认仅直调 API 时触达。
+    # 不引入业务时区配置——无第二个消费者,属过度设计)。
+    order.arrived_at = arrived_at or datetime.now(timezone.utc).date()
+    await db.flush()
+
+    payable = await get_active_payable(db, order.id)
+    await write_audit(db, resource_type=AuditResourceType.INBOUND_ORDER, action=AuditAction.RECEIVE,
+                      user_id=actor_user_id, user_email=actor_user_email,
+                      resource_id=order.id, request=request,
+                      extra={"payable_id": payable.id if payable is not None else None}, commit=False)
+    await db.commit()
+    await db.refresh(order)
+    return order
+
+
 async def unreceive_order(db: AsyncSession, *, order_id, void_reason: str | None, actor_user_id,
                           actor_user_email, request: Request | None = None) -> InboundOrder:
-    """撤销入库(RECEIVED→IN_TRANSIT)。守卫:payable 未核销(allocated=0)。
+    """撤销入库(RECEIVED→IN_TRANSIT)。只撤销库存事实,不作废应付。
 
     **收紧型写入口(库存契约 §2,还债)**:货可能已被出库消费,撤回将使某 (SO, SKU) 可发
     穿仓(available < 0)。故按契约锁序补校验:
       1. 无锁预读入库行→PO 行→SO 行链,取受影响 (so_id → {sku_id}) 与 distinct so_ids(按 id 排序);
       2. 依序锁各 SO 头 FOR UPDATE(统一锁序消死锁环)→ 再锁入库单头(锁序合规);
-      3. 转移守卫 + payable 守卫(原逻辑不变),状态翻转 IN_TRANSIT 并 flush;
+      3. 转移守卫,状态翻转 IN_TRANSIT 并 flush;
       4. **锁内派生校验**:翻转后受影响每 (so,sku) 的 available ≥ 0,违反 → 41710。
-    同事务作废(void)payable —— 置 voided_at/by/reason,行留痕不硬删。撤销后重收 = 新建活动 payable。"""
+    应付在创建入库单时已成立,撤销入库不再作废账行。"""
     from app.db.models.sales_order import SalesOrder, SalesOrderLine
     from app.services import stock_balance_service
 
@@ -425,17 +394,10 @@ async def unreceive_order(db: AsyncSession, *, order_id, void_reason: str | None
         await db.execute(select(SalesOrder).where(SalesOrder.id == so_id).with_for_update())
     order = await get_order_for_update(db, order_id)
 
-    # 3. 转移 + payable 守卫,翻转状态(RECEIVED 退出库存 inbound 臂)。
+    # 3. 转移,翻转状态(RECEIVED 退出库存 inbound 臂)。
     assert_transition(INBOUND_ORDER_TRANSITIONS, order.status, InboundOrderStatus.IN_TRANSIT,
                       InboundOrderInvalidTransitionError)
-    # D2:锁账行(FOR UPDATE)后重判核销——与核销引擎串行化,闭合 TOCTOU。
-    payable = await get_active_payable(db, order.id, for_update=True)
-    if payable is not None and Decimal(str(payable.amount_allocated)) > 0:
-        raise PayableAllocatedCannotUnreceiveError()
-    if payable is not None:
-        payable.voided_at = datetime.now(timezone.utc).replace(tzinfo=None)
-        payable.voided_by = actor_user_id
-        payable.void_reason = void_reason
+    payable = await get_active_payable(db, order.id)
     order.status = InboundOrderStatus.IN_TRANSIT
     order.arrived_at = None  # 回在途即未到货:清到货日,与状态语义一致(重收时重新填)
     await db.flush()
@@ -478,18 +440,10 @@ async def unreceive_order(db: AsyncSession, *, order_id, void_reason: str | None
 
 async def cancel_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_email,
                        request: Request | None = None) -> InboundOrder:
-    """作废入库单(仅 IN_TRANSIT;释放 quota)。已入库须先撤销入库再作废。"""
-    order = await get_order_for_update(db, order_id)
-    assert_transition(INBOUND_ORDER_TRANSITIONS, order.status, InboundOrderStatus.CANCELLED,
-                      InboundOrderInvalidTransitionError)
-    order.status = InboundOrderStatus.CANCELLED
-    await db.flush()
-    await write_audit(db, resource_type=AuditResourceType.INBOUND_ORDER, action=AuditAction.CANCEL,
-                      user_id=actor_user_id, user_email=actor_user_email,
-                      resource_id=order.id, request=request, commit=False)
-    await db.commit()
-    await db.refresh(order)
-    return order
+    """作废入库单已收口:创建入库单即产生应付,不可裸作废回退。"""
+    await get_order_for_update(db, order_id)
+    raise InboundFinancialBoundaryError(
+        "创建入库单后已产生供应商应付,不可直接作废;请走履约中取消/逆向申请")
 
 
 # ---------- 可收行(建单器数据源)----------
