@@ -67,8 +67,15 @@ export function SpuForm({
   const specRef = useRef<SpecEditorHandle>(null);
 
   useEffect(() => {
-    if (open) catalogApi.categoriesTree().then((r) => setCats(buildTreeSelect(r.items)));
-  }, [open]);
+    if (!open || cats.length > 0) return;
+    let alive = true;
+    catalogApi.categoriesTree().then((r) => {
+      if (alive) setCats(buildTreeSelect(r.items));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [open, cats.length]);
 
   useEffect(() => {
     if (!open) return;

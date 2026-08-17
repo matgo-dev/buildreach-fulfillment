@@ -14,3 +14,26 @@ body {
   @apply bg-slate-50 text-slate-900 antialiased;
   font-family: ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
+
+.category-admin-tree .ant-tree-treenode {
+  width: 100%;
+  padding: 1px 0;
+}
+
+.category-admin-tree .ant-tree-node-content-wrapper {
+  min-height: 32px;
+  border-radius: 6px;
+  padding: 4px 8px;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.category-admin-tree .ant-tree-node-content-wrapper:hover {
+  background: #eef6f2;
+}
+
+.category-admin-tree .ant-tree-node-selected,
+.category-admin-tree .ant-tree-node-selected:hover {
+  background: #d9eadf;
+}
