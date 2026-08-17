@@ -2,8 +2,8 @@
 + 确认出库(唯一扣库存事件,锁内派生可发闸)+ 同事务生成应收款。
 
 核心不变量:
-- **可发单一口径**:锁内校验只调 `stock_balance_service.available_by_sku`(复用
-  `_balance_subquery`),不另写聚合。available = Σ入库(RECEIVED) − Σ出库(ISSUED)。
+- **可发单一口径**:锁内校验只调 `stock_balance_service.available_by_sku`,读取
+  `inventory_balances` 落库余额。available = inbound_qty − outbound_qty。
 - **并发=悲观锁(契约 §2)**:确认出库事务内锁序 **SO 头 → 出库单头**;
   草稿不扣库存,ISSUED 才计。ISSUED 是正向履约终点;0812 退货/冲正单据上线前,
   出库后异常只能走管理员受控线下处理。
@@ -48,7 +48,7 @@ from app.db.models.customer import Customer
 from app.db.models.receivable import Receivable
 from app.db.models.sales_order import SalesOrder, SalesOrderLine, SalesOrderStatus
 from app.db.models.shipment_order import ShipmentOrder, ShipmentOrderStatus
-from app.services import stock_balance_service
+from app.services import stock_balance_service, stock_ledger_service
 from app.services.numbering import allocate
 from app.services.repo import assert_no_edit_conflict, get_or_404, paginate
 
@@ -314,6 +314,9 @@ async def confirm_order(db: AsyncSession, *, order_id, actor_user_id, actor_user
     order.status = OutboundOrderStatus.ISSUED
     order.issued_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await db.flush()
+    await stock_ledger_service.record_outbound_issue(
+        db, outbound_order_id=order.id, occurred_at=order.issued_at,
+        actor_user_id=actor_user_id)
 
     amount = _compute_receivable_amount(lines, so_lines)
     receivable = Receivable(

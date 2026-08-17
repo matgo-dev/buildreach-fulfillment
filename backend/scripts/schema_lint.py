@@ -28,6 +28,9 @@ FK_COLUMN_ALLOWLIST = {
     ("audit_logs", "resource_id"),
     # 角色作用域预留多态字段,由 scope 决定目标域。
     ("roles", "scope_id"),
+    # 库存流水多态来源:由 source_type + source_id/source_line_id 指向入库/出库单据。
+    ("inventory_movements", "source_id"),
+    ("inventory_movements", "source_line_id"),
 }
 
 MONEY_AND_QUANTITY_HINTS = ("amount", "qty", "quantity", "price", "total", "balance")

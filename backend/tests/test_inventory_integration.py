@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy import select
 
 from app.db.models.sku import Sku
+from app.db.models.stock import InventoryBalance, InventoryMovement, InventoryMovementType
 from tests.inventory_helpers import (
     create_supplier,
     find_line,
@@ -22,6 +23,7 @@ from tests.inventory_helpers import (
     rows_by_sku,
     seed_inventory_catalog,
 )
+from tests.outbound_helpers import create_and_confirm_outbound, create_shipment
 
 pytestmark = pytest.mark.asyncio
 
@@ -317,3 +319,65 @@ async def test_internal_projection_renders_ui_language_not_document_language(
     row = rows_by_sku(page["items"])[sku.id]
     assert row["unit"] == "包", f"单位应按界面语言取中文,实得 {row['unit']!r}"
     assert row["name"] == "工字钢", f"品名应按界面语言取中文,实得 {row['name']!r}"
+
+
+async def test_stock_movements_and_balance_are_persisted(
+        client, db_session, sales_headers, purchaser_headers, logistics_headers):
+    """库存落库:确认入库/撤销入库/重收/确认出库都写流水,余额保持销售单维度。"""
+    cust, [sku] = await seed_inventory_catalog(db_session, sku_codes=("SKUINV_LEDGER",))
+    so_id, so_lines = await make_confirmed_so(
+        client, sales_headers, cust, [{"sku_id": sku.id, "unit_price": "9.00", "qty": 10}])
+    supplier = await create_supplier(client, purchaser_headers)
+    po_id, po_lines = await make_confirmed_po(
+        client, purchaser_headers, source_sales_order_id=so_id, so_lines=so_lines,
+        supplier=supplier, lines=[{"source_sales_order_line_id": so_lines[0]["id"],
+                                   "qty": 10, "unit_price": "5.00"}])
+
+    inbound_id = await receive_inbound(
+        client, purchaser_headers, purchase_order_id=po_id,
+        lines=[{"purchase_order_line_id": po_lines[0]["id"], "qty": 10}])
+    balance = (await db_session.execute(select(InventoryBalance).where(
+        InventoryBalance.sales_order_id == so_id, InventoryBalance.sku_id == sku.id))).scalar_one()
+    assert float(balance.inbound_qty) == 10.0
+    assert float(balance.outbound_qty) == 0.0
+    assert float(balance.available_qty) == 10.0
+    movements = list((await db_session.execute(
+        select(InventoryMovement).where(
+            InventoryMovement.sales_order_id == so_id,
+            InventoryMovement.sku_id == sku.id,
+        ).order_by(InventoryMovement.id))).scalars().all())
+    assert [m.movement_type for m in movements] == [InventoryMovementType.INBOUND_RECEIVE]
+    assert [float(m.qty_delta) for m in movements] == [10.0]
+
+    ur = await client.post(f"/api/v1/inbound-orders/{inbound_id}/unreceive",
+                           headers=purchaser_headers, json={"void_reason": "重收测试"})
+    assert ur.status_code == 200, ur.text
+    await db_session.refresh(balance)
+    assert float(balance.inbound_qty) == 0.0
+    assert float(balance.available_qty) == 0.0
+
+    rc = await client.post(f"/api/v1/inbound-orders/{inbound_id}/receive",
+                           headers=purchaser_headers, json={})
+    assert rc.status_code == 200, rc.text
+    ship = await create_shipment(client, logistics_headers)
+    _, conf = await create_and_confirm_outbound(
+        client, logistics_headers, sales_order_id=so_id, shipment_id=ship["id"],
+        lines=[{"sales_order_line_id": so_lines[0]["id"], "qty": 4}])
+    assert conf.status_code == 200, conf.text
+
+    await db_session.refresh(balance)
+    assert float(balance.inbound_qty) == 10.0
+    assert float(balance.outbound_qty) == 4.0
+    assert float(balance.available_qty) == 6.0
+    movements = list((await db_session.execute(
+        select(InventoryMovement).where(
+            InventoryMovement.sales_order_id == so_id,
+            InventoryMovement.sku_id == sku.id,
+        ).order_by(InventoryMovement.id))).scalars().all())
+    assert [m.movement_type for m in movements] == [
+        InventoryMovementType.INBOUND_RECEIVE,
+        InventoryMovementType.INBOUND_UNRECEIVE,
+        InventoryMovementType.INBOUND_RECEIVE,
+        InventoryMovementType.OUTBOUND_ISSUE,
+    ]
+    assert [float(m.qty_delta) for m in movements] == [10.0, -10.0, 10.0, -4.0]
