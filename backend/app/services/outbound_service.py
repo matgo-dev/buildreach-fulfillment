@@ -48,7 +48,7 @@ from app.db.models.customer import Customer
 from app.db.models.receivable import Receivable
 from app.db.models.sales_order import SalesOrder, SalesOrderLine, SalesOrderStatus
 from app.db.models.shipment_order import ShipmentOrder, ShipmentOrderStatus
-from app.services import stock_balance_service
+from app.services import stock_balance_service, stock_ledger_service
 from app.services.numbering import allocate
 from app.services.repo import assert_no_edit_conflict, get_or_404, paginate
 
@@ -314,6 +314,9 @@ async def confirm_order(db: AsyncSession, *, order_id, actor_user_id, actor_user
     order.status = OutboundOrderStatus.ISSUED
     order.issued_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await db.flush()
+    await stock_ledger_service.record_outbound_issue(
+        db, outbound_order_id=order.id, occurred_at=order.issued_at,
+        actor_user_id=actor_user_id)
 
     amount = _compute_receivable_amount(lines, so_lines)
     receivable = Receivable(

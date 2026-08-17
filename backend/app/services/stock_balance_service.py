@@ -1,20 +1,18 @@
-"""库存派生口径(单一源头,契约 §2)。
+"""库存余额口径(单一源头,契约 §2)。
 
 `compute_stock_balance` 是全仓「在库/可发」**唯一算法源头**:库存页、SO 详情库存块、
-(出库步)锁内校验、(将来物化)回填,全部消费它,不许旁生第二份算法。
+(出库步)锁内校验全部消费它,不许旁生第二份算法。
 
 **本质**:货从采购起即归属某销售单(`purchase_order_lines.source_sales_order_line_id`
-是 Ownership 非 Reference,守卫链保证无自由库存),故每个销售单每个 SKU 的
-「订购/已入库/已出库/可发」四量可由既有 FK 单据链纯派生,不建任何库存表。
+是 Ownership 非 Reference,守卫链保证无自由库存),故库存余额按 (sales_order_id, sku_id)
+落库。`inventory_movements` 是库存事实流水,`inventory_balances` 是库存页/出库校验读模型。
 
 **防 join 放大(评审 P1)**:同一 SO 行可拆多张 PO、同一 PO 行可拆多张入库单,直接
 `so_lines→po_lines→inbound_lines` 连表后 `SUM(so_lines.qty)` 会按分支数翻倍订购量。
-必须三臂各自预聚合、再按 (sales_order_id, sku_id) FULL JOIN 合并。
+订购量仍单独预聚合,再与库存余额按 (sales_order_id, sku_id) FULL JOIN 合并。
 
-**outbound 臂(出库步接入)**:`outbound_qty = SUM(qty) FROM outbound_order_lines JOIN
-outbound_orders WHERE status='ISSUED' GROUP BY (sales_order_id, sku_id)`,`available =
-inbound − outbound`。草稿出库不扣,ISSUED 为正向履约终点并持续计入已出库。
-出库确认锁内校验与 unreceive 穿仓守卫经 `available_by_sku()` 复用同一 `_balance_subquery`。
+**库存事件**:确认入库追加入库流水并增加余额;撤销入库追加冲回流水并减少余额;
+确认出库追加出库流水并减少可发。草稿出库不扣,ISSUED 为正向履约终点并持续计入已出库。
 """
 from __future__ import annotations
 
@@ -25,16 +23,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.i18n import compose_spec_text, display
 from app.core.languages import INTERNAL_UI_LANGUAGE
-from app.db.models.inbound_order import InboundOrder, InboundOrderLine, InboundOrderStatus
-from app.db.models.outbound_order import (
-    OutboundOrder,
-    OutboundOrderLine,
-    OutboundOrderStatus,
-)
-from app.db.models.purchase_order import PurchaseOrderLine
 from app.db.models.sales_order import SalesOrder, SalesOrderLine, SalesOrderStatus
 from app.db.models.sku import Sku
 from app.db.models.spu import Spu
+from app.db.models.stock import InventoryBalance
 from app.db.models.unit import Unit
 from app.services import spec_template_service as tmpl
 
@@ -70,79 +62,46 @@ def _ordered_cte(sales_order_id, sku_id):
     return stmt.subquery("ordered")
 
 
-def _inbound_cte(sales_order_id, sku_id):
-    """臂2:只从 RECEIVED 入库链按 (so, sku) 预聚合已入库量(归属经 PO行→SO行)。
-    在途/作废入库不计(status=RECEIVED,口径同 D4)。
+def _stock_cte(sales_order_id, sku_id):
+    """臂2:从库存余额表按 (so, sku) 取已入库/已出库/可发。
 
-    不滤 SO 状态(与臂1 的 CONFIRMED 过滤不对称):守卫链保证 RECEIVED 入库的 SO 必为
-    CONFIRMED —— 活动入库挡 PO 取消(has_active_inbound)、活动 PO 挡 SO 取消,故本臂
-    看不到非 CONFIRMED 的 SO。若将来松动取消守卫(如允许带货取消),这里会静默出现
-    ordered=0 的幽灵行,须同批补状态过滤。"""
+    在途入库不写余额,草稿出库不写余额。库存写入只在状态机确认事件内发生。"""
     stmt = (
         select(
-            SalesOrderLine.sales_order_id.label("so_id"),
-            InboundOrderLine.sku_id.label("sku_id"),
-            func.sum(InboundOrderLine.qty).label("inbound_qty"),
+            InventoryBalance.sales_order_id.label("so_id"),
+            InventoryBalance.sku_id.label("sku_id"),
+            InventoryBalance.inbound_qty.label("inbound_qty"),
+            InventoryBalance.outbound_qty.label("outbound_qty"),
+            InventoryBalance.available_qty.label("available_qty"),
         )
-        .join(InboundOrder, and_(
-            InboundOrder.id == InboundOrderLine.inbound_order_id,
-            InboundOrder.status == InboundOrderStatus.RECEIVED))
-        .join(PurchaseOrderLine,
-              PurchaseOrderLine.id == InboundOrderLine.purchase_order_line_id)
-        .join(SalesOrderLine,
-              SalesOrderLine.id == PurchaseOrderLine.source_sales_order_line_id)
-        .group_by(SalesOrderLine.sales_order_id, InboundOrderLine.sku_id)
+        .select_from(InventoryBalance)
     )
     if sales_order_id is not None:
-        stmt = stmt.where(SalesOrderLine.sales_order_id == sales_order_id)
+        stmt = stmt.where(InventoryBalance.sales_order_id == sales_order_id)
     if sku_id is not None:
-        stmt = stmt.where(InboundOrderLine.sku_id == sku_id)
-    return stmt.subquery("inbound")
-
-
-def _outbound_cte(sales_order_id, sku_id):
-    """臂3:只从 ISSUED 出库单按 (so, sku) 预聚合已出库量(so_id 取自出库单头)。
-    草稿/取消出库不计(status=ISSUED,契约 §1.5)—— 确认出库是唯一扣库存事件,
-    0811 后 ISSUED 不可撤销,本臂保留正向履约事实。"""
-    stmt = (
-        select(
-            OutboundOrder.sales_order_id.label("so_id"),
-            OutboundOrderLine.sku_id.label("sku_id"),
-            func.sum(OutboundOrderLine.qty).label("outbound_qty"),
-        )
-        .join(OutboundOrder, and_(
-            OutboundOrder.id == OutboundOrderLine.outbound_order_id,
-            OutboundOrder.status == OutboundOrderStatus.ISSUED))
-        .group_by(OutboundOrder.sales_order_id, OutboundOrderLine.sku_id)
-    )
-    if sales_order_id is not None:
-        stmt = stmt.where(OutboundOrder.sales_order_id == sales_order_id)
-    if sku_id is not None:
-        stmt = stmt.where(OutboundOrderLine.sku_id == sku_id)
-    return stmt.subquery("outbound")
+        stmt = stmt.where(InventoryBalance.sku_id == sku_id)
+    return stmt.subquery("stock")
 
 
 def _balance_subquery(sales_order_id, sku_id):
-    """三臂各自预聚合,按键 (so_id, sku_id) FULL JOIN 合并 → 每 (so,sku) 一行四量
-    (防 join 放大:直连会按下游分支数翻倍订购量,故必须先各臂聚合再合并)。
-    available = inbound − outbound(全仓唯一可发口径)。"""
+    """订购预聚合 + 库存余额 FULL JOIN → 每 (so,sku) 一行四量。
+
+    ordered 来源仍是 SO 行,库存三量来自 inventory_balances。available = inbound − outbound
+    由 DB 生成列维护。
+    """
     o = _ordered_cte(sales_order_id, sku_id)
-    i = _inbound_cte(sales_order_id, sku_id)
-    b = _outbound_cte(sales_order_id, sku_id)
-    oi = o.join(
-        i, and_(o.c.so_id == i.c.so_id, o.c.sku_id == i.c.sku_id), full=True)
-    # 第三臂 FULL JOIN:键取臂1/臂2 的 coalesce(某 (so,sku) 可能只在 inbound 出现)。
-    joined = oi.join(
-        b, and_(func.coalesce(o.c.so_id, i.c.so_id) == b.c.so_id,
-                func.coalesce(o.c.sku_id, i.c.sku_id) == b.c.sku_id), full=True)
-    so_id = func.coalesce(o.c.so_id, i.c.so_id, b.c.so_id).label("so_id")
-    sku_id_col = func.coalesce(o.c.sku_id, i.c.sku_id, b.c.sku_id).label("sku_id")
+    s = _stock_cte(sales_order_id, sku_id)
+    joined = o.join(
+        s, and_(o.c.so_id == s.c.so_id, o.c.sku_id == s.c.sku_id), full=True)
+    so_id = func.coalesce(o.c.so_id, s.c.so_id).label("so_id")
+    sku_id_col = func.coalesce(o.c.sku_id, s.c.sku_id).label("sku_id")
     ordered_q = func.coalesce(o.c.ordered_qty, 0).label("ordered_qty")
-    inbound_q = func.coalesce(i.c.inbound_qty, 0).label("inbound_qty")
-    outbound_q = func.coalesce(b.c.outbound_qty, 0).label("outbound_qty")
+    inbound_q = func.coalesce(s.c.inbound_qty, 0).label("inbound_qty")
+    outbound_q = func.coalesce(s.c.outbound_qty, 0).label("outbound_qty")
+    available_q = func.coalesce(s.c.available_qty, 0).label("available_qty")
     return (
         select(so_id, sku_id_col, ordered_q, inbound_q, outbound_q,
-               (inbound_q - outbound_q).label("available_qty"))
+               available_q)
         .select_from(joined)
         .subquery("balance")
     )
@@ -150,17 +109,17 @@ def _balance_subquery(sales_order_id, sku_id):
 
 async def available_by_sku(db: AsyncSession, sales_order_id: int,
                            sku_ids: list[int] | None = None) -> dict[int, Decimal]:
-    """锁内可发校验专用:复用 `_balance_subquery`(同一聚合口径,单一源头),
+    """锁内可发校验专用:读取 `inventory_balances`(同一余额口径,单一源头),
     只取 {sku_id → available},不做展示合成(compose_spec_text / SKU-SPU-Unit join)——
     出库确认锁内、unreceive 穿仓守卫在悲观锁下调用,轻量优先。
 
-    调用方须先 `SELECT sales_orders FOR UPDATE` 锁 SO 头(串行化),再调本函数派生校验:
+    调用方须先 `SELECT sales_orders FOR UPDATE` 锁 SO 头(串行化),再调本函数余额校验:
     锁保证读到的 available 不被并发出库/撤销抢改。缺席 sku → 该 (so,sku) 无任何单据流,
     available=0(dict.get 兜底)。"""
-    bal = _balance_subquery(sales_order_id, None)
-    stmt = select(bal.c.sku_id, bal.c.available_qty)
+    stmt = select(InventoryBalance.sku_id, InventoryBalance.available_qty).where(
+        InventoryBalance.sales_order_id == sales_order_id)
     if sku_ids:
-        stmt = stmt.where(bal.c.sku_id.in_(sku_ids))
+        stmt = stmt.where(InventoryBalance.sku_id.in_(sku_ids))
     rows = (await db.execute(stmt)).all()
     return {sku_id: Decimal(str(av)) for sku_id, av in rows}
 
@@ -213,20 +172,12 @@ async def compute_stock_balance(
     page: int | None = None,
     size: int | None = None,
 ) -> tuple[list[dict], int]:
-    """本函数是全仓库存「在库/可发」唯一口径(B 方案:纯派生,无库存表)。
+    """本函数是全仓库存「在库/可发」唯一读口径。
 
     架构不变量:每个 RECEIVED 库存单位始终唯一归属一个 SO,系统无自由库存
     (purchase_order_lines.source_sales_order_line_id 是 Ownership 非 Reference)。
-    库存页、SO 详情库存块、(出库步)锁内校验、(将来物化)回填全部消费本函数,
-    不许旁生第二份算法。
-
-    若下列条件之一出现,需升级承载层,详见
-    docs/契约/2026-07-17-0321-库存增量-设计契约.md §6.2:
-      - 实测变慢 → 物化 stock_balance 缓存(回填 = 本函数同一 SQL,set-based)
-      - 动库存单据类型 >2(退货/盘亏/调拨)→ 流水台账
-      - 需批次/溯源(哪批收货装哪柜)→ 出入库分配配对表
-      - 退货可转配他单(自由库存出现)→ 补 仓×SKU 物理库存账
-    任何让货脱离 SO 归属的新能力 = 业务模型变更,先过评审,勿静默扩派生臂。
+    库存页、SO 详情库存块、(出库步)锁内校验全部消费本函数,不许旁生第二份算法。
+    任何让货脱离 SO 归属的新能力 = 业务模型变更,先过评审,勿静默扩库存余额。
 
     返回 (rows, total)。四量 + 展示三件套(SKU 当前档):
     - 过滤:sales_order_id / sku_id(聚合内下推)、q(SO单号/SKU编码/品名,聚合外匹配)。

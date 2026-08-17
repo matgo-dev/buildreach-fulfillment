@@ -17,7 +17,7 @@ from collections import defaultdict
 from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
-from sqlalchemy import func, select, tuple_
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
@@ -34,7 +34,6 @@ from app.core.exceptions import (
     InboundOrderNotFoundError,
     InboundOverReceiptError,
     InboundSourcePurchaseOrderInvalidError,
-    InboundUnreceiveWouldGoNegativeError,
 )
 from app.db.models.inbound_order import (
     INBOUND_ORDER_TRANSITIONS,
@@ -342,6 +341,10 @@ async def save_order(db: AsyncSession, *, order_id, carrier_name, tracking_no, s
 async def receive_order(db: AsyncSession, *, order_id, arrived_at: date | None, actor_user_id,
                         actor_user_email, request: Request | None = None) -> InboundOrder:
     """确认入库(IN_TRANSIT→RECEIVED)。只确认库存事实,不再生成 payable。"""
+    from app.services import stock_ledger_service
+
+    impacts = await stock_ledger_service.inbound_impacts(db, order_id)
+    await stock_ledger_service.lock_sales_orders(db, [i.sales_order_id for i in impacts])
     order = await get_order_for_update(db, order_id)
     assert_transition(INBOUND_ORDER_TRANSITIONS, order.status, InboundOrderStatus.RECEIVED,
                       InboundOrderInvalidTransitionError)
@@ -353,6 +356,8 @@ async def receive_order(db: AsyncSession, *, order_id, arrived_at: date | None, 
     # 不引入业务时区配置——无第二个消费者,属过度设计)。
     order.arrived_at = arrived_at or datetime.now(timezone.utc).date()
     await db.flush()
+    await stock_ledger_service.record_inbound_receive(
+        db, inbound_order_id=order.id, occurred_at=None, actor_user_id=actor_user_id)
 
     payable = await get_active_payable(db, order.id)
     await write_audit(db, resource_type=AuditResourceType.INBOUND_ORDER, action=AuditAction.RECEIVE,
@@ -375,58 +380,25 @@ async def unreceive_order(db: AsyncSession, *, order_id, void_reason: str | None
       3. 转移守卫,状态翻转 IN_TRANSIT 并 flush;
       4. **锁内派生校验**:翻转后受影响每 (so,sku) 的 available ≥ 0,违反 → 41710。
     应付在创建入库单时已成立,撤销入库不再作废账行。"""
-    from app.db.models.sales_order import SalesOrder, SalesOrderLine
-    from app.services import stock_balance_service
+    from app.services import stock_ledger_service
 
-    # 1. 无锁预读身份链:入库行 sku → PO 行 → SO 行 → so_id。
-    chain = (await db.execute(
-        select(SalesOrderLine.sales_order_id, InboundOrderLine.sku_id)
-        .join(PurchaseOrderLine, PurchaseOrderLine.id == InboundOrderLine.purchase_order_line_id)
-        .join(SalesOrderLine, SalesOrderLine.id == PurchaseOrderLine.source_sales_order_line_id)
-        .where(InboundOrderLine.inbound_order_id == order_id))).all()
-    affected: dict[int, set[int]] = defaultdict(set)
-    for so_id, sku_id in chain:
-        affected[so_id].add(sku_id)
-    so_ids = sorted(affected.keys())
+    impacts = await stock_ledger_service.inbound_impacts(db, order_id)
+    so_ids = sorted({i.sales_order_id for i in impacts})
 
     # 2. 依序锁 SO 头(按 id 升序,统一锁序)→ 再锁入库单头。
-    for so_id in so_ids:
-        await db.execute(select(SalesOrder).where(SalesOrder.id == so_id).with_for_update())
+    await stock_ledger_service.lock_sales_orders(db, so_ids)
     order = await get_order_for_update(db, order_id)
 
-    # 3. 转移,翻转状态(RECEIVED 退出库存 inbound 臂)。
+    # 3. 转移前做余额穿仓校验,再翻转状态并写库存冲回流水。
     assert_transition(INBOUND_ORDER_TRANSITIONS, order.status, InboundOrderStatus.IN_TRANSIT,
                       InboundOrderInvalidTransitionError)
+    await stock_ledger_service.assert_can_unreceive_inbound(db, order.id)
     payable = await get_active_payable(db, order.id)
     order.status = InboundOrderStatus.IN_TRANSIT
     order.arrived_at = None  # 回在途即未到货:清到货日,与状态语义一致(重收时重新填)
     await db.flush()
-
-    # 4. 锁内派生校验:翻转后受影响每 (so,sku) 可发 ≥ 0(货已被出库则穿仓,拒)。
-    negatives = []
-    for so_id in so_ids:
-        avail = await stock_balance_service.available_by_sku(
-            db, so_id, sku_ids=list(affected[so_id]))
-        for sku_id in affected[so_id]:
-            if avail.get(sku_id, Decimal("0")) < 0:
-                negatives.append({"sales_order_id": so_id, "sku_id": sku_id,
-                                  "available_qty": float(avail.get(sku_id, Decimal("0")))})
-    if negatives:
-        # 明细补展示身份(销售单号/品名),镜像 41902 的 items 形状,运营才知道去撤哪张出库单;
-        # (SO,SKU) UNIQUE(§0-11)⇒ 每对至多一 SO 行,tuple IN 定位无歧义。
-        pairs = [(n["sales_order_id"], n["sku_id"]) for n in negatives]
-        display = {(so_id, sku_id): (so_no, name) for so_id, sku_id, so_no, name in (
-            await db.execute(
-                select(SalesOrderLine.sales_order_id, SalesOrderLine.sku_id,
-                       SalesOrder.no, SalesOrderLine.name_snapshot)
-                .join(SalesOrder, SalesOrder.id == SalesOrderLine.sales_order_id)
-                .where(tuple_(SalesOrderLine.sales_order_id,
-                              SalesOrderLine.sku_id).in_(pairs)))).all()}
-        for n in negatives:
-            so_no, name = display.get((n["sales_order_id"], n["sku_id"]), ("", ""))
-            n["sales_order_no"], n["name_snapshot"] = so_no, name
-        # 41710(整事务回滚,状态翻转撤销)
-        raise InboundUnreceiveWouldGoNegativeError(data={"items": negatives})
+    await stock_ledger_service.record_inbound_unreceive(
+        db, inbound_order_id=order.id, actor_user_id=actor_user_id, note=void_reason)
 
     await write_audit(db, resource_type=AuditResourceType.INBOUND_ORDER,
                       action=AuditAction.UNRECEIVE, user_id=actor_user_id,
