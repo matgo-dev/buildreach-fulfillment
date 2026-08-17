@@ -29,7 +29,7 @@ class InboundOrderStatus:
 
 
 # 状态机单一源头(model 层常量)。入库单 = ASN:供应商发货即建,
-# 货到货代仓确认入库。创建入库单即产生应付,作废/关闭需走逆向申请,service 层收口。
+# 货到货代仓确认入库。创建入库单即产生应付,作废/关闭需走采购退货/供应商贷项单等真实逆向单据。
 # RECEIVED→IN_TRANSIT = 撤销入库库存事实;CANCELLED 保留给历史/未来逆向闭环。
 INBOUND_ORDER_TRANSITIONS: dict[str, set[str]] = {
     InboundOrderStatus.IN_TRANSIT: {InboundOrderStatus.RECEIVED},

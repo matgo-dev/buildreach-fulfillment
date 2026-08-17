@@ -27,7 +27,7 @@ _MANAGE = Depends(require_permission(Permissions.PAYMENT_MANAGE))
 _STATUS_RE = r"^(UNALLOCATED|PARTIALLY_ALLOCATED|FULLY_ALLOCATED|VOIDED)$"
 
 
-@router.post("", summary="登记付款(同事务自动核销开口应付,余额留存为预付)")
+@router.post("", summary="登记付款(同事务自动核销未结应付,多余金额留存为预付)")
 async def create_payment(body: PaymentCreateIn, request: Request,
                          current: CurrentUser = _MANAGE, db: AsyncSession = Depends(get_db)):
     payment = await payment_service.register(
@@ -78,7 +78,7 @@ async def allocate_payment(payment_id: int, body: ManualAllocateIn, request: Req
 alloc_router = APIRouter(prefix="/payment-allocations", tags=["payments"])
 
 
-@alloc_router.delete("/{alloc_id}", summary="反核销(软删核销记录;金额退回未分配 + 应付余额恢复)")
+@alloc_router.delete("/{alloc_id}", summary="反核销(软删核销记录;金额退回未分配 + 未结应付恢复)")
 async def reverse_payment_allocation(alloc_id: int, request: Request,
                                      reverse_reason: str | None = Query(default=None, max_length=500),
                                      current: CurrentUser = _MANAGE,

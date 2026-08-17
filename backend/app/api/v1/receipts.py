@@ -99,7 +99,7 @@ async def allocate_receipt(receipt_id: int, body: ManualAllocateIn, request: Req
 alloc_router = APIRouter(prefix="/receipt-allocations", tags=["receipts"])
 
 
-@alloc_router.delete("/{alloc_id}", summary="反核销(软删核销记录;金额退回未分配 + 应收余额恢复)")
+@alloc_router.delete("/{alloc_id}", summary="反核销(软删核销记录;金额退回未分配 + 未结应收恢复)")
 async def reverse_receipt_allocation(alloc_id: int, request: Request,
                                      reverse_reason: str | None = Query(default=None, max_length=500),
                                      current: CurrentUser = _MANAGE,

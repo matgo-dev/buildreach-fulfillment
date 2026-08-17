@@ -208,7 +208,7 @@ async def void(db: AsyncSession, *, receipt_id: int, void_reason: str | None, ac
 
 async def manual_allocate(db: AsyncSession, *, receipt_id: int, account_id: int, actor_user_id,
                           actor_user_email, request: Request | None = None) -> Receipt:
-    """人工核销:选一张应收,金额自动取满 min(未分配, 余额)(D8)。
+    """人工核销:选一张应收,金额自动取满 min(收款未分配金额, 未结应收)(D8)。
     未认领单拒之 42207;已作废 42209;跨客户/币种/超额/作废账/同对已核 → 引擎抛对应码;
     偏唯一兜底并发重复 → 同映射 42210(单线程路径已被引擎前置判接住)。"""
     receipt = await _get_for_update(db, receipt_id)
@@ -238,7 +238,7 @@ async def manual_allocate(db: AsyncSession, *, receipt_id: int, account_id: int,
 async def reverse_allocation(db: AsyncSession, *, alloc_id: int, reverse_reason: str | None,
                              actor_user_id, actor_user_email,
                              request: Request | None = None) -> Receipt:
-    """反核销(软删核销记录):金额退回收款未分配 + 应收余额恢复;已反核销/不存在 → 42205。"""
+    """反核销(软删核销记录):金额退回收款未分配 + 未结应收恢复;已反核销/不存在 → 42205。"""
     alloc, receipt, acc = await allocation_engine.reverse(
         db, RECEIPT_SPEC, alloc_id, actor_user_id=actor_user_id, reason=reverse_reason)
     await write_audit(db, resource_type=AuditResourceType.RECEIPT, action=AuditAction.REVERSE,

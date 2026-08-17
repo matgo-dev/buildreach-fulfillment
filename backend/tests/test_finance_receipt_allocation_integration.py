@@ -1,7 +1,7 @@
 """收款单登记 + 自动核销(按账龄)集成测试。
 
 自动核销:登记已认领收款(或认领后)同事务,按账龄 FIFO(due_at→created_at)逐张冲开口应收,
-取满 min(收款未分配, 应收余额),多余留存为预收。核销引擎是 receipts/receivables
+取满 min(收款未分配金额, 未结应收),多余留存为预收。核销引擎是 receipts/receivables
 amount_allocated 唯一写入口。
 """
 import pytest
@@ -40,7 +40,7 @@ async def test_auto_allocate_fills_oldest_receivable_first(
     assert float(r.json()["data"]["receipt"]["amount_unallocated"]) == 0.0
 
     rv = (await client.get("/api/v1/receivables", headers=finance_headers)).json()["data"]["items"]
-    bal = {it["outbound_order_id"]: float(it["balance"]) for it in rv}
+    bal = {it["outbound_order_id"]: float(it["amount_outstanding"]) for it in rv}
     assert bal[ob1] == 0.0    # 老单冲满
     assert bal[ob2] == 50.0   # 新单部分冲(60-10)
 
@@ -68,15 +68,15 @@ async def test_register_receipt_full_auto_allocates_single_receivable(
     assert allocations[0]["alloc_type"] == "AUTO"
     assert float(allocations[0]["amount"]) == 54.0
 
-    # 应收侧:balance 归零 → PAID
+    # 应收侧:未结应收归零 → PAID
     rv = await client.get("/api/v1/receivables?status=PAID", headers=finance_headers)
     row = next(it for it in rv.json()["data"]["items"] if it["outbound_order_id"] == ob_id)
-    assert float(row["balance"]) == 0.0
+    assert float(row["amount_outstanding"]) == 0.0
 
 
 async def test_register_receipt_partial_leaves_receivable_partially_paid(
         client, db_session, sales_headers, purchaser_headers, logistics_headers, finance_headers):
-    """收款少于应收 → 部分核销:收款 FULLY_ALLOCATED(全额用光)、应收 PARTIALLY_PAID、余额递减不清零。"""
+    """收款少于应收 → 部分核销:收款 FULLY_ALLOCATED(全额用光)、应收 PARTIALLY_PAID、未结应收递减不清零。"""
     ctx, ob_id, amount = await make_open_receivable(
         client, db_session, sales_headers, purchaser_headers, logistics_headers,
         unit_price="10.00", qty=10)  # 应收 = 100.00
@@ -91,12 +91,12 @@ async def test_register_receipt_partial_leaves_receivable_partially_paid(
 
     rv = await client.get("/api/v1/receivables?status=PARTIALLY_PAID", headers=finance_headers)
     row = next(it for it in rv.json()["data"]["items"] if it["outbound_order_id"] == ob_id)
-    assert float(row["balance"]) == 60.0
+    assert float(row["amount_outstanding"]) == 60.0
 
 
 async def test_register_receipt_overpay_leaves_unallocated_prepayment(
         client, db_session, sales_headers, purchaser_headers, logistics_headers, finance_headers):
-    """收款超应收 → 冲满应收后余额留存为预收(P0):收款 PARTIALLY_ALLOCATED、应收 PAID。"""
+    """收款超应收 → 冲满应收后多余金额留存为预收(P0):收款 PARTIALLY_ALLOCATED、应收 PAID。"""
     ctx, ob_id, amount = await make_open_receivable(
         client, db_session, sales_headers, purchaser_headers, logistics_headers,
         unit_price="10.00", qty=5)  # 应收 = 50.00

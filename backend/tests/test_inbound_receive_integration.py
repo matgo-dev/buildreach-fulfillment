@@ -26,7 +26,7 @@ async def test_create_inbound_is_in_transit(client, db_session, sales_headers, p
 
 async def test_create_generates_payable_amount_identity(
         client, db_session, sales_headers, purchaser_headers):
-    """锚点3:payable.amount_original = Σ(行 qty × PO 行价 round2);balance 生成列 = original - allocated。"""
+    """锚点3:payable.amount_original = Σ(行 qty × PO 行价 round2);未结应付由 DB 生成。"""
     po_id, po_lines = await setup_confirmed_po(
         client, db_session, sales_headers, purchaser_headers, so_qty=10, unit_price="5.00")
     cr = await client.post("/api/v1/inbound-orders", headers=purchaser_headers, json={
@@ -39,7 +39,7 @@ async def test_create_generates_payable_amount_identity(
     pay = data["payable"]
     assert pay["amount_original"] == 15.0        # 3 × 5.00
     assert pay["amount_allocated"] == 0.0
-    assert pay["balance"] == 15.0                 # Computed: original - allocated
+    assert pay["amount_outstanding"] == 15.0      # Computed: original - adjusted - allocated
     assert pay["status"] == "UNPAID"
     assert pay["currency"] == "USD"
 
@@ -104,12 +104,12 @@ async def test_amount_rounding_is_half_up(client, db_session, sales_headers, pur
 
 
 async def test_zero_amount_payable_is_paid(client, db_session, sales_headers, purchaser_headers):
-    """0 价 PO(unit_price=0 合法)→ payable 金额 0,余额 0 即无欠款,状态 = PAID 而非「未付」。"""
+    """0 价 PO(unit_price=0 合法)→ payable 金额 0,未结应付 0 即无欠款,状态 = PAID 而非「未付」。"""
     po_id, po_lines = await setup_confirmed_po(
         client, db_session, sales_headers, purchaser_headers, so_qty=10, unit_price="0.00")
     cr = await client.post("/api/v1/inbound-orders", headers=purchaser_headers, json={
         "purchase_order_id": po_id,
         "lines": [{"purchase_order_line_id": po_lines[0]["id"], "qty": 3}]})
     pay = cr.json()["data"]["payable"]
-    assert pay["amount_original"] == 0.0 and pay["balance"] == 0.0
+    assert pay["amount_original"] == 0.0 and pay["amount_outstanding"] == 0.0
     assert pay["status"] == "PAID"

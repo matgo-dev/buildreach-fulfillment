@@ -1,4 +1,4 @@
-"""payable.balance 生成列范式(锚点 10):DB 恒等 + 应用层直写被拒。钉住本仓首个 Computed 列。"""
+"""payable.amount_outstanding 生成列范式:DB 恒等 + 应用层直写被拒。"""
 import pytest
 from sqlalchemy import select, update
 
@@ -21,23 +21,23 @@ async def _make_payable(client, db_session, sales_headers, purchaser_headers):
         select(Payable).where(Payable.inbound_order_id == inb_id))).scalar_one()
 
 
-async def test_balance_db_identity(client, db_session, sales_headers, purchaser_headers):
-    """balance = original - allocated,由 DB 生成(改 allocated 后 balance 随动)。"""
+async def test_amount_outstanding_db_identity(client, db_session, sales_headers, purchaser_headers):
+    """amount_outstanding = original - adjusted - allocated,由 DB 生成。"""
     p = await _make_payable(client, db_session, sales_headers, purchaser_headers)
     assert float(p.amount_original) == 30.0
-    assert float(p.balance) == 30.0
-    # 改 allocated,DB 重算 balance。
+    assert float(p.amount_outstanding) == 30.0
+    # 改 allocated,DB 重算 amount_outstanding。
     p.amount_allocated = 12
     await db_session.commit()
     await db_session.refresh(p)
-    assert float(p.balance) == 18.0
+    assert float(p.amount_outstanding) == 18.0
 
 
-async def test_direct_write_to_balance_rejected(
+async def test_direct_write_to_amount_outstanding_rejected(
         client, db_session, sales_headers, purchaser_headers):
     """应用层直写生成列被 DB 拒(GENERATED ALWAYS 列不可写)。"""
     p = await _make_payable(client, db_session, sales_headers, purchaser_headers)
     with pytest.raises(Exception):
         await db_session.execute(
-            update(Payable).where(Payable.id == p.id).values(balance=999))
+            update(Payable).where(Payable.id == p.id).values(amount_outstanding=999))
         await db_session.commit()

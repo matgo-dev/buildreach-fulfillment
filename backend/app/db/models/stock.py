@@ -24,13 +24,15 @@ class InventoryMovementType:
     INBOUND_RECEIVE = "INBOUND_RECEIVE"
     INBOUND_UNRECEIVE = "INBOUND_UNRECEIVE"
     OUTBOUND_ISSUE = "OUTBOUND_ISSUE"
-    ALL = (INBOUND_RECEIVE, INBOUND_UNRECEIVE, OUTBOUND_ISSUE)
+    PURCHASE_RETURN_ISSUE = "PURCHASE_RETURN_ISSUE"
+    ALL = (INBOUND_RECEIVE, INBOUND_UNRECEIVE, OUTBOUND_ISSUE, PURCHASE_RETURN_ISSUE)
 
 
 class InventorySourceType:
     INBOUND_ORDER = "INBOUND_ORDER"
     OUTBOUND_ORDER = "OUTBOUND_ORDER"
-    ALL = (INBOUND_ORDER, OUTBOUND_ORDER)
+    PURCHASE_RETURN_ORDER = "PURCHASE_RETURN_ORDER"
+    ALL = (INBOUND_ORDER, OUTBOUND_ORDER, PURCHASE_RETURN_ORDER)
 
 
 class InventoryBalance(Base, TimestampUpdateMixin):
@@ -69,10 +71,12 @@ class InventoryMovement(Base, TimestampMixin):
     __tablename__ = "inventory_movements"
     __table_args__ = (
         CheckConstraint(
-            "movement_type IN ('INBOUND_RECEIVE','INBOUND_UNRECEIVE','OUTBOUND_ISSUE')",
+            "movement_type IN ("
+            "'INBOUND_RECEIVE','INBOUND_UNRECEIVE','OUTBOUND_ISSUE',"
+            "'PURCHASE_RETURN_ISSUE')",
             name="ck_inventory_movements_type"),
         CheckConstraint(
-            "source_type IN ('INBOUND_ORDER','OUTBOUND_ORDER')",
+            "source_type IN ('INBOUND_ORDER','OUTBOUND_ORDER','PURCHASE_RETURN_ORDER')",
             name="ck_inventory_movements_source_type"),
         CheckConstraint("qty_delta <> 0", name="ck_inventory_movements_qty_nonzero"),
         Index("ix_inventory_movements_so_sku_occurred", "sales_order_id", "sku_id",

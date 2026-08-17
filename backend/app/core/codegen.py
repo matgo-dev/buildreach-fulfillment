@@ -27,6 +27,8 @@ class NumberScope(str, Enum):
     SHIPMENT       = "SHIPMENT",       "SH",  4, True   # 发运单(柜):SH{YYYYMM}{seq:04d}
     RECEIPT        = "RECEIPT",        "RC",  4, True   # 收款单:RC{YYYYMM}{seq:04d}
     PAYMENT        = "PAYMENT",        "PM",  4, True   # 付款单:PM{YYYYMM}{seq:04d}
+    PURCHASE_RETURN = "PURCHASE_RETURN", "PR", 4, True  # 采购退货单:PR{YYYYMM}{seq:04d}
+    AP_CREDIT_MEMO = "AP_CREDIT_MEMO", "APCM", 4, True  # 供应商贷项单:APCM{YYYYMM}{seq:04d}
 
     def __new__(cls, value: str, prefix: str, pad: int, periodic: bool):
         obj = str.__new__(cls, value)

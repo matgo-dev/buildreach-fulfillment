@@ -227,7 +227,7 @@ async def test_reverse_restores_both_sides_and_is_idempotent(
     got = await client.get(f"/api/v1/receipts/{rid}", headers=finance_headers)
     assert float(got.json()["data"]["receipt"]["amount_unallocated"]) == 50.0
     assert got.json()["data"]["allocations"] == []
-    # 应收余额恢复
+    # 未结应收恢复
     rv = await client.get("/api/v1/receivables?status=UNPAID", headers=finance_headers)
     assert any(it["outbound_order_id"] == ob_id for it in rv.json()["data"]["items"])
     # 幂等:再反核销同一条 → 42205

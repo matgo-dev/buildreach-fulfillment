@@ -1,7 +1,7 @@
 """核销引擎(收付泛型共用)。receipts/payments↔receivables/payables 是收付镜像,
 一套算法参数化跑两侧:自动核销(按账龄 FIFO)/ 人工核销(选账取满)/ 反核销(软删留痕)。
 
-单一写入口:全系统 `amount_allocated` 仅由本引擎写(核销 +=,反核销 -=);account.balance /
+单一写入口:全系统 `amount_allocated` 仅由本引擎写(核销 +=,反核销 -=);account 未结金额 /
 source.amount_unallocated 由 DB Computed 跟随,不手写。全程 Decimal(两侧 Numeric 取出即
 Decimal,min/加减不落 float)。
 
@@ -67,8 +67,17 @@ def _source_remaining(source) -> Decimal:
     return _d(source.amount) - _d(source.amount_allocated)
 
 
-def _account_balance(account) -> Decimal:
-    return _d(account.amount_original) - _d(account.amount_allocated)
+def _account_outstanding_amount(account) -> Decimal:
+    outstanding = getattr(account, "amount_outstanding", None)
+    if outstanding is not None:
+        return _d(outstanding)
+    return _d(account.balance)
+
+
+def _account_outstanding_column(model):
+    if hasattr(model, "amount_outstanding"):
+        return model.amount_outstanding
+    return model.balance
 
 
 async def lock_source(db: AsyncSession, spec: AllocationSpec, source_id: int):
@@ -94,10 +103,10 @@ async def has_active_allocations(db: AsyncSession, spec: AllocationSpec, source_
 
 
 def _take_one(db, spec, source, acc, *, alloc_type: str, actor_user_id: int):
-    """对单个已锁账行核销 min(source 未分配, 账余额)。remaining 恒由 source 现算(单一源头,
+    """对单个已锁账行核销 min(source 未分配, 账未结金额)。remaining 恒由 source 现算(单一源头,
     不设本地记账副本);take≤0(source 耗尽或账已核满)→ 不建核销返回 None。
     只做内存变更 + db.add,不 flush(调用方遍历完一次性 flush)。"""
-    take = min(_source_remaining(source), _account_balance(acc))
+    take = min(_source_remaining(source), _account_outstanding_amount(acc))
     if take <= 0:
         return None
     alloc = spec.alloc_model(**{spec.source_fk: source.id, spec.account_fk: acc.id},
@@ -110,8 +119,8 @@ def _take_one(db, spec, source, acc, *, alloc_type: str, actor_user_id: int):
 
 async def auto_allocate(db: AsyncSession, spec: AllocationSpec, source, *,
                         actor_user_id: int) -> list:
-    """自动核销:按账龄 FIFO 冲开口账,取满 min(source 未分配, 账余额),多余留存(预收/预付)。
-    调用方须已锁 source 行 FOR UPDATE。source 未认领(对手方空)/ 无未分配余额 → 不核销。
+    """自动核销:按账龄 FIFO 冲开口账,取满 min(source 未分配, 账未结金额),多余留存(预收/预付)。
+    调用方须已锁 source 行 FOR UPDATE。source 未认领(对手方空)/ 无未分配金额 → 不核销。
 
     锁法:先按 (due_at NULLS LAST, created_at, id) 取有序候选 id(不加锁),再逐行 FOR UPDATE
     ——与采购/入库「取有序 id 再逐行锁」同一显式范式,锁序=取序,不依赖「ORDER BY ... FOR UPDATE」
@@ -126,7 +135,7 @@ async def auto_allocate(db: AsyncSession, spec: AllocationSpec, source, *,
             getattr(A, spec.party_account_attr) == party,
             A.currency == source.currency,
             A.voided_at.is_(None),
-            A.balance > 0)
+            _account_outstanding_column(A) > 0)
         .order_by(A.due_at.asc().nullslast(), A.created_at.asc(), A.id.asc()))).scalars().all()
     created = []
     for acc_id in ordered_ids:
@@ -147,9 +156,9 @@ async def auto_allocate(db: AsyncSession, spec: AllocationSpec, source, *,
 
 async def manual_allocate(db: AsyncSession, spec: AllocationSpec, source, account_id: int, *,
                           actor_user_id: int):
-    """人工核销:指定账,核销额强制取满 min(source 未分配, 账余额),不允许自填欠额(D8)。
+    """人工核销:指定账,核销额强制取满 min(source 未分配, 账未结金额),不允许自填欠额(D8)。
     调用方须已锁 source 行。本函数锁指定账行 FOR UPDATE 并校验:同对手方、同币种、账未作废、
-    同对无活动核销(42210)、双侧有余额。偏唯一兜底并发写(调用方映射同 42210)。"""
+    同对无活动核销(42210)、双侧仍有未结/未分配金额。偏唯一兜底并发写(调用方映射同 42210)。"""
     A = spec.account_model
     acc = (await db.execute(
         select(A).where(A.id == account_id).with_for_update())).scalar_one_or_none()
@@ -162,8 +171,8 @@ async def manual_allocate(db: AsyncSession, spec: AllocationSpec, source, accoun
     if acc.currency != source.currency:
         raise AllocationCurrencyMismatchError()
     # 同 (source, account) 已有活动核销 → 42210(偏唯一契约:一对至多一条,部分核销靠 amount)。
-    # 单线程可达:反核销其它账后 source 回血、同对余额也 >0,重核同对即撞;source+account 双锁下
-    # 判定无 TOCTOU,偏唯一仅兜底并发。前置判而非等 IntegrityError,错误语义才准确(非「超余额」)。
+    # 单线程可达:反核销其它账后 source 回血、同对未结金额也 >0,重核同对即撞;source+account 双锁下
+    # 判定无 TOCTOU,偏唯一仅兜底并发。前置判而非等 IntegrityError,错误语义才准确。
     am = spec.alloc_model
     dup = (await db.execute(
         select(am.id).where(getattr(am, spec.source_fk) == source.id,
@@ -173,7 +182,7 @@ async def manual_allocate(db: AsyncSession, spec: AllocationSpec, source, accoun
         raise AllocationPairAlreadyActiveError()
     if _source_remaining(source) <= 0:
         raise AllocationExceedsSourceError()
-    if _account_balance(acc) <= 0:
+    if _account_outstanding_amount(acc) <= 0:
         raise AllocationExceedsAccountError()
     alloc = _take_one(db, spec, source, acc,
                       alloc_type=AllocationType.MANUAL, actor_user_id=actor_user_id)
@@ -183,7 +192,7 @@ async def manual_allocate(db: AsyncSession, spec: AllocationSpec, source, accoun
 
 async def reverse(db: AsyncSession, spec: AllocationSpec, alloc_id: int, *,
                   actor_user_id: int, reason: str | None):
-    """反核销:软删该核销记录(reversed_at 留痕),金额退回 source 未分配 + 账余额恢复。
+    """反核销:软删该核销记录(reversed_at 留痕),金额退回 source 未分配 + 账未结金额恢复。
     已反核销/不存在 → 42205(幂等)。
 
     并发正确性 = 「首锁即读」(与登录行锁/D2 撤账守卫同模式):alloc 行在本 session 的

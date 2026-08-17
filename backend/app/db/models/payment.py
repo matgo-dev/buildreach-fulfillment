@@ -48,7 +48,7 @@ class Payment(Base, TimestampUpdateMixin):
     """付款单(付侧实层)。人工登记一笔付款;核销引擎把钱勾到应付账层。🔴红线域。
 
     结构对称 receipts,差异:supplier_id 必填(D1 无待认领态)、paid_at(付款日 ≠ 到账日,P2②)。
-    预付款(付款侧未分配余额)P0 支持(对称预收):amount_unallocated>0 即预付,留存不丢。
+    预付款(付款侧未分配金额)P0 支持(对称预收):amount_unallocated>0 即预付,留存不丢。
     🔴 关联供应商 + 承载采购付款金额 → 端点级 payment:read/manage 门控,与收侧不共可见性。
     """
     __tablename__ = "payments"
@@ -71,7 +71,7 @@ class Payment(Base, TimestampUpdateMixin):
     currency: Mapped[str] = mapped_column(String(10), nullable=False)
     amount: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
     amount_allocated: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    # 未分配余额 = 预付;恒等式落 DB(镜像账层 balance / 收侧 amount_unallocated)。
+    # 未分配金额 = 预付;恒等式落 DB(镜像账层未结金额 / 收侧 amount_unallocated)。
     amount_unallocated: Mapped[float] = mapped_column(
         Numeric(18, 2), Computed("amount - amount_allocated", persisted=True))
     # 付款日/出账日(≠ 收侧 received_at 到账日,语义不同不照抄列名,P2②)。
