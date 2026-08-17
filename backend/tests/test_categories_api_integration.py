@@ -56,6 +56,36 @@ async def test_category_admin_create_update_and_tree_visibility(
     assert r2.status_code == 200, r2.text
     assert r2.json()["data"]["level"] == 2
 
+    r2_1 = await client.post("/api/v1/categories", headers=product_operator_headers, json={
+        "code": "88.001.001",
+        "parent_code": "88.001",
+        "name_i18n": {"zh": "测试三级类"},
+        "sort_order": 3,
+    })
+    assert r2_1.status_code == 200, r2_1.text
+    assert r2_1.json()["data"]["level"] == 3
+
+    r2_2 = await client.post("/api/v1/categories", headers=product_operator_headers, json={
+        "code": "88.001.001.001",
+        "parent_code": "88.001.001",
+        "name_i18n": {"zh": "测试四级类"},
+        "sort_order": 4,
+    })
+    assert r2_2.status_code == 200, r2_2.text
+    assert r2_2.json()["data"]["level"] == 4
+
+    direct_specs = await client.get(
+        "/api/v1/categories/88.001.001.001/spec-attributes",
+        headers=product_readonly_headers,
+    )
+    assert direct_specs.status_code == 200, direct_specs.text
+
+    suggestions = await client.get(
+        "/api/v1/categories/88.001.001.001/spec-suggestions",
+        headers=product_readonly_headers,
+    )
+    assert suggestions.status_code == 200, suggestions.text
+
     parent = await client.get("/api/v1/categories/88", headers=product_readonly_headers)
     assert parent.status_code == 200, parent.text
     assert parent.json()["data"]["is_leaf"] is False
@@ -109,7 +139,10 @@ async def test_create_category_normalizes_and_validates_code(client, product_ope
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("code", ["foo", ".1", "中文", "01.1", "001", "00", "01.000"])
+@pytest.mark.parametrize(
+    "code",
+    ["foo", ".1", "中文", "01.1", "001", "00", "01.000", "01.001.001.001.001"],
+)
 async def test_create_category_rejects_invalid_code(client, product_operator_headers, code):
     r = await client.post("/api/v1/categories", headers=product_operator_headers, json={
         "code": code,

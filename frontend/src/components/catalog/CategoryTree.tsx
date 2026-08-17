@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Tree, Spin, Empty, Input } from "antd";
 import type { DataNode } from "antd/es/tree";
 import { catalogApi, CategoryNode } from "@/lib/catalog";
@@ -87,6 +87,8 @@ export function CategoryTree({
   const [kw, setKw] = useState("");
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const [autoExpandParent, setAutoExpandParent] = useState(true);
+  const treeViewportRef = useRef<HTMLDivElement | null>(null);
+  const [treeHeight, setTreeHeight] = useState(520);
 
   useEffect(() => {
     let alive = true;
@@ -101,6 +103,16 @@ export function CategoryTree({
     };
   }, []);
 
+  useEffect(() => {
+    const el = treeViewportRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const syncHeight = () => setTreeHeight(Math.max(240, Math.floor(el.clientHeight)));
+    syncHeight();
+    const ro = new ResizeObserver(syncHeight);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   const q = kw.trim();
   const { data, expanded } = useMemo(() => buildTree(nodes, q), [nodes, q]);
 
@@ -110,39 +122,44 @@ export function CategoryTree({
     setAutoExpandParent(true);
   }, [q, expanded]);
 
-  if (loading) return <Spin style={{ padding: 16 }} />;
-
   return (
-    <div>
-      <Input.Search
-        placeholder="搜索分类"
-        allowClear
-        size="small"
-        style={{ marginBottom: 8 }}
-        value={kw}
-        onChange={(e) => setKw(e.target.value)}
-      />
-      {data.length === 0 ? (
-        <Empty
-          description={q ? "无匹配分类" : "暂无分类"}
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-        />
-      ) : (
-        <Tree
-          treeData={data}
-          showLine
-          blockNode
-          expandedKeys={expandedKeys}
-          autoExpandParent={autoExpandParent}
-          onExpand={(keys) => {
-            setExpandedKeys(keys as string[]);
-            setAutoExpandParent(false);
-          }}
-          onSelect={(keys, info) =>
-            onSelect(keys[0] as string | undefined, !!(info.node as DataNode).isLeaf)
-          }
+    <div style={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column" }}>
+      {!loading && (
+        <Input.Search
+          placeholder="搜索分类"
+          allowClear
+          size="small"
+          style={{ marginBottom: 8 }}
+          value={kw}
+          onChange={(e) => setKw(e.target.value)}
         />
       )}
+      <div ref={treeViewportRef} style={{ flex: "1 1 auto", minHeight: 0 }}>
+        {loading ? (
+          <Spin style={{ padding: 16 }} />
+        ) : data.length === 0 ? (
+          <Empty
+            description={q ? "无匹配分类" : "暂无分类"}
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+          />
+        ) : (
+          <Tree
+            treeData={data}
+            showLine
+            blockNode
+            height={treeHeight}
+            expandedKeys={expandedKeys}
+            autoExpandParent={autoExpandParent}
+            onExpand={(keys) => {
+              setExpandedKeys(keys as string[]);
+              setAutoExpandParent(false);
+            }}
+            onSelect={(keys, info) =>
+              onSelect(keys[0] as string | undefined, !!(info.node as DataNode).isLeaf)
+            }
+          />
+        )}
+      </div>
     </div>
   );
 }

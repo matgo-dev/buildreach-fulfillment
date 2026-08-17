@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   App,
   Button,
@@ -21,6 +21,7 @@ import {
   Typography,
 } from "antd";
 import type { DataNode } from "antd/es/tree";
+import type { TreeProps } from "antd/es/tree";
 import type { ColumnsType } from "antd/es/table";
 import { DeleteOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
 import { Can } from "@/components/common/Can";
@@ -40,6 +41,10 @@ import { resolveBizError } from "@/lib/errorMessages";
 
 type DrawerMode = "create" | "edit" | null;
 type SpecDrawerMode = "create" | "edit" | null;
+type SpecCacheEntry = {
+  direct: CategorySpecAttribute[];
+  inherited: CategorySpecAttribute[];
+};
 
 interface SpecFormValues {
   name_zh: string;
@@ -52,8 +57,9 @@ interface SpecFormValues {
   options?: Array<{ code?: string; name_zh?: string; name_en?: string; name_sw?: string }>;
 }
 
-const CATEGORY_CODE_PATTERN = /^(?!00(?:\.|$))\d{2}(?:\.(?!000)\d{3}){0,2}$/;
-const CATEGORY_CODE_MESSAGE = "编码格式应为 01 / 01.001 / 01.001.003";
+const MAX_CATEGORY_LEVEL = 4;
+const CATEGORY_CODE_PATTERN = /^(?!00(?:\.|$))\d{2}(?:\.(?!000)\d{3}){0,3}$/;
+const CATEGORY_CODE_MESSAGE = "编码格式应为 01 / 01.001 / 01.001.003 / 01.001.003.001";
 const VALUE_TYPE_OPTIONS = [
   { label: "文本", value: "string" },
   { label: "数字", value: "number" },
@@ -105,6 +111,21 @@ function buildTree(nodes: CategoryNode[]): DataNode[] {
   return make(null);
 }
 
+function ancestorKeys(nodes: CategoryNode[], code: string): string[] {
+  const byCode = new Map(nodes.map((n) => [n.code, n]));
+  const keys: string[] = [];
+  let cur = byCode.get(code);
+  while (cur?.parent_code) {
+    keys.push(cur.parent_code);
+    cur = byCode.get(cur.parent_code);
+  }
+  return keys;
+}
+
+function mergeKeys(a: string[], b: string[]): string[] {
+  return Array.from(new Set([...a, ...b]));
+}
+
 function namePayload(v: { name_zh: string; name_en?: string; name_sw?: string }) {
   return {
     zh: v.name_zh.trim(),
@@ -144,7 +165,7 @@ function validateCategoryCode(code: string, parent: CategoryNode | null): string
     return level === 1 ? null : "根分类编码必须是一段,例如 01";
   }
   const parentLevel = parent.code.split(".").length;
-  if (parentLevel >= 3) return "分类最多支持三级";
+  if (parentLevel >= MAX_CATEGORY_LEVEL) return "分类最多支持四级";
   if (level !== parentLevel + 1 || !code.startsWith(`${parent.code}.`)) {
     return "子分类编码必须在父级编码后追加一段三位数字";
   }
@@ -165,9 +186,16 @@ export default function CategoryAdminPage() {
   const [specRows, setSpecRows] = useState<CategorySpecAttribute[]>([]);
   const [inheritedSpecRows, setInheritedSpecRows] = useState<CategorySpecAttribute[]>([]);
   const [specLoading, setSpecLoading] = useState(false);
+  const [loadingSpecCode, setLoadingSpecCode] = useState<string | null>(null);
   const [specSaving, setSpecSaving] = useState(false);
   const [specDrawerMode, setSpecDrawerMode] = useState<SpecDrawerMode>(null);
   const [specTarget, setSpecTarget] = useState<CategorySpecAttribute | null>(null);
+  const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
+  const treeViewportRef = useRef<HTMLDivElement | null>(null);
+  const didInitialLoadRef = useRef(false);
+  const specCacheRef = useRef(new Map<string, SpecCacheEntry>());
+  const specRequestSeqRef = useRef(0);
+  const [treeHeight, setTreeHeight] = useState(520);
 
   async function load() {
     setLoading(true);
@@ -185,8 +213,22 @@ export default function CategoryAdminPage() {
   }
 
   useEffect(() => {
+    if (didInitialLoadRef.current) return;
+    didInitialLoadRef.current = true;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const el = treeViewportRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const syncHeight = () => {
+      setTreeHeight(Math.max(240, Math.floor(el.clientHeight)));
+    };
+    syncHeight();
+    const ro = new ResizeObserver(syncHeight);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
   const selected = useMemo(
@@ -195,30 +237,61 @@ export default function CategoryAdminPage() {
   );
   const specValueType = Form.useWatch("value_type", specForm);
   const treeData = useMemo(() => buildTree(nodes), [nodes]);
-  const expandedKeys = useMemo(() => nodes.filter((n) => !n.is_leaf).map((n) => n.code), [nodes]);
 
-  async function loadSpecs(code: string) {
+  useEffect(() => {
+    if (!selectedCode || !nodes.length) return;
+    setExpandedKeys((keys) => mergeKeys(keys, ancestorKeys(nodes, selectedCode)));
+  }, [nodes, selectedCode]);
+
+  async function loadSpecs(code: string, opts: { force?: boolean } = {}) {
+    const seq = ++specRequestSeqRef.current;
+    const cached = specCacheRef.current.get(code);
+    if (cached && !opts.force) {
+      setSpecRows(cached.direct);
+      setInheritedSpecRows(cached.inherited);
+      setSpecLoading(false);
+      setLoadingSpecCode(null);
+      return;
+    }
+
+    if (!cached) {
+      setSpecRows([]);
+      setInheritedSpecRows([]);
+    }
     setSpecLoading(true);
+    setLoadingSpecCode(code);
     try {
       const [direct, suggestions] = await Promise.all([
         catalogApi.specAttributes(code),
         catalogApi.specSuggestions(code),
       ]);
-      setSpecRows(direct.items);
-      setInheritedSpecRows(
-        suggestions.items.filter((item) => item.category_code && item.category_code !== code),
-      );
+      if (seq !== specRequestSeqRef.current) return;
+      const next = {
+        direct: direct.items,
+        inherited: suggestions.items.filter((item) => item.category_code && item.category_code !== code),
+      };
+      specCacheRef.current.set(code, next);
+      setSpecRows(next.direct);
+      setInheritedSpecRows(next.inherited);
     } catch (e) {
-      message.error(resolveBizError(e, "加载规格模板失败"));
+      if (seq === specRequestSeqRef.current) {
+        message.error(resolveBizError(e, "加载规格模板失败"));
+      }
     } finally {
-      setSpecLoading(false);
+      if (seq === specRequestSeqRef.current) {
+        setSpecLoading(false);
+        setLoadingSpecCode(null);
+      }
     }
   }
 
   useEffect(() => {
     if (!selectedCode) {
+      specRequestSeqRef.current += 1;
       setSpecRows([]);
       setInheritedSpecRows([]);
+      setSpecLoading(false);
+      setLoadingSpecCode(null);
       return;
     }
     loadSpecs(selectedCode);
@@ -369,8 +442,9 @@ export default function CategoryAdminPage() {
         await catalogApi.updateSpecAttribute(selected.code, specTarget.key, specPayload(values));
         message.success("已保存规格字段");
       }
+      specCacheRef.current.clear();
       closeSpecDrawer();
-      await loadSpecs(selected.code);
+      await loadSpecs(selected.code, { force: true });
     } catch (e) {
       message.error(resolveBizError(e, "保存规格字段失败"));
     } finally {
@@ -383,7 +457,8 @@ export default function CategoryAdminPage() {
     try {
       await catalogApi.deleteSpecAttribute(selected.code, row.key);
       message.success("已删除规格字段");
-      await loadSpecs(selected.code);
+      specCacheRef.current.clear();
+      await loadSpecs(selected.code, { force: true });
     } catch (e) {
       message.error(resolveBizError(e, "删除规格字段失败"));
     }
@@ -453,6 +528,13 @@ export default function CategoryAdminPage() {
       render: (v) => v,
     },
   ];
+  const handleTreeSelect: TreeProps["onSelect"] = (_keys, info) => {
+    setSelectedCode(String(info.node.key));
+  };
+  const handleTreeExpand: TreeProps["onExpand"] = (keys) => {
+    setExpandedKeys(keys.map((key) => String(key)));
+  };
+  const selectedSpecLoading = Boolean(selectedCode && specLoading && loadingSpecCode === selectedCode);
 
   return (
     <Row gutter={16} wrap={false} style={{ height: "100%" }}>
@@ -468,26 +550,37 @@ export default function CategoryAdminPage() {
             </Can>
           }
           style={{ height: "100%", display: "flex", flexDirection: "column" }}
-          styles={{ body: { flex: "1 1 auto", minHeight: 0, overflowY: "auto" } }}
+          styles={{ body: { flex: "1 1 auto", minHeight: 0 } }}
         >
-          {loading ? (
-            <Spin style={{ padding: 16 }} />
-          ) : (
-            <Tree
-              showLine
-              blockNode
-              defaultExpandedKeys={expandedKeys}
-              selectedKeys={selectedCode ? [selectedCode] : []}
-              treeData={treeData}
-              onSelect={(keys) => setSelectedCode((keys[0] as string | undefined) ?? null)}
-            />
-          )}
+          <div ref={treeViewportRef} style={{ height: "100%", minHeight: 0 }}>
+            {loading ? (
+              <Spin style={{ padding: 16 }} />
+            ) : (
+              <Tree
+                className="category-admin-tree"
+                showLine
+                blockNode
+                height={treeHeight}
+                expandedKeys={expandedKeys}
+                autoExpandParent={false}
+                selectedKeys={selectedCode ? [selectedCode] : []}
+                treeData={treeData}
+                onExpand={handleTreeExpand}
+                onSelect={handleTreeSelect}
+              />
+            )}
+          </div>
         </Card>
       </Col>
       <Col flex="auto" style={{ minWidth: 0 }}>
         <Card
           size="small"
-          title={selected ? display(selected.name_i18n) || selected.code : "分类详情"}
+          title={
+            <Space size={8}>
+              <span>{selected ? display(selected.name_i18n) || selected.code : "分类详情"}</span>
+              {selectedSpecLoading && <Spin size="small" />}
+            </Space>
+          }
           style={{ height: "100%" }}
           extra={
             selected && canManage ? (
@@ -495,7 +588,7 @@ export default function CategoryAdminPage() {
                 <Button
                   icon={<PlusOutlined />}
                   onClick={() => openCreate(selected)}
-                  disabled={selected.level >= 3}
+                  disabled={selected.level >= MAX_CATEGORY_LEVEL}
                 >
                   新建子类
                 </Button>
@@ -620,7 +713,7 @@ export default function CategoryAdminPage() {
                   },
                 ]}
               >
-                <Input maxLength={10} placeholder={createParent ? `${createParent.code}.001` : "如 08"} />
+                <Input maxLength={14} placeholder={createParent ? `${createParent.code}.001` : "如 08"} />
               </Form.Item>
             </>
           ) : (

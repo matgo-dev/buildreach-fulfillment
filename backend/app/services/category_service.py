@@ -12,8 +12,9 @@ from app.audit.logger import write_audit
 from app.core.exceptions import ConflictError, NotFoundError, ValidationFailedError
 from app.db.models.category import Category
 
-_CATEGORY_CODE_RE = re.compile(r"^(?!00(?:\.|$))\d{2}(?:\.(?!000)\d{3}){0,2}$")
-_CATEGORY_CODE_MESSAGE = "分类编码格式应为 01 / 01.001 / 01.001.003"
+_MAX_CATEGORY_LEVEL = 4
+_CATEGORY_CODE_RE = re.compile(r"^(?!00(?:\.|$))\d{2}(?:\.(?!000)\d{3}){0,3}$")
+_CATEGORY_CODE_MESSAGE = "分类编码格式应为 01 / 01.001 / 01.001.003 / 01.001.003.001"
 
 
 def _normalize_category_code(code: str, *, field: str = "code") -> str:
@@ -44,8 +45,8 @@ def _assert_create_parentage(*, code: str, parent_code: str | None) -> None:
         return
 
     parent_level = _code_level(parent_code)
-    if parent_level >= 3:
-        raise ValidationFailedError("分类最多支持三级")
+    if parent_level >= _MAX_CATEGORY_LEVEL:
+        raise ValidationFailedError("分类最多支持四级")
     if level != parent_level + 1 or not code.startswith(f"{parent_code}."):
         raise ValidationFailedError("子分类编码必须在父级编码后追加一段三位数字")
 
@@ -131,8 +132,8 @@ async def create_category(db: AsyncSession, *, code: str, parent_code: str | Non
         inactive = next((c for c in chain if not c.is_active), None)
         if inactive is not None:
             raise ConflictError(f"上级分类已停用,请先启用分类: {inactive.code}")
-        if parent.level >= 3:
-            raise ValidationFailedError("分类最多支持三级")
+        if parent.level >= _MAX_CATEGORY_LEVEL:
+            raise ValidationFailedError("分类最多支持四级")
         if level != parent.level + 1:
             raise ValidationFailedError("分类编码层级必须与父级一致")
 

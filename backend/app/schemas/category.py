@@ -6,8 +6,8 @@ import re
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-_CATEGORY_CODE_RE = re.compile(r"^(?!00(?:\.|$))\d{2}(?:\.(?!000)\d{3}){0,2}$")
-_CATEGORY_CODE_MESSAGE = "分类编码格式应为 01 / 01.001 / 01.001.003"
+_CATEGORY_CODE_RE = re.compile(r"^(?!00(?:\.|$))\d{2}(?:\.(?!000)\d{3}){0,3}$")
+_CATEGORY_CODE_MESSAGE = "分类编码格式应为 01 / 01.001 / 01.001.003 / 01.001.003.001"
 _SPEC_OPTION_CODE_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 
 
@@ -40,8 +40,8 @@ def _valid_name_i18n(v: dict) -> dict:
 
 
 class CategoryCreateIn(BaseModel):
-    code: str = Field(..., min_length=2, max_length=10)
-    parent_code: str | None = Field(default=None, max_length=10)
+    code: str = Field(..., min_length=2, max_length=14)
+    parent_code: str | None = Field(default=None, max_length=14)
     name_i18n: dict = Field(..., min_length=1)
     sort_order: int = Field(default=0, ge=0)
 
