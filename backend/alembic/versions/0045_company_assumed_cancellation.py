@@ -196,6 +196,12 @@ def upgrade() -> None:
         sa.CheckConstraint("currency ~ '^[A-Z]{3}$'",
                            name="ck_company_losses_currency_iso4217"),
         sa.CheckConstraint("amount > 0", name="ck_company_losses_amount_pos"),
+        sa.CheckConstraint("supplier_payable_amount >= 0",
+                           name="ck_company_losses_supplier_payable_nn"),
+        sa.CheckConstraint("customer_refund_amount >= 0",
+                           name="ck_company_losses_customer_refund_nn"),
+        sa.CheckConstraint("amount = supplier_payable_amount + customer_refund_amount",
+                           name="ck_company_losses_amount_identity"),
     )
     op.create_index(op.f("ix_company_loss_entries_no"), "company_loss_entries", ["no"],
                     unique=True)
