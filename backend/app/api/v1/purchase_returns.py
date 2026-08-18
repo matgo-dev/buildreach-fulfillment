@@ -11,7 +11,9 @@ from app.rbac.guards import has_permission, require_permission
 from app.schemas.common import Page, PageParams
 from app.schemas.purchase_return import (
     APCreditMemoOut,
+    ConfirmInTransitCancellationIn,
     ConfirmReturnShipmentIn,
+    InTransitCancellationCreateIn,
     PurchaseReturnCreateIn,
     PurchaseReturnLineOut,
     PurchaseReturnListItem,
@@ -32,6 +34,21 @@ def _can_see_cost(current: CurrentUser) -> bool:
     return has_permission(current, Permissions.PURCHASE_READ_COST)
 
 
+def _detail_payload(detail: dict, current: CurrentUser) -> dict:
+    can_see_cost = _can_see_cost(current)
+    return {
+        "order": PurchaseReturnOut.build(detail["order"], can_see_cost=can_see_cost),
+        "lines": [
+            PurchaseReturnLineOut.build(line, can_see_cost=can_see_cost)
+            for line in detail["lines"]
+        ],
+        "ap_credit_memo": (
+            APCreditMemoOut.build(detail["ap_credit_memo"])
+            if has_permission(current, Permissions.PAYABLE_READ) else None
+        ),
+    }
+
+
 @router.post("", summary="创建并提交采购退货单")
 async def create_purchase_return(body: PurchaseReturnCreateIn, request: Request,
                                  current: CurrentUser = _MANAGE,
@@ -46,15 +63,24 @@ async def create_purchase_return(body: PurchaseReturnCreateIn, request: Request,
         request=request,
     )
     detail = await purchase_return_service.get_detail(db, order.id)
-    can_see_cost = _can_see_cost(current)
-    return success({
-        "order": PurchaseReturnOut.build(detail["order"], can_see_cost=can_see_cost),
-        "lines": [
-            PurchaseReturnLineOut.build(line, can_see_cost=can_see_cost)
-            for line in detail["lines"]
-        ],
-        "ap_credit_memo": APCreditMemoOut.build(detail["ap_credit_memo"]),
-    })
+    return success(_detail_payload(detail, current))
+
+
+@router.post("/in-transit-cancellations", summary="创建并提交在途取消单")
+async def create_in_transit_cancellation(body: InTransitCancellationCreateIn,
+                                         request: Request,
+                                         current: CurrentUser = _MANAGE,
+                                         db: AsyncSession = Depends(get_db)):
+    order = await purchase_return_service.create_in_transit_cancellation(
+        db,
+        inbound_order_id=body.inbound_order_id,
+        reason=body.reason,
+        actor_user_id=current.id,
+        actor_user_email=current.email,
+        request=request,
+    )
+    detail = await purchase_return_service.get_detail(db, order.id)
+    return success(_detail_payload(detail, current))
 
 
 @router.post("/{order_id}/approve", summary="审核通过采购退货单")
@@ -86,15 +112,26 @@ async def confirm_return_shipment(order_id: int, body: ConfirmReturnShipmentIn,
         return_note=body.return_note, actor_user_id=current.id,
         actor_user_email=current.email, request=request)
     detail = await purchase_return_service.get_detail(db, order.id)
-    can_see_cost = _can_see_cost(current)
-    return success({
-        "order": PurchaseReturnOut.build(detail["order"], can_see_cost=can_see_cost),
-        "lines": [
-            PurchaseReturnLineOut.build(line, can_see_cost=can_see_cost)
-            for line in detail["lines"]
-        ],
-        "ap_credit_memo": APCreditMemoOut.build(detail["ap_credit_memo"]),
-    })
+    return success(_detail_payload(detail, current))
+
+
+@router.post("/{order_id}/confirm-in-transit-cancellation", summary="确认在途取消")
+async def confirm_in_transit_cancellation(order_id: int,
+                                          body: ConfirmInTransitCancellationIn,
+                                          request: Request,
+                                          current: CurrentUser = _INBOUND_MANAGE,
+                                          db: AsyncSession = Depends(get_db)):
+    order = await purchase_return_service.confirm_in_transit_cancellation(
+        db,
+        order_id=order_id,
+        cancellation_reference=body.cancellation_reference,
+        cancellation_note=body.cancellation_note,
+        actor_user_id=current.id,
+        actor_user_email=current.email,
+        request=request,
+    )
+    detail = await purchase_return_service.get_detail(db, order.id)
+    return success(_detail_payload(detail, current))
 
 
 @router.get("", summary="采购退货单列表")
@@ -134,15 +171,4 @@ async def returnable_lines(inbound_order_id: int = Query(...),
 async def get_purchase_return(order_id: int, current: CurrentUser = _READ,
                               db: AsyncSession = Depends(get_db)):
     detail = await purchase_return_service.get_detail(db, order_id)
-    can_see_cost = _can_see_cost(current)
-    return success({
-        "order": PurchaseReturnOut.build(detail["order"], can_see_cost=can_see_cost),
-        "lines": [
-            PurchaseReturnLineOut.build(line, can_see_cost=can_see_cost)
-            for line in detail["lines"]
-        ],
-        "ap_credit_memo": (
-            APCreditMemoOut.build(detail["ap_credit_memo"])
-            if has_permission(current, Permissions.PAYABLE_READ) else None
-        ),
-    })
+    return success(_detail_payload(detail, current))

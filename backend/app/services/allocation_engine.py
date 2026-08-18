@@ -195,24 +195,31 @@ async def reverse(db: AsyncSession, spec: AllocationSpec, alloc_id: int, *,
     """反核销:软删该核销记录(reversed_at 留痕),金额退回 source 未分配 + 账未结金额恢复。
     已反核销/不存在 → 42205(幂等)。
 
-    并发正确性 = 「首锁即读」(与登录行锁/D2 撤账守卫同模式):alloc 行在本 session 的
-    **首次加载即带 FOR UPDATE**——并发双反核销时后到者阻塞于行锁,解锁后首读即见
-    reversed_at 非空 → 42205。不可先裸读、锁后再重读:SQLAlchemy identity map 对已加载
-    对象默认**丢弃重读的新行值**(需 populate_existing 才覆盖),锁后重判会恒真、形同虚设。
-    锁序:alloc → source → account;核销路径只 INSERT 新 alloc 行、从不锁既有 alloc 行,
-    无反向持锁,无死锁环。
+    并发正确性:先裸读核销行的 FK/状态(不把 ORM 对象放入 identity map),再按全财务域统一
+    锁序 source → account → alloc 加锁。双反核销时后到者会阻塞在 source/account/alloc 任一
+    锁点,最终锁住 alloc 后重新读取 reversed_at 并返回 42205。不可先加载 ORM alloc 对象再锁后
+    重判:SQLAlchemy identity map 对已加载对象默认丢弃重读的新行值,会让并发重判失效。
     """
     from datetime import datetime, timezone
     m = spec.alloc_model
+    snapshot = (await db.execute(
+        select(m.id, getattr(m, spec.source_fk), getattr(m, spec.account_fk), m.reversed_at)
+        .where(m.id == alloc_id)
+    )).one_or_none()
+    if snapshot is None or snapshot.reversed_at is not None:
+        raise AllocationReverseNotFoundError()
+
+    source_id = getattr(snapshot, spec.source_fk)
+    account_id = getattr(snapshot, spec.account_fk)
+    source = await lock_source(db, spec, source_id)
+    acc = (await db.execute(
+        select(spec.account_model).where(spec.account_model.id == account_id)
+        .with_for_update())).scalar_one()
     alloc = (await db.execute(
         select(m).where(m.id == alloc_id).with_for_update())).scalar_one_or_none()
     if alloc is None or alloc.reversed_at is not None:
         raise AllocationReverseNotFoundError()
-    # 锁序:source 行先、account 行后(与核销写入口同向,无环)。
-    source = await lock_source(db, spec, getattr(alloc, spec.source_fk))
-    acc = (await db.execute(
-        select(spec.account_model).where(spec.account_model.id == getattr(alloc, spec.account_fk))
-        .with_for_update())).scalar_one()
+
     amt = _d(alloc.amount)
     alloc.reversed_at = datetime.now(timezone.utc).replace(tzinfo=None)
     alloc.reversed_by = actor_user_id

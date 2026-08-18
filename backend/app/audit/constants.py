@@ -55,6 +55,7 @@ class AuditAction(str, Enum):
     RECEIVE = "RECEIVE"
     UNRECEIVE = "UNRECEIVE"
     RETURN_SHIP = "RETURN_SHIP"
+    IN_TRANSIT_CANCEL = "IN_TRANSIT_CANCEL"
     # 出库单状态跃迁:DRAFT→ISSUED(确认出库/扣库存)。0811 后 ISSUED 是正向履约终点。
     ISSUE = "ISSUE"
     # 历史审计动作:旧撤销出库路径曾使用,保留枚举以便读取存量审计。

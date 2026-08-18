@@ -28,6 +28,12 @@ class PurchaseReturnStatus:
     ALL = (PENDING_APPROVAL, APPROVED, REJECTED, RETURNED, VOIDED)
 
 
+class PurchaseReturnKind:
+    PURCHASE_RETURN = "PURCHASE_RETURN"
+    IN_TRANSIT_CANCELLATION = "IN_TRANSIT_CANCELLATION"
+    ALL = (PURCHASE_RETURN, IN_TRANSIT_CANCELLATION)
+
+
 class PurchaseReturnOrder(Base, TimestampUpdateMixin):
     """采购退货单。
 
@@ -39,9 +45,13 @@ class PurchaseReturnOrder(Base, TimestampUpdateMixin):
         CheckConstraint(
             "status IN ('PENDING_APPROVAL','APPROVED','REJECTED','RETURNED','VOIDED')",
             name="ck_preturns_status"),
+        CheckConstraint(
+            "return_kind IN ('PURCHASE_RETURN','IN_TRANSIT_CANCELLATION')",
+            name="ck_preturns_kind"),
         CheckConstraint("currency ~ '^[A-Z]{3}$'", name="ck_preturns_currency_iso4217"),
         CheckConstraint("total_amount >= 0", name="ck_preturns_total_amount_nn"),
         Index("ix_preturns_status_created", "status", text("created_at DESC")),
+        Index("ix_preturns_kind_status_created", "return_kind", "status", text("created_at DESC")),
         Index("ix_preturns_inbound_created", "inbound_order_id", text("created_at DESC")),
         Index("ix_preturns_purchase_created", "purchase_order_id", text("created_at DESC")),
         Index("ix_preturns_supplier_created", "supplier_id", text("created_at DESC")),
@@ -64,6 +74,8 @@ class PurchaseReturnOrder(Base, TimestampUpdateMixin):
     currency: Mapped[str] = mapped_column(String(10), nullable=False)
     status: Mapped[str] = mapped_column(
         String(30), nullable=False, default=PurchaseReturnStatus.PENDING_APPROVAL)
+    return_kind: Mapped[str] = mapped_column(
+        String(40), nullable=False, default=PurchaseReturnKind.PURCHASE_RETURN)
     total_amount: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[int] = mapped_column(

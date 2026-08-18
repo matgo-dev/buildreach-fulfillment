@@ -9,6 +9,8 @@ export type PurchaseReturnStatus =
   | "RETURNED"
   | "VOIDED";
 
+export type PurchaseReturnKind = "PURCHASE_RETURN" | "IN_TRANSIT_CANCELLATION";
+
 export type APCreditMemoStatus = "PENDING_APPROVAL" | "POSTED" | "REJECTED" | "VOIDED";
 
 export const PURCHASE_RETURN_STATUS_META: Record<PurchaseReturnStatus, { label: string; color: string }> = {
@@ -54,6 +56,11 @@ export interface PurchaseReturnCreateBody {
   lines: PurchaseReturnLineIn[];
 }
 
+export interface InTransitCancellationCreateBody {
+  inbound_order_id: number;
+  reason?: string | null;
+}
+
 export interface PurchaseReturnOrderOut {
   id: number;
   no: string;
@@ -63,6 +70,7 @@ export interface PurchaseReturnOrderOut {
   supplier_id: number;
   currency: string;
   status: PurchaseReturnStatus;
+  return_kind: PurchaseReturnKind;
   total_amount: number | string | null;
   reason: string | null;
   submitted_at: string;
@@ -126,6 +134,7 @@ export interface PurchaseReturnListItem {
   id: number;
   no: string;
   status: PurchaseReturnStatus;
+  return_kind: PurchaseReturnKind;
   inbound_order_id: number;
   inbound_order_no: string;
   purchase_order_id: number;
@@ -158,6 +167,8 @@ export const purchaseReturnApi = {
     ),
   create: (body: PurchaseReturnCreateBody) =>
     api.post<PurchaseReturnDetail>("/api/v1/purchase-returns", body),
+  createInTransitCancellation: (body: InTransitCancellationCreateBody) =>
+    api.post<PurchaseReturnDetail>("/api/v1/purchase-returns/in-transit-cancellations", body),
   approve: (id: number) =>
     api.post<PurchaseReturnOrderOut>(`/api/v1/purchase-returns/${id}/approve`, {}),
   reject: (id: number, reject_reason?: string | null) =>
@@ -168,6 +179,14 @@ export const purchaseReturnApi = {
   ) =>
     api.post<PurchaseReturnDetail>(
       `/api/v1/purchase-returns/${id}/confirm-return-shipment`,
+      body,
+    ),
+  confirmInTransitCancellation: (
+    id: number,
+    body: { cancellation_reference?: string | null; cancellation_note?: string | null },
+  ) =>
+    api.post<PurchaseReturnDetail>(
+      `/api/v1/purchase-returns/${id}/confirm-in-transit-cancellation`,
       body,
     ),
 };
@@ -185,4 +204,5 @@ export const apCreditMemoApi = {
   post: (id: number) => api.post<APCreditMemoOut>(`/api/v1/ap-credit-memos/${id}/post`, {}),
   reject: (id: number, reject_reason?: string | null) =>
     api.post<APCreditMemoOut>(`/api/v1/ap-credit-memos/${id}/reject`, { reject_reason }),
+  resubmit: (id: number) => api.post<APCreditMemoOut>(`/api/v1/ap-credit-memos/${id}/resubmit`, {}),
 };
