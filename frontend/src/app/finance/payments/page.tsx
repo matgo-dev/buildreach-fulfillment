@@ -411,7 +411,7 @@ export default function PaymentListPage() {
         </Form>
       </Drawer>
 
-      {/* 详情抽屉:单头 + 未分配余额高亮 + 活动核销记录。 */}
+      {/* 详情抽屉:单头 + 付款未分配金额高亮 + 活动核销记录。 */}
       <Drawer
         title={p ? `付款单 ${p.payment_no}` : "付款单详情"}
         size={640}
@@ -460,7 +460,7 @@ export default function PaymentListPage() {
               <Descriptions.Item label="已分配">
                 {formatMoney(p.amount_allocated)} {p.currency}
               </Descriptions.Item>
-              <Descriptions.Item label="未分配余额" span={2}>
+              <Descriptions.Item label="付款未分配金额" span={2}>
                 <Typography.Text strong type={p.amount_unallocated > 0 ? "success" : undefined}>
                   {formatMoney(p.amount_unallocated)} {p.currency}
                 </Typography.Text>
@@ -542,7 +542,7 @@ export default function PaymentListPage() {
         onOk={doAllocate}
       >
         <Typography.Paragraph type="secondary">
-          核销金额自动取「未分配余额」与「应付余额」的较小值,无需填写。
+          核销金额自动取「付款未分配金额」与「未结应付」的较小值,无需填写。
         </Typography.Paragraph>
         <Select
           style={{ width: "100%" }}
@@ -553,7 +553,7 @@ export default function PaymentListPage() {
           notFoundContent={candLoading ? "加载中…" : "无同币种未结清应付"}
           options={candidates.map((c) => ({
             value: c.id,
-            label: `${c.inbound_order_no} · 余额 ${formatMoney(c.balance)} ${c.currency}`,
+            label: `${c.inbound_order_no} · 未结应付 ${formatMoney(c.amount_outstanding)} ${c.currency}`,
           }))}
         />
       </Modal>
@@ -580,7 +580,7 @@ export default function PaymentListPage() {
         />
       </Modal>
 
-      {/* 反核销:二次确认 + 原因;金额退回未分配、应付余额恢复。 */}
+      {/* 反核销:二次确认 + 原因;金额退回未分配、未结应付恢复。 */}
       <Modal
         title="反核销"
         open={reverseAllocId != null}
@@ -591,7 +591,7 @@ export default function PaymentListPage() {
         onOk={doReverse}
       >
         <Typography.Paragraph type="secondary">
-          反核销后该笔金额退回付款单「未分配」,对应应付余额恢复。此操作会留痕。
+          反核销后该笔金额退回付款单「未分配」,对应未结应付恢复。此操作会留痕。
         </Typography.Paragraph>
         <Input.TextArea
           rows={3}

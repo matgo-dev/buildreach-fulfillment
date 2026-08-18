@@ -23,11 +23,11 @@ class ReceivableListItem(BaseModel):
     currency: str
     amount_original: float
     amount_allocated: float
-    balance: float
+    amount_outstanding: float
     status: str
     due_at: date | None
     created_at: datetime
-    # D10:该客户是否有未分配收款余额(预收),供列表提示「一键核销」入口(纯提示,非自动)。
+    # D10:该客户是否有未分配收款(预收),供列表提示「一键核销」入口(纯提示,非自动)。
     counterparty_has_unallocated: bool = False
 
     @classmethod
@@ -39,7 +39,7 @@ class ReceivableListItem(BaseModel):
                 "created_at")},
             "amount_original": float(item["amount_original"]),
             "amount_allocated": float(item["amount_allocated"]),
-            "balance": float(item["balance"]),
+            "amount_outstanding": float(item["amount_outstanding"]),
             "status": derive_receivable_status(item["amount_original"], item["amount_allocated"]),
             "counterparty_has_unallocated": item.get("counterparty_has_unallocated", False),
         }

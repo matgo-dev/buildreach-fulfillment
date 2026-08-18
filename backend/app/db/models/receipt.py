@@ -53,7 +53,7 @@ class Receipt(Base, TimestampUpdateMixin):
 
     收付不对称(D1):customer_id **可空** = 待认领(认不出付款客户),认领后回填并核销。
     status 完全派生(customer 维 + amount_* 维),不落列。void = 纠错口(登记错作废重录,D11)。
-    amount_unallocated(Computed)= 未分配余额 = 预收(§7.2),镜像账层 balance 范式。
+    amount_unallocated(Computed)= 未分配金额 = 预收(§7.2),镜像账层未结金额范式。
     """
     __tablename__ = "receipts"
     __table_args__ = (
@@ -78,7 +78,7 @@ class Receipt(Base, TimestampUpdateMixin):
     currency: Mapped[str] = mapped_column(String(10), nullable=False)
     amount: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
     amount_allocated: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    # 未分配余额 = 预收;恒等式落 DB 最强层,ORM 只读、不进 INSERT/UPDATE(镜像账层 balance)。
+    # 未分配金额 = 预收;恒等式落 DB 最强层,ORM 只读、不进 INSERT/UPDATE(镜像账层未结金额)。
     amount_unallocated: Mapped[float] = mapped_column(
         Numeric(18, 2), Computed("amount - amount_allocated", persisted=True))
     received_at: Mapped[date] = mapped_column(Date, nullable=False)

@@ -19,11 +19,11 @@ export interface ReceivableListItem {
   currency: string;
   amount_original: number | string;
   amount_allocated: number | string;
-  balance: number | string;
+  amount_outstanding: number | string;
   status: ReceivableStatus;
   due_at: string | null;
   created_at: string;
-  /** 该客户名下有未分配收款余额(可一键用余额核销此账)。 */
+  /** 该客户名下有未分配收款(可一键核销此账)。 */
   counterparty_has_unallocated: boolean;
 }
 
@@ -48,7 +48,7 @@ export interface ReceivableDetail {
   currency: string;
   amount_original: number;
   amount_allocated: number;
-  balance: number;
+  amount_outstanding: number;
   status: ReceivableStatus;
   due_at: string | null;
   created_at: string;

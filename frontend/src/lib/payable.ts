@@ -17,8 +17,9 @@ export interface PayableOut {
   supplier_id: number;
   currency: string;
   amount_original: number | string;
+  amount_credited: number | string;
   amount_allocated: number | string;
-  balance: number | string;
+  amount_outstanding: number | string;
   status: PayableStatus;
   due_at: string | null;
   created_at: string;
@@ -34,12 +35,13 @@ export interface PayableListItem {
   supplier_display: string;
   currency: string;
   amount_original: number | string;
+  amount_credited: number | string;
   amount_allocated: number | string;
-  balance: number | string;
+  amount_outstanding: number | string;
   status: PayableStatus;
   due_at: string | null;
   created_at: string;
-  /** 该供应商名下有未分配付款余额(可一键用余额核销此账)。 */
+  /** 该供应商名下有未分配付款(可一键核销此账)。 */
   counterparty_has_unallocated: boolean;
 }
 
@@ -63,8 +65,9 @@ export interface PayableDetail {
   supplier_display: string | null;
   currency: string;
   amount_original: number;
+  amount_credited: number;
   amount_allocated: number;
-  balance: number;
+  amount_outstanding: number;
   status: PayableStatus;
   due_at: string | null;
   created_at: string;

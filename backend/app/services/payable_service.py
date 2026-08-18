@@ -1,7 +1,7 @@
 """应付款读服务(账层)。P0 只读:列表 + 详情投影。付款/核销 = 财务步。
 
 🔴 整表红线域:端点级 payable:read 门控(见 api/v1/payables.py),不做字段级脱敏。
-所有余额/列表聚合一律 WHERE voided_at IS NULL(作废行留痕、不进聚合)。
+所有未结应付/列表聚合一律 WHERE voided_at IS NULL(作废行留痕、不进聚合)。
 status(未付/部分付/已付清)派生自 amount_*,不落列(见 payable.derive_payable_status)。
 """
 from __future__ import annotations
@@ -24,11 +24,12 @@ from app.db.models.supplier import Supplier
 from app.services.repo import paginate
 
 # 派生状态 → SQL 谓词(边界共用 _settlement,与 derive_payable_status 同源不双写)。
+_PAYABLE_EFFECTIVE_TOTAL = Payable.amount_original - Payable.amount_credited
 _STATUS_CONDS = {
-    PayableStatus.PAID: is_fully_settled(Payable.amount_original, Payable.amount_allocated),
-    PayableStatus.UNPAID: is_unsettled(Payable.amount_original, Payable.amount_allocated),
+    PayableStatus.PAID: is_fully_settled(_PAYABLE_EFFECTIVE_TOTAL, Payable.amount_allocated),
+    PayableStatus.UNPAID: is_unsettled(_PAYABLE_EFFECTIVE_TOTAL, Payable.amount_allocated),
     PayableStatus.PARTIALLY_PAID: is_partially_settled(
-        Payable.amount_original, Payable.amount_allocated),
+        _PAYABLE_EFFECTIVE_TOTAL, Payable.amount_allocated),
 }
 
 
@@ -60,7 +61,7 @@ async def list_payables(db: AsyncSession, *, supplier_id=None, currency=None,
     rows, total = await paginate(
         db, base.order_by(Payable.created_at.desc()),
         page=page, size=size, scalars=False)
-    # D10:本页涉及供应商中,谁有未分配付款余额(预付)。单条聚合查询,按页有界,无 N+1。
+    # D10:本页涉及供应商中,谁有未分配付款(预付)。单条聚合查询,按页有界,无 N+1。
     # 🔴 提示位派生自付款域:无 payment:read 不计算不下发(恒 False),权限跟数据走。
     sup_ids = {p.supplier_id for (p, *_rest) in rows} if can_read_payment else set()
     unalloc = await _suppliers_with_unallocated(db, sup_ids)
@@ -68,8 +69,10 @@ async def list_payables(db: AsyncSession, *, supplier_id=None, currency=None,
         "id": p.id, "inbound_order_id": p.inbound_order_id, "inbound_order_no": inb_no,
         "purchase_order_id": p.purchase_order_id, "purchase_order_no": po_no,
         "supplier_id": p.supplier_id, "supplier_display": sup_name, "currency": p.currency,
-        "amount_original": p.amount_original, "amount_allocated": p.amount_allocated,
-        "balance": p.balance, "due_at": p.due_at, "created_at": p.created_at,
+        "amount_original": p.amount_original, "amount_credited": p.amount_credited,
+        "amount_allocated": p.amount_allocated,
+        "amount_outstanding": p.amount_outstanding,
+        "due_at": p.due_at, "created_at": p.created_at,
         "counterparty_has_unallocated": p.supplier_id in unalloc,
     } for (p, sup_name, inb_no, po_no) in rows]
     return items, total
@@ -94,7 +97,7 @@ async def get_detail(db: AsyncSession, payable_id: int, *, can_read_payment: boo
     """应付款详情:账头 + 活动核销记录(哪笔付款冲了多少、何时),供「怎么付清的」追溯。🔴红线。
 
     核销记录属付款域(红线):无 payment:read 者整块不下发(空列表),与列表提示位同源门控
-    ——不该经账层详情旁路感知付款单存在性。账头(已冲/余额/状态)是账层信息,payable:read 即可见。"""
+    ——不该经账层详情旁路感知付款单存在性。账头(已贷记/未结应付/状态)是账层信息,payable:read 即可见。"""
     p = await get(db, payable_id)
     if p is None:
         raise NotFoundError(f"应付款不存在: {payable_id}")
@@ -112,9 +115,11 @@ async def get_detail(db: AsyncSession, payable_id: int, *, can_read_payment: boo
         "id": p.id, "inbound_order_id": p.inbound_order_id, "inbound_order_no": inb_no,
         "purchase_order_id": p.purchase_order_id, "supplier_id": p.supplier_id,
         "supplier_display": sup_name, "currency": p.currency,
-        "amount_original": float(p.amount_original), "amount_allocated": float(p.amount_allocated),
-        "balance": float(p.balance), "due_at": p.due_at,
-        "status": derive_payable_status(p.amount_original, p.amount_allocated),
+        "amount_original": float(p.amount_original),
+        "amount_credited": float(p.amount_credited),
+        "amount_allocated": float(p.amount_allocated),
+        "amount_outstanding": float(p.amount_outstanding), "due_at": p.due_at,
+        "status": derive_payable_status(p.amount_original, p.amount_allocated, p.amount_credited),
         "created_at": p.created_at,
         "allocations": [{
             "id": a.id, "payment_id": a.payment_id, "payment_no": pm_no,

@@ -20,8 +20,9 @@ class PayableOut(BaseModel):
     supplier_id: int
     currency: str
     amount_original: float
+    amount_credited: float = 0
     amount_allocated: float
-    balance: float
+    amount_outstanding: float
     status: str
     due_at: date | None
     created_at: datetime
@@ -32,8 +33,11 @@ class PayableOut(BaseModel):
             "id": p.id, "inbound_order_id": p.inbound_order_id,
             "purchase_order_id": p.purchase_order_id, "supplier_id": p.supplier_id,
             "currency": p.currency, "amount_original": float(p.amount_original),
-            "amount_allocated": float(p.amount_allocated), "balance": float(p.balance),
-            "status": derive_payable_status(p.amount_original, p.amount_allocated),
+            "amount_credited": float(p.amount_credited),
+            "amount_allocated": float(p.amount_allocated),
+            "amount_outstanding": float(p.amount_outstanding),
+            "status": derive_payable_status(
+                p.amount_original, p.amount_allocated, p.amount_credited),
             "due_at": p.due_at, "created_at": p.created_at,
         }
 
@@ -48,12 +52,13 @@ class PayableListItem(BaseModel):
     supplier_display: str
     currency: str
     amount_original: float
+    amount_credited: float = 0
     amount_allocated: float
-    balance: float
+    amount_outstanding: float
     status: str
     due_at: date | None
     created_at: datetime
-    # D10:该供应商是否有未分配付款余额(预付),供列表提示「一键核销」入口(纯提示,非自动)。
+    # D10:该供应商是否有未分配付款(预付),供列表提示「一键核销」入口(纯提示,非自动)。
     counterparty_has_unallocated: bool = False
 
     @classmethod
@@ -64,8 +69,11 @@ class PayableListItem(BaseModel):
                 "purchase_order_no", "supplier_id", "supplier_display", "currency", "due_at",
                 "created_at")},
             "amount_original": float(item["amount_original"]),
+            "amount_credited": float(item.get("amount_credited") or 0),
             "amount_allocated": float(item["amount_allocated"]),
-            "balance": float(item["balance"]),
-            "status": derive_payable_status(item["amount_original"], item["amount_allocated"]),
+            "amount_outstanding": float(item["amount_outstanding"]),
+            "status": derive_payable_status(
+                item["amount_original"], item["amount_allocated"],
+                item.get("amount_credited") or 0),
             "counterparty_has_unallocated": item.get("counterparty_has_unallocated", False),
         }

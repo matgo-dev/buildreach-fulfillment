@@ -1,4 +1,4 @@
-"""应收/应付详情端点(嵌活动核销记录)+ D10 未分配余额提示标志 + 红线门控。"""
+"""应收/应付详情端点(嵌活动核销记录)+ D10 未分配提示标志 + 红线门控。"""
 import pytest
 
 from tests.finance_helpers import make_open_payable, make_open_receivable
@@ -19,7 +19,7 @@ async def test_receivable_detail_embeds_active_allocations(
     d = await client.get(f"/api/v1/receivables/{receivable_id}", headers=finance_headers)
     assert d.status_code == 200, d.text
     body = d.json()["data"]
-    assert body["status"] == "PAID" and float(body["balance"]) == 0.0
+    assert body["status"] == "PAID" and float(body["amount_outstanding"]) == 0.0
     assert len(body["allocations"]) == 1
     alloc = body["allocations"][0]
     assert alloc["receipt_no"].startswith("RC") and float(alloc["amount"]) == 50.0
@@ -27,7 +27,7 @@ async def test_receivable_detail_embeds_active_allocations(
 
 async def test_receivable_list_flags_counterparty_unallocated(
         client, db_session, sales_headers, purchaser_headers, logistics_headers, finance_headers):
-    """客户有未分配收款余额(预收)→ 其应收行 counterparty_has_unallocated=True(D10 提示)。"""
+    """客户有未分配收款(预收)→ 其应收行 counterparty_has_unallocated=True(D10 提示)。"""
     ctx, ob_id, amount = await make_open_receivable(
         client, db_session, sales_headers, purchaser_headers, logistics_headers,
         unit_price="10.00", qty=5)  # 应收 50
@@ -49,6 +49,7 @@ async def test_payable_detail_embeds_allocations_and_is_red_line_gated(
 
     d = await client.get(f"/api/v1/payables/{pay_id}", headers=finance_headers)
     assert d.status_code == 200, d.text
+    assert d.json()["data"]["amount_outstanding"] == 0.0
     assert d.json()["data"]["allocations"][0]["payment_no"].startswith("PM")
     # 🔴红线:LOGISTICS 无 payable:read → 详情 403
     assert (await client.get(f"/api/v1/payables/{pay_id}",

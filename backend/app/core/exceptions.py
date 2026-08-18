@@ -15,7 +15,8 @@
   14 | 报价       | 414xx
   15 | 供应商     | 415xx
   16 | 采购单     | 416xx
-  17 | 入库/应付  | 417xx(含 41710 撤销入库穿仓守卫;41712 入库财务边界)
+  17 | 入库/应付  | 417xx(含 41710 撤销入库穿仓守卫;41712 入库财务边界;
+       |            |       41713–41717 采购退货/供应商贷项单)
   18 | 销售单     | 418xx
   19 | 出库单     | 419xx
   20 | 柜/发运    | 420xx(42002 非法转移·单义;42003/42004 封柜守卫;42005 字段门禁;42006 编辑冲突;
@@ -23,7 +24,7 @@
        |            |       42011 撤封柜带活动报关;42012 柜态不可报关;42013 重复活动报关;42014 报关越柜;42015 报关编辑冲突;
        |            |       42016 报关单号已被占用)
   21 | 附件       | 421xx(42101 类型不允许;42102 超大;42103 孤儿配额;42104 不可用;42105 数量超上限)
-  22 | 财务       | 422xx(核销引擎:42201 核销超收付款未分配;42202 核销超账余额;42203 跨币种;
+  22 | 财务       | 422xx(核销引擎:42201 核销超收付款未分配;42202 核销超账未结金额;42203 跨币种;
        |            |       42204 客户/供应商不匹配;42205 反核销记录不存在/已反核销;42206 账已作废不可核销;
        |            |       42207 认领非 UNCLAIMED;42208 已有活动核销不可作废;42209 收付款单已作废不可操作;
        |            |       42210 同对已有活动核销,先反核销再重核)
@@ -418,6 +419,40 @@ class InboundFinancialBoundaryError(BusinessError):
         super().__init__(status.HTTP_409_CONFLICT, 41712, message)
 
 
+class PurchaseReturnNotFoundError(BusinessError):
+    def __init__(self, message: str = "Purchase return order not found"):
+        super().__init__(status.HTTP_404_NOT_FOUND, 41713, message)
+
+
+class PurchaseReturnSourceInvalidError(BusinessError):
+    """采购退货源单无效:MVP 仅允许已确认入库且未形成出库单的链路。"""
+
+    def __init__(self, message: str = "Purchase return source is not eligible"):
+        super().__init__(status.HTTP_409_CONFLICT, 41714, message)
+
+
+class PurchaseReturnOverQtyError(BusinessError):
+    """采购退货数量超过入库行剩余可退量。"""
+
+    def __init__(self, message: str = "Purchase return quantity exceeds remaining returnable quantity"):
+        super().__init__(status.HTTP_409_CONFLICT, 41715, message)
+
+
+class PurchaseReturnWouldGoNegativeError(BusinessError):
+    """采购退货会导致销售单维度库存可发为负。"""
+
+    def __init__(self, message: str = "Purchase return would make stock negative",
+                 data: Any = None):
+        super().__init__(status.HTTP_409_CONFLICT, 41716, message, data=data)
+
+
+class APCreditMemoExceedsOutstandingError(BusinessError):
+    """供应商贷项单过账金额超过当前未结应付;已付款部分应走供应商退款/预付退回。"""
+
+    def __init__(self, message: str = "AP credit memo exceeds outstanding payable amount"):
+        super().__init__(status.HTTP_409_CONFLICT, 41717, message)
+
+
 # 模块段 18 = 销售单(SO 状态机)。见 db/models/sales_order.py SalesOrderStatus。
 class SalesOrderInvalidTransitionError(BusinessError):
     """状态转移不在 SALES_ORDER_TRANSITIONS 矩阵(重复取消等)。"""
@@ -699,16 +734,16 @@ class AttachmentTooManyError(BusinessError):
 
 
 class AllocationExceedsSourceError(BusinessError):
-    """42201 — 核销金额超收款/付款单未分配余额。"""
+    """42201 — 核销金额超收款/付款单未分配金额。"""
 
     def __init__(self, message: str = "Allocation exceeds source unallocated balance"):
         super().__init__(status.HTTP_409_CONFLICT, 42201, message)
 
 
 class AllocationExceedsAccountError(BusinessError):
-    """42202 — 核销金额超应收/应付款余额。"""
+    """42202 — 核销金额超账未结金额。"""
 
-    def __init__(self, message: str = "Allocation exceeds account balance"):
+    def __init__(self, message: str = "Allocation exceeds account outstanding amount"):
         super().__init__(status.HTTP_409_CONFLICT, 42202, message)
 
 

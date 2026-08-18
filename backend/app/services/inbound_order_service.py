@@ -415,7 +415,7 @@ async def cancel_order(db: AsyncSession, *, order_id, actor_user_id, actor_user_
     """作废入库单已收口:创建入库单即产生应付,不可裸作废回退。"""
     await get_order_for_update(db, order_id)
     raise InboundFinancialBoundaryError(
-        "创建入库单后已产生供应商应付,不可直接作废;请走履约中取消/逆向申请")
+        "创建入库单后已产生供应商应付,不可直接作废;请走采购退货、供应商贷项单等真实逆向单据")
 
 
 # ---------- 可收行(建单器数据源)----------

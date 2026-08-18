@@ -30,7 +30,7 @@ class ReceivableStatus:
 
 def derive_receivable_status(amount_original, amount_allocated) -> str:
     """单一派生口径(边界共用 _settlement,与 receivable_service._STATUS_CONDS 同源不双写):
-    先判收清(含 0 金额单据——余额 0 即无欠款),再判未收;之间→部分收。
+    先判收清(含 0 金额单据——未结应收 0 即无欠款),再判未收;之间→部分收。
     SO 行 unit_price 允许 0,故 0 金额边界必成立(由 is_fully_settled 先判归 PAID)。"""
     from decimal import Decimal
 
@@ -51,7 +51,7 @@ class Receivable(Base, TimestampUpdateMixin):
     🔴 整表红线域(客户售价):端点级 receivable:read 门控,不做字段级脱敏。
     粒度 = 每张出库单一张。幂等键 = 活动行偏唯一。currency/customer 取自锚定 SO
     (单 SO 锚定 ⇒ 单币种天然成立)。status(未收/部分收/已收清)完全派生自 amount_*,不落列。
-    void 是生命周期轴,与收款状态正交:所有余额/列表/账龄聚合一律 WHERE voided_at IS NULL。
+    void 是生命周期轴,与收款状态正交:所有未结应收/列表/账龄聚合一律 WHERE voided_at IS NULL。
     """
     __tablename__ = "receivables"
     __table_args__ = (
@@ -69,10 +69,10 @@ class Receivable(Base, TimestampUpdateMixin):
         Index("uq_receivables_outbound_active", "outbound_order_id", unique=True,
               postgresql_where=text("voided_at IS NULL")),
         # 账龄 partial composite 索引(财务步 F1):自动核销候选查询(客户+币种+未结清+账龄序)
-        # 过滤+锁序一并走索引、排除已结清行,翻 100 倍不退化。谓词含生成列 balance(PG 接受)。
+        # 过滤+锁序一并走索引、排除已结清行,翻 100 倍不退化。谓词含生成列 amount_outstanding。
         Index("ix_receivables_open_aging",
               "customer_id", "currency", "due_at", "created_at", "id",
-              postgresql_where=text("voided_at IS NULL AND balance > 0")),
+              postgresql_where=text("voided_at IS NULL AND amount_outstanding > 0")),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -93,13 +93,13 @@ class Receivable(Base, TimestampUpdateMixin):
     amount_original: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
     # 已核销累计(收款/核销 = 财务步)。
     amount_allocated: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    # 恒等式落 DB 最强层(镜像 payables):balance = original - allocated,ORM 只读、
+    # 恒等式落 DB 最强层(镜像 payables):amount_outstanding = 原始应收 - 已核销,ORM 只读、
     # 不进 INSERT/UPDATE。杜绝三值漂移;财务步列表过滤走此表达式。
-    balance: Mapped[float] = mapped_column(
+    amount_outstanding: Mapped[float] = mapped_column(
         Numeric(18, 2), Computed("amount_original - amount_allocated", persisted=True))
     # 账期主数据未建,P0 置空;账龄兜底 created_at(due_at 优先,Date 非 timestamp)。
     due_at: Mapped[date | None] = mapped_column(Date, nullable=True)
-    # void 轴(财务纠错/后续逆向单据置):非空 = 已作废,行留痕、不进余额与列表聚合。
+    # void 轴(财务纠错/后续逆向单据置):非空 = 已作废,行留痕、不进未结应收与列表聚合。
     voided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     voided_by: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, index=True)

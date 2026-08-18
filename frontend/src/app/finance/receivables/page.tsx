@@ -55,7 +55,7 @@ export default function ReceivableListPage() {
   const [detail, setDetail] = useState<ReceivableDetail | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
-  // 「有未分配余额」标记只在列表行下发(详情端点不含),点行时随手带入抽屉。
+  // 「有未分配收款」标记只在列表行下发(详情端点不含),点行时随手带入抽屉。
   const [hasUnalloc, setHasUnalloc] = useState(false);
 
   async function openDetail(row: ReceivableListItem) {
@@ -107,8 +107,8 @@ export default function ReceivableListPage() {
       render: (v: string, r) => (
         <Space size={4}>
           <span>{v}</span>
-          {/* 该客户有未分配收款余额 → 提示可用余额核销(下钻抽屉内一键入口)。 */}
-          {r.counterparty_has_unallocated && <Tag color="warning">有未分配余额</Tag>}
+          {/* 该客户有未分配收款 → 提示可核销(下钻抽屉内一键入口)。 */}
+          {r.counterparty_has_unallocated && <Tag color="warning">有未分配收款</Tag>}
         </Space>
       ),
     },
@@ -176,8 +176,8 @@ export default function ReceivableListPage() {
       render: (v: number | string) => formatMoney(v),
     },
     {
-      title: "余额",
-      dataIndex: "balance",
+      title: "未结应收",
+      dataIndex: "amount_outstanding",
       width: 130,
       align: "right",
       render: (v: number | string) => <span style={{ fontWeight: 600 }}>{formatMoney(v)}</span>,
@@ -269,7 +269,7 @@ export default function ReceivableListPage() {
         )}
       </ListPageBody>
 
-      {/* 行下钻抽屉:账头 + 核销记录(哪笔收款冲了多少)+ 用余额核销一键入口。 */}
+      {/* 行下钻抽屉:账头 + 核销记录(哪笔收款冲了多少)+ 用未分配收款核销入口。 */}
       <Drawer
         title={detail ? `应收款 ${detail.outbound_order_no}` : "应收款详情"}
         size={640}
@@ -307,9 +307,9 @@ export default function ReceivableListPage() {
               <Descriptions.Item label="已核销">
                 {formatMoney(detail.amount_allocated)} {detail.currency}
               </Descriptions.Item>
-              <Descriptions.Item label="余额" span={2}>
+              <Descriptions.Item label="未结应收" span={2}>
                 <Typography.Text strong>
-                  {formatMoney(detail.balance)} {detail.currency}
+                  {formatMoney(detail.amount_outstanding)} {detail.currency}
                 </Typography.Text>
               </Descriptions.Item>
             </Descriptions>

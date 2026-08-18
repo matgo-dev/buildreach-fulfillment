@@ -35,6 +35,11 @@ import {
   type PayableStatus,
 } from "@/lib/payable";
 import { CURRENCIES } from "@/lib/currencies";
+import {
+  AP_CREDIT_MEMO_STATUS_META,
+  apCreditMemoApi,
+  type APCreditMemoOut,
+} from "@/lib/purchaseReturn";
 
 // 状态 tabs:全部 + 三派生态(DESIGN §7 工具条统一次序:状态最左)。
 const STATUS_TABS = [
@@ -56,21 +61,49 @@ export default function PayableListPage() {
   const [detail, setDetail] = useState<PayableDetail | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
-  // 「有未分配余额」标记只在列表行下发(详情端点不含),点行时随手带入抽屉。
+  const [detailBusy, setDetailBusy] = useState(false);
+  const [creditMemos, setCreditMemos] = useState<APCreditMemoOut[]>([]);
+  // 「有未分配付款」标记只在列表行下发(详情端点不含),点行时随手带入抽屉。
   const [hasUnalloc, setHasUnalloc] = useState(false);
 
   async function openDetail(row: PayableListItem) {
     setDetailOpen(true);
     setDetailLoading(true);
     setDetail(null);
+    setCreditMemos([]);
     setHasUnalloc(row.counterparty_has_unallocated);
     try {
-      setDetail(await payableApi.get(row.id));
+      const [nextDetail, memos] = await Promise.all([
+        payableApi.get(row.id),
+        apCreditMemoApi.list({ payable_id: row.id, page: 1, size: 20 }),
+      ]);
+      setDetail(nextDetail);
+      setCreditMemos(memos.items);
     } catch (e) {
       message.error(resolveBizError(e, "加载应付款详情失败"));
       setDetailOpen(false);
     } finally {
       setDetailLoading(false);
+    }
+  }
+
+  async function postCreditMemo(id: number) {
+    if (!detail) return;
+    setDetailBusy(true);
+    try {
+      await apCreditMemoApi.post(id);
+      message.success("供应商贷项单已过账");
+      const [nextDetail, memos] = await Promise.all([
+        payableApi.get(detail.id),
+        apCreditMemoApi.list({ payable_id: detail.id, page: 1, size: 20 }),
+      ]);
+      setDetail(nextDetail);
+      setCreditMemos(memos.items);
+      load();
+    } catch (e) {
+      message.error(resolveBizError(e, "供应商贷项单过账失败"));
+    } finally {
+      setDetailBusy(false);
     }
   }
 
@@ -108,8 +141,8 @@ export default function PayableListPage() {
       render: (v: string, r) => (
         <Space size={4}>
           <span>{v}</span>
-          {/* 该供应商有未分配付款余额 → 提示可用余额核销(下钻抽屉内一键入口)。 */}
-          {r.counterparty_has_unallocated && <Tag color="warning">有未分配余额</Tag>}
+          {/* 该供应商有未分配付款 → 提示可核销(下钻抽屉内一键入口)。 */}
+          {r.counterparty_has_unallocated && <Tag color="warning">有未分配付款</Tag>}
         </Space>
       ),
     },
@@ -170,6 +203,13 @@ export default function PayableListPage() {
       render: (v: number | string) => formatAmount(v),
     },
     {
+      title: "已贷记",
+      dataIndex: "amount_credited",
+      width: 120,
+      align: "right",
+      render: (v: number | string) => formatAmount(v),
+    },
+    {
       title: "已核销",
       dataIndex: "amount_allocated",
       width: 120,
@@ -177,8 +217,8 @@ export default function PayableListPage() {
       render: (v: number | string) => formatAmount(v),
     },
     {
-      title: "余额",
-      dataIndex: "balance",
+      title: "未结应付",
+      dataIndex: "amount_outstanding",
       width: 130,
       align: "right",
       render: (v: number | string) => <span style={{ fontWeight: 600 }}>{formatAmount(v)}</span>,
@@ -268,7 +308,7 @@ export default function PayableListPage() {
         )}
       </ListPageBody>
 
-      {/* 行下钻抽屉:账头 + 核销记录(哪笔付款冲了多少)+ 用余额核销一键入口。🔴红线域。 */}
+      {/* 行下钻抽屉:账头 + 核销记录(哪笔付款冲了多少)+ 用未分配付款核销入口。🔴红线域。 */}
       <Drawer
         title={detail ? `应付款 ${detail.inbound_order_no}` : "应付款详情"}
         size={640}
@@ -308,12 +348,68 @@ export default function PayableListPage() {
               <Descriptions.Item label="已核销">
                 {formatAmount(detail.amount_allocated)} {detail.currency}
               </Descriptions.Item>
-              <Descriptions.Item label="余额" span={2}>
+              <Descriptions.Item label="已贷记">
+                {formatAmount(detail.amount_credited)} {detail.currency}
+              </Descriptions.Item>
+              <Descriptions.Item label="未结应付" span={2}>
                 <Typography.Text strong>
-                  {formatAmount(detail.balance)} {detail.currency}
+                  {formatAmount(detail.amount_outstanding)} {detail.currency}
                 </Typography.Text>
               </Descriptions.Item>
             </Descriptions>
+
+            <Typography.Title level={5} style={{ marginTop: 20 }}>
+              供应商贷项单
+            </Typography.Title>
+            <Table<APCreditMemoOut>
+              rowKey="id"
+              size="small"
+              dataSource={creditMemos}
+              pagination={false}
+              locale={{ emptyText: "暂无供应商贷项单" }}
+              columns={[
+                { title: "单号", dataIndex: "no", width: 170 },
+                {
+                  title: "状态",
+                  dataIndex: "status",
+                  width: 120,
+                  render: (v: APCreditMemoOut["status"]) => (
+                    <StatusTag meta={AP_CREDIT_MEMO_STATUS_META} value={v} />
+                  ),
+                },
+                {
+                  title: "金额",
+                  dataIndex: "amount",
+                  width: 120,
+                  align: "right",
+                  render: (v: number | string) => formatAmount(v),
+                },
+                {
+                  title: "过账时间",
+                  dataIndex: "posted_at",
+                  width: 160,
+                  render: (v: string | null) => (v ? formatDateTime(v) : "—"),
+                },
+                {
+                  title: "操作",
+                  key: "actions",
+                  width: 110,
+                  render: (_, row) =>
+                    row.status === "PENDING_APPROVAL" ? (
+                      <Can perm={Permissions.PAYMENT_MANAGE}>
+                        <Button
+                          size="small"
+                          type="primary"
+                          loading={detailBusy}
+                          onClick={() => postCreditMemo(row.id)}
+                        >
+                          财务过账
+                        </Button>
+                      </Can>
+                    ) : null,
+                },
+              ]}
+            />
 
             <Typography.Title level={5} style={{ marginTop: 20 }}>
               核销记录

@@ -284,3 +284,34 @@ async def record_outbound_issue(
             sku_id=impact.sku_id,
             outbound_delta=impact.qty,
         )
+
+
+async def record_purchase_return_issue(
+    db: AsyncSession, *,
+    purchase_return_order_id: int,
+    impacts: list[StockImpact],
+    occurred_at: datetime | None,
+    actor_user_id: int,
+    note: str | None = None,
+) -> None:
+    """采购退货出库:扣减销售单维度已入库数量,库存仍不进入自由库存。"""
+    for impact in impacts:
+        await _record_movement(
+            db,
+            movement_type=InventoryMovementType.PURCHASE_RETURN_ISSUE,
+            source_type=InventorySourceType.PURCHASE_RETURN_ORDER,
+            source_id=purchase_return_order_id,
+            source_line_id=impact.source_line_id,
+            sales_order_id=impact.sales_order_id,
+            sku_id=impact.sku_id,
+            qty_delta=-impact.qty,
+            occurred_at=occurred_at,
+            created_by=actor_user_id,
+            note=note,
+        )
+        await _apply_balance_delta(
+            db,
+            sales_order_id=impact.sales_order_id,
+            sku_id=impact.sku_id,
+            inbound_delta=-impact.qty,
+        )

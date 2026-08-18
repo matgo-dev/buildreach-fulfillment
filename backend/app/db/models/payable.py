@@ -28,13 +28,13 @@ class PayableStatus:
     ALL = (UNPAID, PARTIALLY_PAID, PAID)
 
 
-def derive_payable_status(amount_original, amount_allocated) -> str:
+def derive_payable_status(amount_original, amount_allocated, amount_credited=0) -> str:
     """单一派生口径(边界共用 _settlement,与 payable_service._STATUS_CONDS 同源不双写):
-    先判付清(含 0 金额单据——余额 0 即无欠款),再判未付;之间→部分付。"""
+    先判付清(含 0 金额单据——未结应付 0 即无欠款),再判未付;之间→部分付。"""
     from decimal import Decimal
 
     from app.db.models._settlement import is_fully_settled, is_unsettled
-    orig = Decimal(str(amount_original))
+    orig = Decimal(str(amount_original)) - Decimal(str(amount_credited or 0))
     alloc = Decimal(str(amount_allocated))
     if is_fully_settled(orig, alloc):
         return PayableStatus.PAID
@@ -49,7 +49,7 @@ class Payable(Base, TimestampUpdateMixin):
     🔴 整表红线域(供应商 + 成本):端点级 payable:read 门控,不做字段级脱敏。
     粒度 = 每张入库单一张(最贴近发票粒度又不引入发票单据)。幂等键 = 活动行偏唯一。
     status(未付/部分付/已付清)完全派生自 amount_*,不落列(落列即双源头)。
-    void 是生命周期轴,与付款状态正交:所有余额/列表/账龄聚合一律 WHERE voided_at IS NULL。
+    void 是生命周期轴,与付款状态正交:所有未结应付/列表/账龄聚合一律 WHERE voided_at IS NULL。
     """
     __tablename__ = "payables"
     __table_args__ = (
@@ -57,18 +57,19 @@ class Payable(Base, TimestampUpdateMixin):
         CheckConstraint("currency ~ '^[A-Z]{3}$'", name="ck_payables_currency_iso4217"),
         # 🔴红线:应付原始额非负;创建即定死(P0 无付款/发票,采购单价即应付额)。
         CheckConstraint("amount_original >= 0", name="ck_payables_amount_original_nn"),
-        # 已核销 ∈ [0, original](不超付/不负);付款与核销 = 财务步。
+        # 已贷记 + 已核销 ∈ [0, original](不超冲/不超付/不负);付款与核销 = 财务步。
         CheckConstraint(
-            "amount_allocated >= 0 AND amount_allocated <= amount_original",
+            "amount_allocated >= 0 AND amount_credited >= 0 "
+            "AND amount_allocated + amount_credited <= amount_original",
             name="ck_payables_allocated_range"),
         # 幂等键(仅约束活动行):一张入库单至多一张活动 payable。
         Index("uq_payables_inbound_active", "inbound_order_id", unique=True,
               postgresql_where=text("voided_at IS NULL")),
         # 账龄 partial composite 索引(财务步 F1):自动核销候选(供应商+币种+未结清+账龄序)
-        # 过滤+锁序走索引、排除已结清行,翻 100 倍不退化。谓词含生成列 balance(PG 接受)。
+        # 过滤+锁序走索引、排除已结清行,翻 100 倍不退化。谓词含生成列 amount_outstanding。
         Index("ix_payables_open_aging",
               "supplier_id", "currency", "due_at", "created_at", "id",
-              postgresql_where=text("voided_at IS NULL AND balance > 0")),
+              postgresql_where=text("voided_at IS NULL AND amount_outstanding > 0")),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -88,15 +89,18 @@ class Payable(Base, TimestampUpdateMixin):
     currency: Mapped[str] = mapped_column(String(10), nullable=False)
     # = Σ(入库单行 qty × PO 行 unit_price)估算,逐行 quantize 2dp 再求和;P0 创建即定死不可变。
     amount_original: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
+    # 供应商贷项单累计贷记额。原始应付不改写,贷记额单独留痕。
+    amount_credited: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
     # 已核销累计(付款/核销 = 财务步)。
     amount_allocated: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    # 恒等式落 DB 最强层(本仓首个 Computed 列):balance = original - allocated,ORM 只读、
+    # 恒等式落 DB 最强层:amount_outstanding = 原始应付 - 调整 - 已核销,ORM 只读、
     # 不进 INSERT/UPDATE。杜绝三值漂移;财务步列表过滤走此表达式。
-    balance: Mapped[float] = mapped_column(
-        Numeric(18, 2), Computed("amount_original - amount_allocated", persisted=True))
+    amount_outstanding: Mapped[float] = mapped_column(
+        Numeric(18, 2),
+        Computed("amount_original - amount_credited - amount_allocated", persisted=True))
     # 账期主数据未建,P0 置空;账龄兜底 created_at。
     due_at: Mapped[date | None] = mapped_column(Date, nullable=True)
-    # void 轴(后续逆向/财务冲正置):非空 = 已作废,行留痕、不进余额与列表聚合。
+    # void 轴(后续逆向/财务冲正置):非空 = 已作废,行留痕、不进未结应付与列表聚合。
     voided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     voided_by: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, index=True)

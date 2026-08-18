@@ -13,7 +13,7 @@ import {
   Table,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { ArrowLeftOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, CheckOutlined, RollbackOutlined, TruckOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
@@ -35,6 +35,13 @@ import {
   inboundOrderUnreceivable,
 } from "@/lib/inboundOrderStatus";
 import { PAYABLE_STATUS_META, formatAmount } from "@/lib/payable";
+import { PurchaseReturnDrawer } from "@/components/inbound/PurchaseReturnDrawer";
+import {
+  AP_CREDIT_MEMO_STATUS_META,
+  PURCHASE_RETURN_STATUS_META,
+  purchaseReturnApi,
+  type PurchaseReturnListItem,
+} from "@/lib/purchaseReturn";
 
 /** 41710 穿仓明细行。后端 data 形状:{ items: [{ sales_order_no, name_snapshot, available_qty }] }(镜像 41902)。 */
 interface UnreceiveNegative {
@@ -61,6 +68,7 @@ export default function InboundOrderDetailPage() {
   const id = Number(params.id);
 
   const [detail, setDetail] = useState<InboundOrderDetail | null>(null);
+  const [purchaseReturns, setPurchaseReturns] = useState<PurchaseReturnListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -71,12 +79,18 @@ export default function InboundOrderDetailPage() {
   const [unreceiveOpen, setUnreceiveOpen] = useState(false);
   const [voidReason, setVoidReason] = useState("");
   const [unreceiveBlocked, setUnreceiveBlocked] = useState<OperationBlockedItem[] | null>(null);
+  const [purchaseReturnOpen, setPurchaseReturnOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(false);
     try {
-      setDetail(await inboundOrderApi.get(id));
+      const [nextDetail, returns] = await Promise.all([
+        inboundOrderApi.get(id),
+        purchaseReturnApi.list({ inbound_order_id: id, page: 1, size: 20 }),
+      ]);
+      setDetail(nextDetail);
+      setPurchaseReturns(returns.items);
     } catch (e) {
       setLoadError(true);
       message.error(resolveBizError(e, "加载失败"));
@@ -118,6 +132,83 @@ export default function InboundOrderDetailPage() {
     [],
   );
 
+  const purchaseReturnColumns: ColumnsType<PurchaseReturnListItem> = [
+      { title: "退货单号", dataIndex: "no", width: 150 },
+      {
+        title: "状态",
+        dataIndex: "status",
+        width: 130,
+        render: (s: PurchaseReturnListItem["status"]) => (
+          <StatusTag meta={PURCHASE_RETURN_STATUS_META} value={s} />
+        ),
+      },
+      {
+        title: "供应商贷项单",
+        dataIndex: "ap_credit_memo_status",
+        width: 150,
+        render: (s: PurchaseReturnListItem["ap_credit_memo_status"]) =>
+          s ? <StatusTag meta={AP_CREDIT_MEMO_STATUS_META} value={s} /> : "—",
+      },
+      { title: "行数", dataIndex: "line_count", width: 80, align: "right" },
+      {
+        title: "数量",
+        dataIndex: "total_qty",
+        width: 100,
+        align: "right",
+        render: formatQty,
+      },
+      {
+        title: "金额",
+        dataIndex: "total_amount",
+        width: 120,
+        align: "right",
+        render: (v: number | string | null) => (v == null ? "—" : formatAmount(v)),
+      },
+      {
+        title: "操作",
+        key: "actions",
+        width: 220,
+        render: (_, row) => (
+          <Space>
+            {row.status === "PENDING_APPROVAL" && (
+              <Can perm={Permissions.PURCHASE_MANAGE}>
+                <Button
+                  size="small"
+                  icon={<CheckOutlined />}
+                  loading={busy}
+                  onClick={() =>
+                    actDialog(
+                      () => purchaseReturnApi.approve(row.id),
+                      "已审核通过采购退货单",
+                    )
+                  }
+                >
+                  审核通过
+                </Button>
+              </Can>
+            )}
+            {row.status === "APPROVED" && (
+              <Can perm={Permissions.INBOUND_MANAGE}>
+                <Button
+                  size="small"
+                  icon={<TruckOutlined />}
+                  loading={busy}
+                  onClick={() =>
+                    actDialog(
+                      () => purchaseReturnApi.confirmReturnShipment(row.id, {}),
+                      "已确认退货出库",
+                    )
+                  }
+                >
+                  确认退货出库
+                </Button>
+              </Can>
+            )}
+          </Space>
+        ),
+      },
+  ];
+
   if (loadError && !detail) return <ListErrorState onRetry={load} />;
   if (loading || !detail) return <PageLoading />;
 
@@ -156,15 +247,22 @@ export default function InboundOrderDetailPage() {
                 </Button>
               )}
               {inboundOrderUnreceivable(order.status) && (
-                <Button
-                  loading={busy}
-                  onClick={() => {
-                    setUnreceiveBlocked(null);
-                    setUnreceiveOpen(true);
-                  }}
-                >
-                  撤销入库
-                </Button>
+                <>
+                  <Can perm={Permissions.PURCHASE_MANAGE}>
+                    <Button icon={<RollbackOutlined />} onClick={() => setPurchaseReturnOpen(true)}>
+                      采购退货
+                    </Button>
+                  </Can>
+                  <Button
+                    loading={busy}
+                    onClick={() => {
+                      setUnreceiveBlocked(null);
+                      setUnreceiveOpen(true);
+                    }}
+                  >
+                    撤销入库
+                  </Button>
+                </>
               )}
             </Space>
           </Can>
@@ -232,9 +330,10 @@ export default function InboundOrderDetailPage() {
                 {payable.currency} {formatAmount(payable.amount_original)}
               </span>
             </Descriptions.Item>
+            <Descriptions.Item label="已贷记">{formatAmount(payable.amount_credited)}</Descriptions.Item>
             <Descriptions.Item label="已核销">{formatAmount(payable.amount_allocated)}</Descriptions.Item>
-            <Descriptions.Item label="余额">
-              <span style={{ fontWeight: 600 }}>{formatAmount(payable.balance)}</span>
+            <Descriptions.Item label="未结应付">
+              <span style={{ fontWeight: 600 }}>{formatAmount(payable.amount_outstanding)}</span>
             </Descriptions.Item>
             <Descriptions.Item label="到期日">{payable.due_at || "—"}</Descriptions.Item>
             <Descriptions.Item label="生成时间">
@@ -243,6 +342,18 @@ export default function InboundOrderDetailPage() {
           </Descriptions>
         </Card>
       )}
+
+      <Card title="相关采购退货单" size="small">
+        <Table<PurchaseReturnListItem>
+          rowKey="id"
+          size="small"
+          columns={purchaseReturnColumns}
+          dataSource={purchaseReturns}
+          pagination={false}
+          locale={{ emptyText: "暂无采购退货单" }}
+          scroll={{ x: 920 }}
+        />
+      </Card>
 
       {/* 确认入库:只确认库存事实,应付已在创建入库单时生成。 */}
       <Modal
@@ -335,6 +446,17 @@ export default function InboundOrderDetailPage() {
           />
         </Space>
       </Modal>
+
+      <PurchaseReturnDrawer
+        open={purchaseReturnOpen}
+        inboundOrderId={order.id}
+        inboundOrderNo={order.no}
+        onClose={() => setPurchaseReturnOpen(false)}
+        onSaved={() => {
+          setPurchaseReturnOpen(false);
+          load();
+        }}
+      />
     </Space>
   );
 }

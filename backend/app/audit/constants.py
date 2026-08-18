@@ -27,6 +27,8 @@ class AuditResourceType(str, Enum):
     CUSTOMS_DECLARATION = "customs_declaration"
     RECEIPT = "receipt"
     PAYMENT = "payment"
+    PURCHASE_RETURN_ORDER = "purchase_return_order"
+    AP_CREDIT_MEMO = "ap_credit_memo"
 
 
 class AuditAction(str, Enum):
@@ -46,10 +48,13 @@ class AuditAction(str, Enum):
     # 采购单状态跃迁:DRAFT→CONFIRMED(下单)/ →CANCELLED
     CONFIRM = "CONFIRM"
     CANCEL = "CANCEL"
+    APPROVE = "APPROVE"
+    REJECT = "REJECT"
     # 入库单状态跃迁:IN_TRANSIT→RECEIVED(收货)/ RECEIVED→IN_TRANSIT(撤销入库)。
     # 收货/撤销是独立业务语义,不复用 CONFIRM/CANCEL。
     RECEIVE = "RECEIVE"
     UNRECEIVE = "UNRECEIVE"
+    RETURN_SHIP = "RETURN_SHIP"
     # 出库单状态跃迁:DRAFT→ISSUED(确认出库/扣库存)。0811 后 ISSUED 是正向履约终点。
     ISSUE = "ISSUE"
     # 历史审计动作:旧撤销出库路径曾使用,保留枚举以便读取存量审计。
@@ -65,6 +70,7 @@ class AuditAction(str, Enum):
     # 核销(ALLOCATE,自动或人工把钱勾到账)/ 反核销(REVERSE,软删核销留痕)。
     CLAIM = "CLAIM"
     ALLOCATE = "ALLOCATE"
+    POST = "POST"
     REVERSE = "REVERSE"
     LOGIN_SUCCESS = "LOGIN_SUCCESS"
     LOGIN_FAILED = "LOGIN_FAILED"
