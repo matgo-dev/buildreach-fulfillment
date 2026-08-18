@@ -1,5 +1,6 @@
 """付款单登记 + 自动核销 + 反核销(付侧镜像收侧,泛型引擎同一套逻辑)。🔴红线 RBAC。"""
 import pytest
+from sqlalchemy import event
 
 from tests.finance_helpers import make_open_payable
 
@@ -58,7 +59,7 @@ async def test_register_payment_no_open_payable_full_prepayment(
 
 
 async def test_reverse_payment_allocation_restores_both_sides(
-        client, db_session, sales_headers, purchaser_headers, finance_headers):
+        client, db_session, _connection, sales_headers, purchaser_headers, finance_headers):
     ctx, supplier_id, pay_id, amount = await make_open_payable(
         client, db_session, sales_headers, purchaser_headers, po_price="5.00", received=10)
     r = await client.post("/api/v1/payments", headers=finance_headers, json={
@@ -66,8 +67,27 @@ async def test_reverse_payment_allocation_restores_both_sides(
     data = r.json()["data"]
     pid, alloc_id = data["payment"]["id"], data["allocations"][0]["id"]
 
-    rev = await client.delete(f"/api/v1/payment-allocations/{alloc_id}", headers=finance_headers)
+    lock_order: list[str] = []
+
+    def capture_lock_order(conn, cursor, statement, parameters, context, executemany):
+        sql = " ".join(statement.lower().split())
+        if "for update" not in sql:
+            return
+        if "from payments" in sql:
+            lock_order.append("payments")
+        elif "from payables" in sql:
+            lock_order.append("payables")
+        elif "from payment_allocations" in sql:
+            lock_order.append("payment_allocations")
+
+    event.listen(_connection.sync_connection, "before_cursor_execute", capture_lock_order)
+    try:
+        rev = await client.delete(f"/api/v1/payment-allocations/{alloc_id}", headers=finance_headers)
+    finally:
+        event.remove(_connection.sync_connection, "before_cursor_execute", capture_lock_order)
     assert rev.status_code == 200, rev.text
+    assert lock_order.index("payments") < lock_order.index("payables")
+    assert lock_order.index("payables") < lock_order.index("payment_allocations")
     got = await client.get(f"/api/v1/payments/{pid}", headers=finance_headers)
     assert float(got.json()["data"]["payment"]["amount_unallocated"]) == 50.0
     pv = await client.get("/api/v1/payables?status=UNPAID", headers=finance_headers)

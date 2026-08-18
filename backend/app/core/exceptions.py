@@ -447,7 +447,7 @@ class PurchaseReturnWouldGoNegativeError(BusinessError):
 
 
 class APCreditMemoExceedsOutstandingError(BusinessError):
-    """供应商贷项单过账金额超过当前未结应付;已付款部分应走供应商退款/预付退回。"""
+    """供应商贷项单过账金额超过可冲减的应付金额。"""
 
     def __init__(self, message: str = "AP credit memo exceeds outstanding payable amount"):
         super().__init__(status.HTTP_409_CONFLICT, 41717, message)

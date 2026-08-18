@@ -49,7 +49,7 @@ const STATUS_TABS = [
 
 export default function PayableListPage() {
   const router = useRouter();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
 
   const [status, setStatus] = useState("");
   const [keyword, setKeyword] = useState("");
@@ -66,6 +66,15 @@ export default function PayableListPage() {
   // 「有未分配付款」标记只在列表行下发(详情端点不含),点行时随手带入抽屉。
   const [hasUnalloc, setHasUnalloc] = useState(false);
 
+  async function refreshDetail(payableId: number) {
+    const [nextDetail, memos] = await Promise.all([
+      payableApi.get(payableId),
+      apCreditMemoApi.list({ payable_id: payableId, page: 1, size: 20 }),
+    ]);
+    setDetail(nextDetail);
+    setCreditMemos(memos.items);
+  }
+
   async function openDetail(row: PayableListItem) {
     setDetailOpen(true);
     setDetailLoading(true);
@@ -73,12 +82,7 @@ export default function PayableListPage() {
     setCreditMemos([]);
     setHasUnalloc(row.counterparty_has_unallocated);
     try {
-      const [nextDetail, memos] = await Promise.all([
-        payableApi.get(row.id),
-        apCreditMemoApi.list({ payable_id: row.id, page: 1, size: 20 }),
-      ]);
-      setDetail(nextDetail);
-      setCreditMemos(memos.items);
+      await refreshDetail(row.id);
     } catch (e) {
       message.error(resolveBizError(e, "加载应付款详情失败"));
       setDetailOpen(false);
@@ -93,15 +97,49 @@ export default function PayableListPage() {
     try {
       await apCreditMemoApi.post(id);
       message.success("供应商贷项单已过账");
-      const [nextDetail, memos] = await Promise.all([
-        payableApi.get(detail.id),
-        apCreditMemoApi.list({ payable_id: detail.id, page: 1, size: 20 }),
-      ]);
-      setDetail(nextDetail);
-      setCreditMemos(memos.items);
+      await refreshDetail(detail.id);
       load();
     } catch (e) {
       message.error(resolveBizError(e, "供应商贷项单过账失败"));
+    } finally {
+      setDetailBusy(false);
+    }
+  }
+
+  function rejectCreditMemo(id: number) {
+    if (!detail) return;
+    modal.confirm({
+      title: "驳回供应商贷项单",
+      okText: "驳回",
+      okButtonProps: { danger: true },
+      cancelText: "取消",
+      onOk: async () => {
+        if (!detail) return;
+        setDetailBusy(true);
+        try {
+          await apCreditMemoApi.reject(id);
+          message.success("供应商贷项单已驳回");
+          await refreshDetail(detail.id);
+          load();
+        } catch (e) {
+          message.error(resolveBizError(e, "供应商贷项单驳回失败"));
+        } finally {
+          setDetailBusy(false);
+        }
+      },
+    });
+  }
+
+  async function resubmitCreditMemo(id: number) {
+    if (!detail) return;
+    setDetailBusy(true);
+    try {
+      await apCreditMemoApi.resubmit(id);
+      message.success("供应商贷项单已重新提交");
+      await refreshDetail(detail.id);
+      load();
+    } catch (e) {
+      message.error(resolveBizError(e, "供应商贷项单重新提交失败"));
     } finally {
       setDetailBusy(false);
     }
@@ -393,20 +431,39 @@ export default function PayableListPage() {
                 {
                   title: "操作",
                   key: "actions",
-                  width: 110,
-                  render: (_, row) =>
-                    row.status === "PENDING_APPROVAL" ? (
-                      <Can perm={Permissions.PAYMENT_MANAGE}>
+                  width: 170,
+                  render: (_, row) => (
+                    <Can perm={Permissions.PAYMENT_MANAGE}>
+                      {row.status === "PENDING_APPROVAL" ? (
+                        <Space size={8}>
+                          <Button
+                            size="small"
+                            type="primary"
+                            loading={detailBusy}
+                            onClick={() => postCreditMemo(row.id)}
+                          >
+                            财务过账
+                          </Button>
+                          <Button
+                            size="small"
+                            danger
+                            loading={detailBusy}
+                            onClick={() => rejectCreditMemo(row.id)}
+                          >
+                            驳回
+                          </Button>
+                        </Space>
+                      ) : row.status === "REJECTED" ? (
                         <Button
                           size="small"
-                          type="primary"
                           loading={detailBusy}
-                          onClick={() => postCreditMemo(row.id)}
+                          onClick={() => resubmitCreditMemo(row.id)}
                         >
-                          财务过账
+                          重新提交
                         </Button>
-                      </Can>
-                    ) : null,
+                      ) : null}
+                    </Can>
+                  ),
                 },
               ]}
             />

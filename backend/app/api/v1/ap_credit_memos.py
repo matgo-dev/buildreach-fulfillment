@@ -61,3 +61,13 @@ async def reject_ap_credit_memo(memo_id: int, body: RejectIn, request: Request,
         db, memo_id=memo_id, reject_reason=body.reject_reason,
         actor_user_id=current.id, actor_user_email=current.email, request=request)
     return success(APCreditMemoOut.build(memo))
+
+
+@router.post("/{memo_id}/resubmit", summary="重新提交被驳回的供应商贷项单")
+async def resubmit_ap_credit_memo(memo_id: int, request: Request,
+                                  current: CurrentUser = _POST,
+                                  db: AsyncSession = Depends(get_db)):
+    memo = await purchase_return_service.resubmit_credit_memo(
+        db, memo_id=memo_id, actor_user_id=current.id,
+        actor_user_email=current.email, request=request)
+    return success(APCreditMemoOut.build(memo))

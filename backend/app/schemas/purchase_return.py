@@ -125,6 +125,7 @@ class PurchaseReturnOut(BaseModel):
     supplier_id: int
     currency: str
     status: str
+    return_kind: str
     total_amount: float | None = None
     reason: str | None
     submitted_at: datetime
@@ -151,6 +152,7 @@ class PurchaseReturnOut(BaseModel):
             "supplier_id": order.supplier_id,
             "currency": order.currency,
             "status": order.status,
+            "return_kind": order.return_kind,
             "total_amount": float(order.total_amount) if can_see_cost else None,
             "reason": order.reason,
             "submitted_at": order.submitted_at,
@@ -172,6 +174,7 @@ class PurchaseReturnListItem(BaseModel):
     id: int
     no: str
     status: str
+    return_kind: str
     inbound_order_id: int
     inbound_order_no: str
     purchase_order_id: int

@@ -9,6 +9,8 @@ export type PurchaseReturnStatus =
   | "RETURNED"
   | "VOIDED";
 
+export type PurchaseReturnKind = "PURCHASE_RETURN" | "IN_TRANSIT_CANCELLATION";
+
 export type APCreditMemoStatus = "PENDING_APPROVAL" | "POSTED" | "REJECTED" | "VOIDED";
 
 export const PURCHASE_RETURN_STATUS_META: Record<PurchaseReturnStatus, { label: string; color: string }> = {
@@ -68,6 +70,7 @@ export interface PurchaseReturnOrderOut {
   supplier_id: number;
   currency: string;
   status: PurchaseReturnStatus;
+  return_kind: PurchaseReturnKind;
   total_amount: number | string | null;
   reason: string | null;
   submitted_at: string;
@@ -131,6 +134,7 @@ export interface PurchaseReturnListItem {
   id: number;
   no: string;
   status: PurchaseReturnStatus;
+  return_kind: PurchaseReturnKind;
   inbound_order_id: number;
   inbound_order_no: string;
   purchase_order_id: number;
@@ -200,4 +204,5 @@ export const apCreditMemoApi = {
   post: (id: number) => api.post<APCreditMemoOut>(`/api/v1/ap-credit-memos/${id}/post`, {}),
   reject: (id: number, reject_reason?: string | null) =>
     api.post<APCreditMemoOut>(`/api/v1/ap-credit-memos/${id}/reject`, { reject_reason }),
+  resubmit: (id: number) => api.post<APCreditMemoOut>(`/api/v1/ap-credit-memos/${id}/resubmit`, {}),
 };

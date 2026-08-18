@@ -48,7 +48,7 @@ class APCreditMemo(Base, TimestampMixin):
         CheckConstraint("currency ~ '^[A-Z]{3}$'", name="ck_ap_credit_memos_currency_iso4217"),
         CheckConstraint("amount > 0", name="ck_ap_credit_memos_amount_pos"),
         Index("uq_ap_credit_memos_preturn_active", "purchase_return_order_id", unique=True,
-              postgresql_where=text("status != 'VOIDED'")),
+              postgresql_where=text("status IN ('PENDING_APPROVAL','POSTED')")),
         Index("ix_ap_credit_memos_status_created", "status", text("created_at DESC")),
         Index("ix_ap_credit_memos_payable_created", "payable_id", text("created_at DESC")),
         Index("ix_ap_credit_memos_supplier_created", "supplier_id", text("created_at DESC")),

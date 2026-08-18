@@ -141,8 +141,20 @@ export default function InboundOrderDetailPage() {
   );
 
   const currentInboundStatus = detail?.order.status;
+  const purchaseReturnKindMeta = {
+    PURCHASE_RETURN: { label: "采购退货", color: "info" },
+    IN_TRANSIT_CANCELLATION: { label: "在途取消", color: "warning" },
+  } as const;
   const purchaseReturnColumns: ColumnsType<PurchaseReturnListItem> = [
       { title: "退货单号", dataIndex: "no", width: 150 },
+      {
+        title: "类型",
+        dataIndex: "return_kind",
+        width: 110,
+        render: (kind: PurchaseReturnListItem["return_kind"]) => (
+          <StatusTag meta={purchaseReturnKindMeta} value={kind} />
+        ),
+      },
       {
         title: "状态",
         dataIndex: "status",
@@ -200,18 +212,26 @@ export default function InboundOrderDetailPage() {
               <Can perm={Permissions.INBOUND_MANAGE}>
                 <Button
                   size="small"
-                  icon={currentInboundStatus === "IN_TRANSIT" ? <StopOutlined /> : <TruckOutlined />}
+                  icon={
+                    row.return_kind === "IN_TRANSIT_CANCELLATION"
+                      ? <StopOutlined />
+                      : <TruckOutlined />
+                  }
                   loading={busy}
                   onClick={() =>
                     actDialog(
-                      () => currentInboundStatus === "IN_TRANSIT"
+                      () => row.return_kind === "IN_TRANSIT_CANCELLATION"
                         ? purchaseReturnApi.confirmInTransitCancellation(row.id, {})
                         : purchaseReturnApi.confirmReturnShipment(row.id, {}),
-                      currentInboundStatus === "IN_TRANSIT" ? "已确认在途取消" : "已确认退货出库",
+                      row.return_kind === "IN_TRANSIT_CANCELLATION"
+                        ? "已确认在途取消"
+                        : "已确认退货出库",
                     )
                   }
                 >
-                  {currentInboundStatus === "IN_TRANSIT" ? "确认在途取消" : "确认退货出库"}
+                  {row.return_kind === "IN_TRANSIT_CANCELLATION"
+                    ? "确认在途取消"
+                    : "确认退货出库"}
                 </Button>
               </Can>
             )}
