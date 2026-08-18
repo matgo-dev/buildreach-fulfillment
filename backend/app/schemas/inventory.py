@@ -18,4 +18,5 @@ class StockBalanceRow(BaseModel):
     ordered_qty: float
     inbound_qty: float
     outbound_qty: float
+    disposition_qty: float
     available_qty: float

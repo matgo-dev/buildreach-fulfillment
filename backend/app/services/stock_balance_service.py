@@ -72,6 +72,7 @@ def _stock_cte(sales_order_id, sku_id):
             InventoryBalance.sku_id.label("sku_id"),
             InventoryBalance.inbound_qty.label("inbound_qty"),
             InventoryBalance.outbound_qty.label("outbound_qty"),
+            InventoryBalance.disposition_qty.label("disposition_qty"),
             InventoryBalance.available_qty.label("available_qty"),
         )
         .select_from(InventoryBalance)
@@ -98,10 +99,11 @@ def _balance_subquery(sales_order_id, sku_id):
     ordered_q = func.coalesce(o.c.ordered_qty, 0).label("ordered_qty")
     inbound_q = func.coalesce(s.c.inbound_qty, 0).label("inbound_qty")
     outbound_q = func.coalesce(s.c.outbound_qty, 0).label("outbound_qty")
+    disposition_q = func.coalesce(s.c.disposition_qty, 0).label("disposition_qty")
     available_q = func.coalesce(s.c.available_qty, 0).label("available_qty")
     return (
         select(so_id, sku_id_col, ordered_q, inbound_q, outbound_q,
-               available_q)
+               disposition_q, available_q)
         .select_from(joined)
         .subquery("balance")
     )
@@ -158,6 +160,7 @@ async def _compose_display(db: AsyncSession, rows) -> list[dict]:
             "ordered_qty": float(r.ordered_qty),
             "inbound_qty": float(r.inbound_qty),
             "outbound_qty": float(r.outbound_qty),
+            "disposition_qty": float(r.disposition_qty),
             "available_qty": float(r.available_qty),
         })
     return out
@@ -188,7 +191,8 @@ async def compute_stock_balance(
     stmt = (
         select(
             bal.c.so_id, bal.c.sku_id,
-            bal.c.ordered_qty, bal.c.inbound_qty, bal.c.outbound_qty, bal.c.available_qty,
+            bal.c.ordered_qty, bal.c.inbound_qty, bal.c.outbound_qty,
+            bal.c.disposition_qty, bal.c.available_qty,
             SalesOrder.no.label("so_no"),
             Sku.sku_code, Sku.name_i18n, Sku.spec_jsonb,
             Sku.unit.label("unit_code"), Unit.label_i18n.label("unit_label"),

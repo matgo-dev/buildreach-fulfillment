@@ -374,8 +374,17 @@ async def receive_order(db: AsyncSession, *, order_id, arrived_at: date | None, 
     # 不引入业务时区配置——无第二个消费者,属过度设计)。
     order.arrived_at = arrived_at or datetime.now(timezone.utc).date()
     await db.flush()
-    await stock_ledger_service.record_inbound_receive(
-        db, inbound_order_id=order.id, occurred_at=None, actor_user_id=actor_user_id)
+    from app.services import inventory_disposition_service
+    disposition = await inventory_disposition_service.receive_pending_disposition(
+        db,
+        inbound_order_id=order.id,
+        actor_user_id=actor_user_id,
+        actor_user_email=actor_user_email,
+        request=request,
+    )
+    if disposition is None:
+        await stock_ledger_service.record_inbound_receive(
+            db, inbound_order_id=order.id, occurred_at=None, actor_user_id=actor_user_id)
 
     payable = await get_active_payable(db, order.id)
     await write_audit(db, resource_type=AuditResourceType.INBOUND_ORDER, action=AuditAction.RECEIVE,
@@ -411,6 +420,8 @@ async def unreceive_order(db: AsyncSession, *, order_id, void_reason: str | None
     assert_transition(INBOUND_ORDER_TRANSITIONS, order.status, InboundOrderStatus.IN_TRANSIT,
                       InboundOrderInvalidTransitionError)
     await _assert_no_active_reverse_order(db, order.id)
+    from app.services import inventory_disposition_service
+    await inventory_disposition_service.assert_no_active_disposition(db, order.id)
     await stock_ledger_service.assert_can_unreceive_inbound(db, order.id)
     payable = await get_active_payable(db, order.id)
     order.status = InboundOrderStatus.IN_TRANSIT

@@ -10,9 +10,10 @@ from app.db.models.payable import PayableStatus, derive_payable_status
 
 def test_transitions_matrix():
     S = InboundOrderStatus
-    assert INBOUND_ORDER_TRANSITIONS[S.IN_TRANSIT] == {S.RECEIVED, S.CANCELLED}
+    assert INBOUND_ORDER_TRANSITIONS[S.IN_TRANSIT] == {S.RECEIVED, S.CANCELLED, S.CLOSED}
     assert INBOUND_ORDER_TRANSITIONS[S.RECEIVED] == {S.IN_TRANSIT}   # 撤销入库
     assert INBOUND_ORDER_TRANSITIONS[S.CANCELLED] == set()           # 历史/未来逆向终态
+    assert INBOUND_ORDER_TRANSITIONS[S.CLOSED] == set()              # 关闭未收货终态
 
 
 def test_no_direct_edit_after_inbound_created():

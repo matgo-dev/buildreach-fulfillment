@@ -38,7 +38,7 @@ from app.db.models.purchase_return import (
     PurchaseReturnOrder,
     PurchaseReturnStatus,
 )
-from app.db.models.sales_order import SalesOrder, SalesOrderLine
+from app.db.models.sales_order import SalesOrderLine
 from app.db.models.stock import InventoryBalance
 from app.services.numbering import allocate
 from app.services.repo import paginate
@@ -80,6 +80,51 @@ async def _active_payable_for_update(db: AsyncSession, inbound_order_id: int) ->
     if payable is None:
         raise PurchaseReturnSourceInvalidError("源入库单没有活动应付,不可创建采购退货")
     return payable
+
+
+async def _lock_source_chain_for_inbound(
+    db: AsyncSession,
+    inbound_order_id: int,
+) -> tuple[InboundOrder, PurchaseOrder, int]:
+    """按库存域全局锁序锁定入库来源链。
+
+    锁序统一为 SalesOrder -> InboundOrder -> PurchaseOrder -> Payable/InventoryBalance。
+    先无锁读取来源 ID 只是为了知道该锁哪张 SO;取得锁后必须重新校验入库单和采购单来源,
+    防止并发变更或脏读假设进入后续业务判断。
+    """
+    source = (await db.execute(
+        select(
+            InboundOrder.purchase_order_id,
+            PurchaseOrder.source_sales_order_id,
+        )
+        .join(PurchaseOrder, PurchaseOrder.id == InboundOrder.purchase_order_id)
+        .where(InboundOrder.id == inbound_order_id)
+    )).first()
+    if source is None:
+        raise InboundOrderNotFoundError(f"入库单不存在: {inbound_order_id}")
+    source_purchase_order_id, source_sales_order_id = source
+
+    from app.services import stock_ledger_service
+    await stock_ledger_service.lock_sales_orders(db, [source_sales_order_id])
+
+    inbound = (await db.execute(
+        select(InboundOrder)
+        .where(InboundOrder.id == inbound_order_id)
+        .with_for_update()
+    )).scalar_one_or_none()
+    if inbound is None:
+        raise InboundOrderNotFoundError(f"入库单不存在: {inbound_order_id}")
+    if inbound.purchase_order_id != source_purchase_order_id:
+        raise PurchaseReturnSourceInvalidError("入库单来源采购单已变化,请刷新后重试")
+
+    po = (await db.execute(
+        select(PurchaseOrder)
+        .where(PurchaseOrder.id == inbound.purchase_order_id)
+        .with_for_update()
+    )).scalar_one()
+    if po.source_sales_order_id != source_sales_order_id:
+        raise PurchaseReturnSourceInvalidError("采购单来源销售单已变化,请刷新后重试")
+    return inbound, po, source_sales_order_id
 
 
 async def _active_payment_ids_for_payable(db: AsyncSession, payable_id: int) -> list[int]:
@@ -385,21 +430,14 @@ async def create_purchase_return(
     if not lines:
         raise InboundOrderEmptyError("采购退货单必须至少有一行")
 
-    inbound = (await db.execute(
-        select(InboundOrder).where(InboundOrder.id == inbound_order_id)
-        .with_for_update())).scalar_one_or_none()
-    if inbound is None:
-        raise InboundOrderNotFoundError(f"入库单不存在: {inbound_order_id}")
+    inbound, po, source_sales_order_id = await _lock_source_chain_for_inbound(
+        db, inbound_order_id)
     if inbound.status != InboundOrderStatus.RECEIVED:
         raise PurchaseReturnSourceInvalidError("仅已确认入库单可创建采购退货")
 
-    po = (await db.execute(
-        select(PurchaseOrder).where(PurchaseOrder.id == inbound.purchase_order_id)
-        .with_for_update())).scalar_one()
-    sales_order = (await db.execute(
-        select(SalesOrder).where(SalesOrder.id == po.source_sales_order_id)
-        .with_for_update())).scalar_one()
-    await _assert_no_active_outbound(db, sales_order.id)
+    await _assert_no_active_outbound(db, source_sales_order_id)
+    from app.services import inventory_disposition_service
+    await inventory_disposition_service.assert_no_active_disposition(db, inbound.id)
     await _active_payable_for_update(db, inbound.id)
 
     line_ids = [ln["inbound_order_line_id"] for ln in lines]
@@ -413,7 +451,7 @@ async def create_purchase_return(
         no=await _next_no(db, NumberScope.PURCHASE_RETURN),
         inbound_order_id=inbound.id,
         purchase_order_id=po.id,
-        sales_order_id=sales_order.id,
+        sales_order_id=source_sales_order_id,
         supplier_id=po.supplier_id,
         currency=po.currency,
         status=PurchaseReturnStatus.PENDING_APPROVAL,
@@ -469,22 +507,15 @@ async def create_in_transit_cancellation(
     货未入库,没有销售单维度库存;单据承载供应商接受取消事实,后续确认时关闭在途入库链路,
     并生成供应商贷项单。数量按整张在途入库单全量取消,不做部分改行。
     """
-    inbound = (await db.execute(
-        select(InboundOrder).where(InboundOrder.id == inbound_order_id)
-        .with_for_update())).scalar_one_or_none()
-    if inbound is None:
-        raise InboundOrderNotFoundError(f"入库单不存在: {inbound_order_id}")
+    inbound, po, source_sales_order_id = await _lock_source_chain_for_inbound(
+        db, inbound_order_id)
     if inbound.status != InboundOrderStatus.IN_TRANSIT:
         raise PurchaseReturnSourceInvalidError("仅未确认入库/在途入库单可创建在途取消单")
 
-    po = (await db.execute(
-        select(PurchaseOrder).where(PurchaseOrder.id == inbound.purchase_order_id)
-        .with_for_update())).scalar_one()
-    sales_order = (await db.execute(
-        select(SalesOrder).where(SalesOrder.id == po.source_sales_order_id)
-        .with_for_update())).scalar_one()
-    await _assert_no_active_outbound(db, sales_order.id)
+    await _assert_no_active_outbound(db, source_sales_order_id)
     await _assert_no_pending_reverse_order(db, inbound.id)
+    from app.services import inventory_disposition_service
+    await inventory_disposition_service.assert_no_active_disposition(db, inbound.id)
     await _active_payable_for_update(db, inbound.id)
 
     inbound_lines = list((await db.execute(
@@ -511,7 +542,7 @@ async def create_in_transit_cancellation(
         no=await _next_no(db, NumberScope.PURCHASE_RETURN),
         inbound_order_id=inbound.id,
         purchase_order_id=po.id,
-        sales_order_id=sales_order.id,
+        sales_order_id=source_sales_order_id,
         supplier_id=po.supplier_id,
         currency=po.currency,
         status=PurchaseReturnStatus.PENDING_APPROVAL,

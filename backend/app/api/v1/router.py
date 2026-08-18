@@ -1,7 +1,8 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
-    ap_credit_memos, attachments, auth, categories, customers, inbound_orders, inventory, outbound_orders,
+    ap_credit_memos, attachments, auth, categories, customers, inbound_orders, inventory,
+    inventory_dispositions, outbound_orders,
     payables, payments, purchase_orders, purchase_returns, quotations, receipts, receivables,
     roles, sales_orders, shipments, skus, spus, suppliers, units, uploads, users, version,
 )
@@ -26,6 +27,7 @@ api_router.include_router(inbound_orders.router)
 api_router.include_router(outbound_orders.router)
 api_router.include_router(shipments.router)
 api_router.include_router(inventory.router)
+api_router.include_router(inventory_dispositions.router)
 api_router.include_router(payables.router)
 api_router.include_router(receivables.router)
 api_router.include_router(receipts.router)

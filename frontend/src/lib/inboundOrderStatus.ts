@@ -4,18 +4,20 @@
 import type { InboundOrderStatus } from "@/lib/inboundOrder";
 import type { ReceiptProgress } from "@/lib/purchaseOrder";
 
-/** 三态:在途(待确认入库)/ 已入库(库存已形成)/ 已作废(历史保留态)。 */
+/** 入库单状态:在途(待确认入库)/ 已入库(库存已形成)/ 已作废/ 关闭未收货。 */
 export const INBOUND_ORDER_STATUS_META: Record<InboundOrderStatus, { label: string; color: string }> = {
   IN_TRANSIT: { label: "在途", color: "processing" },
   RECEIVED: { label: "已入库", color: "success" },
   CANCELLED: { label: "已作废", color: "default" },
+  CLOSED: { label: "关闭未收货", color: "default" },
 };
 
-// 镜像转移矩阵:IN_TRANSIT→{RECEIVED,CANCELLED} / RECEIVED→{IN_TRANSIT}(撤销入库) / CANCELLED→{}。
+// 镜像转移矩阵:IN_TRANSIT→{RECEIVED,CANCELLED,CLOSED} / RECEIVED→{IN_TRANSIT}(撤销入库) / 终态无出边。
 const INBOUND_ORDER_TRANSITIONS: Record<InboundOrderStatus, InboundOrderStatus[]> = {
-  IN_TRANSIT: ["RECEIVED", "CANCELLED"],
+  IN_TRANSIT: ["RECEIVED", "CANCELLED", "CLOSED"],
   RECEIVED: ["IN_TRANSIT"],
   CANCELLED: [],
+  CLOSED: [],
 };
 
 /** 创建入库单即产生应付,当前不再提供裸编辑入口。 */
