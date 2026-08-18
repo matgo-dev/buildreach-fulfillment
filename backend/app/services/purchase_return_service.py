@@ -11,9 +11,11 @@ from starlette.requests import Request
 from app.audit.constants import AuditAction, AuditResourceType
 from app.audit.logger import write_audit
 from app.core.codegen import NumberScope, format_code
+from app.core.statemachine import assert_transition
 from app.core.exceptions import (
     APCreditMemoExceedsOutstandingError,
     InboundOrderEmptyError,
+    InboundOrderInvalidTransitionError,
     InboundOrderNotFoundError,
     NotFoundError,
     PurchaseReturnNotFoundError,
@@ -23,6 +25,7 @@ from app.core.exceptions import (
 )
 from app.db.models.ap_credit_memo import APCreditMemo, APCreditMemoStatus, APCreditMemoType
 from app.db.models.inbound_order import InboundOrder, InboundOrderLine, InboundOrderStatus
+from app.db.models.inbound_order import INBOUND_ORDER_TRANSITIONS
 from app.db.models.outbound_order import OutboundOrder, OutboundOrderStatus
 from app.db.models.payable import Payable
 from app.db.models.purchase_order import PurchaseOrder, PurchaseOrderLine
@@ -182,6 +185,40 @@ def _build_line_payloads(lines: list[dict], contexts: dict[int, tuple],
     return payloads, total
 
 
+async def _create_credit_memo(
+    db: AsyncSession, *,
+    order: PurchaseReturnOrder,
+    payable: Payable,
+    actor_user_id: int,
+    actor_user_email: str,
+    request: Request | None,
+) -> int | None:
+    total = Decimal(str(order.total_amount))
+    if total <= 0:
+        return None
+    memo = APCreditMemo(
+        no=await _next_no(db, NumberScope.AP_CREDIT_MEMO),
+        payable_id=payable.id,
+        purchase_return_order_id=order.id,
+        supplier_id=order.supplier_id,
+        currency=order.currency,
+        memo_type=APCreditMemoType.PURCHASE_RETURN,
+        status=APCreditMemoStatus.PENDING_APPROVAL,
+        amount=total,
+        reason=order.reason,
+        created_by=actor_user_id,
+    )
+    db.add(memo)
+    await db.flush()
+    await write_audit(
+        db, resource_type=AuditResourceType.AP_CREDIT_MEMO,
+        action=AuditAction.CREATE, user_id=actor_user_id, user_email=actor_user_email,
+        resource_id=memo.id, request=request,
+        extra={"payable_id": payable.id, "purchase_return_order_id": order.id},
+        commit=False)
+    return memo.id
+
+
 async def create_purchase_return(
     db: AsyncSession, *,
     inbound_order_id: int,
@@ -262,6 +299,103 @@ async def create_purchase_return(
         action=AuditAction.CREATE, user_id=actor_user_id, user_email=actor_user_email,
         resource_id=order.id, request=request,
         extra={"inbound_order_id": inbound.id, "purchase_order_id": po.id},
+        commit=False)
+    await db.commit()
+    await db.refresh(order)
+    return order
+
+
+async def create_in_transit_cancellation(
+    db: AsyncSession, *,
+    inbound_order_id: int,
+    reason: str | None,
+    actor_user_id: int,
+    actor_user_email: str,
+    request: Request | None = None,
+) -> PurchaseReturnOrder:
+    """创建并提交未确认入库/在途取消单。
+
+    货未入库,没有销售单维度库存;单据承载供应商接受取消事实,后续确认时关闭在途入库链路,
+    并生成供应商贷项单。数量按整张在途入库单全量取消,不做部分改行。
+    """
+    inbound = (await db.execute(
+        select(InboundOrder).where(InboundOrder.id == inbound_order_id)
+        .with_for_update())).scalar_one_or_none()
+    if inbound is None:
+        raise InboundOrderNotFoundError(f"入库单不存在: {inbound_order_id}")
+    if inbound.status != InboundOrderStatus.IN_TRANSIT:
+        raise PurchaseReturnSourceInvalidError("仅未确认入库/在途入库单可创建在途取消单")
+
+    po = (await db.execute(
+        select(PurchaseOrder).where(PurchaseOrder.id == inbound.purchase_order_id)
+        .with_for_update())).scalar_one()
+    sales_order = (await db.execute(
+        select(SalesOrder).where(SalesOrder.id == po.source_sales_order_id)
+        .with_for_update())).scalar_one()
+    await _assert_no_active_outbound(db, sales_order.id)
+    await _active_payable_for_update(db, inbound.id)
+
+    inbound_lines = list((await db.execute(
+        select(InboundOrderLine)
+        .where(InboundOrderLine.inbound_order_id == inbound.id)
+        .order_by(InboundOrderLine.sort_order, InboundOrderLine.id)
+    )).scalars().all())
+    if not inbound_lines:
+        raise InboundOrderEmptyError("在途取消单必须至少有一行")
+
+    line_ids = [line.id for line in inbound_lines]
+    contexts = await _load_line_context(db, inbound.id, line_ids)
+    active_return_qty = await _return_qty_by_inbound_line(
+        db, line_ids, statuses=_ACTIVE_RETURN_STATUSES)
+    payloads, total = _build_line_payloads(
+        [{"inbound_order_line_id": line.id, "qty": line.qty, "sort_order": line.sort_order,
+          "remark": line.remark} for line in inbound_lines],
+        contexts,
+        active_return_qty,
+    )
+
+    now = _utcnow()
+    order = PurchaseReturnOrder(
+        no=await _next_no(db, NumberScope.PURCHASE_RETURN),
+        inbound_order_id=inbound.id,
+        purchase_order_id=po.id,
+        sales_order_id=sales_order.id,
+        supplier_id=po.supplier_id,
+        currency=po.currency,
+        status=PurchaseReturnStatus.PENDING_APPROVAL,
+        total_amount=total,
+        reason=reason,
+        created_by=actor_user_id,
+        submitted_at=now,
+    )
+    db.add(order)
+    await db.flush()
+
+    for payload in payloads:
+        iol = payload["inbound_line"]
+        pol = payload["purchase_line"]
+        db.add(PurchaseReturnLine(
+            purchase_return_order_id=order.id,
+            inbound_order_line_id=iol.id,
+            purchase_order_line_id=pol.id,
+            sku_id=iol.sku_id,
+            name_snapshot=iol.name_snapshot,
+            spec_text_snapshot=iol.spec_text_snapshot,
+            unit_snapshot=iol.unit_snapshot,
+            language=iol.language,
+            qty=payload["qty"],
+            unit_price=payload["unit_price"],
+            line_total=payload["line_total"],
+            sort_order=payload["idx"],
+            remark=payload["remark"],
+        ))
+
+    await write_audit(
+        db, resource_type=AuditResourceType.PURCHASE_RETURN_ORDER,
+        action=AuditAction.CREATE, user_id=actor_user_id, user_email=actor_user_email,
+        resource_id=order.id, request=request,
+        extra={"inbound_order_id": inbound.id, "purchase_order_id": po.id,
+               "reverse_kind": "IN_TRANSIT_CANCELLATION"},
         commit=False)
     await db.commit()
     await db.refresh(order)
@@ -366,36 +500,72 @@ async def confirm_return_shipment(
     order.return_shipment_reference = return_shipment_reference
     order.return_note = return_note
 
-    memo_id = None
-    total = Decimal(str(order.total_amount))
-    if total > 0:
-        memo = APCreditMemo(
-            no=await _next_no(db, NumberScope.AP_CREDIT_MEMO),
-            payable_id=payable.id,
-            purchase_return_order_id=order.id,
-            supplier_id=order.supplier_id,
-            currency=order.currency,
-            memo_type=APCreditMemoType.PURCHASE_RETURN,
-            status=APCreditMemoStatus.PENDING_APPROVAL,
-            amount=total,
-            reason=order.reason,
-            created_by=actor_user_id,
-        )
-        db.add(memo)
-        await db.flush()
-        memo_id = memo.id
-        await write_audit(
-            db, resource_type=AuditResourceType.AP_CREDIT_MEMO,
-            action=AuditAction.CREATE, user_id=actor_user_id, user_email=actor_user_email,
-            resource_id=memo.id, request=request,
-            extra={"payable_id": payable.id, "purchase_return_order_id": order.id},
-            commit=False)
+    memo_id = await _create_credit_memo(
+        db, order=order, payable=payable, actor_user_id=actor_user_id,
+        actor_user_email=actor_user_email, request=request)
 
     await write_audit(
         db, resource_type=AuditResourceType.PURCHASE_RETURN_ORDER,
         action=AuditAction.RETURN_SHIP, user_id=actor_user_id, user_email=actor_user_email,
         resource_id=order.id, request=request,
         extra={"ap_credit_memo_id": memo_id},
+        commit=False)
+    await db.commit()
+    await db.refresh(order)
+    return order
+
+
+async def confirm_in_transit_cancellation(
+    db: AsyncSession, *, order_id: int, cancellation_reference: str | None,
+    cancellation_note: str | None, actor_user_id: int, actor_user_email: str,
+    request: Request | None = None,
+) -> PurchaseReturnOrder:
+    """确认在途取消。
+
+    这一步关闭 IN_TRANSIT 入库单并释放 PO 在途额度;不写库存流水,只生成待财务审核的供应商贷项单。
+    """
+    order = (await db.execute(
+        select(PurchaseReturnOrder).where(PurchaseReturnOrder.id == order_id)
+        .with_for_update())).scalar_one_or_none()
+    if order is None:
+        raise PurchaseReturnNotFoundError(f"采购退货单不存在: {order_id}")
+    if order.status != PurchaseReturnStatus.APPROVED:
+        raise PurchaseReturnSourceInvalidError("仅已审核在途取消单可确认取消")
+
+    await _assert_no_active_outbound(db, order.sales_order_id)
+    inbound = (await db.execute(
+        select(InboundOrder).where(InboundOrder.id == order.inbound_order_id)
+        .with_for_update())).scalar_one_or_none()
+    if inbound is None:
+        raise InboundOrderNotFoundError(f"入库单不存在: {order.inbound_order_id}")
+    assert_transition(INBOUND_ORDER_TRANSITIONS, inbound.status, InboundOrderStatus.CANCELLED,
+                      InboundOrderInvalidTransitionError)
+    payable = await _active_payable_for_update(db, inbound.id)
+
+    now = _utcnow()
+    inbound.status = InboundOrderStatus.CANCELLED
+    inbound.arrived_at = None
+    order.status = PurchaseReturnStatus.RETURNED
+    order.returned_at = now
+    order.returned_by = actor_user_id
+    order.return_shipment_reference = cancellation_reference
+    order.return_note = cancellation_note
+
+    memo_id = await _create_credit_memo(
+        db, order=order, payable=payable, actor_user_id=actor_user_id,
+        actor_user_email=actor_user_email, request=request)
+
+    await write_audit(
+        db, resource_type=AuditResourceType.INBOUND_ORDER,
+        action=AuditAction.IN_TRANSIT_CANCEL, user_id=actor_user_id,
+        user_email=actor_user_email, resource_id=inbound.id, request=request,
+        extra={"purchase_return_order_id": order.id, "ap_credit_memo_id": memo_id},
+        commit=False)
+    await write_audit(
+        db, resource_type=AuditResourceType.PURCHASE_RETURN_ORDER,
+        action=AuditAction.IN_TRANSIT_CANCEL, user_id=actor_user_id,
+        user_email=actor_user_email, resource_id=order.id, request=request,
+        extra={"inbound_order_id": inbound.id, "ap_credit_memo_id": memo_id},
         commit=False)
     await db.commit()
     await db.refresh(order)
@@ -591,7 +761,6 @@ async def post_credit_memo(
     await db.commit()
     await db.refresh(memo)
     return memo
-
 
 async def reject_credit_memo(
     db: AsyncSession, *, memo_id: int, reject_reason: str | None, actor_user_id: int,

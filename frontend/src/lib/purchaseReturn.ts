@@ -54,6 +54,11 @@ export interface PurchaseReturnCreateBody {
   lines: PurchaseReturnLineIn[];
 }
 
+export interface InTransitCancellationCreateBody {
+  inbound_order_id: number;
+  reason?: string | null;
+}
+
 export interface PurchaseReturnOrderOut {
   id: number;
   no: string;
@@ -158,6 +163,8 @@ export const purchaseReturnApi = {
     ),
   create: (body: PurchaseReturnCreateBody) =>
     api.post<PurchaseReturnDetail>("/api/v1/purchase-returns", body),
+  createInTransitCancellation: (body: InTransitCancellationCreateBody) =>
+    api.post<PurchaseReturnDetail>("/api/v1/purchase-returns/in-transit-cancellations", body),
   approve: (id: number) =>
     api.post<PurchaseReturnOrderOut>(`/api/v1/purchase-returns/${id}/approve`, {}),
   reject: (id: number, reject_reason?: string | null) =>
@@ -168,6 +175,14 @@ export const purchaseReturnApi = {
   ) =>
     api.post<PurchaseReturnDetail>(
       `/api/v1/purchase-returns/${id}/confirm-return-shipment`,
+      body,
+    ),
+  confirmInTransitCancellation: (
+    id: number,
+    body: { cancellation_reference?: string | null; cancellation_note?: string | null },
+  ) =>
+    api.post<PurchaseReturnDetail>(
+      `/api/v1/purchase-returns/${id}/confirm-in-transit-cancellation`,
       body,
     ),
 };

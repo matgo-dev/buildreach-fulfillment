@@ -48,6 +48,7 @@ from app.db.models.purchase_order import (
     PurchaseOrderLine,
     PurchaseOrderStatus,
 )
+from app.db.models.purchase_return import PurchaseReturnOrder, PurchaseReturnStatus
 from app.services.numbering import allocate
 from app.services.repo import get_or_404, paginate
 
@@ -219,6 +220,22 @@ async def get_active_payable(db: AsyncSession, inbound_order_id: int, *,
     return (await db.execute(stmt)).scalar_one_or_none()
 
 
+async def _assert_no_active_reverse_order(db: AsyncSession, inbound_order_id: int) -> None:
+    exists = (await db.execute(
+        select(PurchaseReturnOrder.id)
+        .where(
+            PurchaseReturnOrder.inbound_order_id == inbound_order_id,
+            PurchaseReturnOrder.status.in_({
+                PurchaseReturnStatus.PENDING_APPROVAL,
+                PurchaseReturnStatus.APPROVED,
+            }),
+        )
+        .limit(1))).scalar_one_or_none()
+    if exists is not None:
+        raise InboundFinancialBoundaryError(
+            "入库单已有待处理逆向单据,不可确认入库;请先完成或驳回该逆向单据")
+
+
 # ---------- 建单 ----------
 
 
@@ -348,6 +365,7 @@ async def receive_order(db: AsyncSession, *, order_id, arrived_at: date | None, 
     order = await get_order_for_update(db, order_id)
     assert_transition(INBOUND_ORDER_TRANSITIONS, order.status, InboundOrderStatus.RECEIVED,
                       InboundOrderInvalidTransitionError)
+    await _assert_no_active_reverse_order(db, order.id)
     lines = await list_lines(db, order.id)
     if not lines:
         raise InboundOrderEmptyError()
@@ -392,6 +410,7 @@ async def unreceive_order(db: AsyncSession, *, order_id, void_reason: str | None
     # 3. 转移前做余额穿仓校验,再翻转状态并写库存冲回流水。
     assert_transition(INBOUND_ORDER_TRANSITIONS, order.status, InboundOrderStatus.IN_TRANSIT,
                       InboundOrderInvalidTransitionError)
+    await _assert_no_active_reverse_order(db, order.id)
     await stock_ledger_service.assert_can_unreceive_inbound(db, order.id)
     payable = await get_active_payable(db, order.id)
     order.status = InboundOrderStatus.IN_TRANSIT

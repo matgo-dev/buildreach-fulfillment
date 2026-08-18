@@ -29,6 +29,16 @@ class ConfirmReturnShipmentIn(BaseModel):
     return_note: str | None = None
 
 
+class InTransitCancellationCreateIn(BaseModel):
+    inbound_order_id: int
+    reason: str | None = None
+
+
+class ConfirmInTransitCancellationIn(BaseModel):
+    cancellation_reference: str | None = Field(default=None, max_length=80)
+    cancellation_note: str | None = None
+
+
 class PurchaseReturnableLineOut(BaseModel):
     inbound_order_line_id: int
     purchase_order_line_id: int

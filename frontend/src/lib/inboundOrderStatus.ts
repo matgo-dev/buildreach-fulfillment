@@ -11,9 +11,9 @@ export const INBOUND_ORDER_STATUS_META: Record<InboundOrderStatus, { label: stri
   CANCELLED: { label: "已作废", color: "default" },
 };
 
-// 镜像转移矩阵:IN_TRANSIT→{RECEIVED} / RECEIVED→{IN_TRANSIT}(撤销入库) / CANCELLED→{}。
+// 镜像转移矩阵:IN_TRANSIT→{RECEIVED,CANCELLED} / RECEIVED→{IN_TRANSIT}(撤销入库) / CANCELLED→{}。
 const INBOUND_ORDER_TRANSITIONS: Record<InboundOrderStatus, InboundOrderStatus[]> = {
-  IN_TRANSIT: ["RECEIVED"],
+  IN_TRANSIT: ["RECEIVED", "CANCELLED"],
   RECEIVED: ["IN_TRANSIT"],
   CANCELLED: [],
 };

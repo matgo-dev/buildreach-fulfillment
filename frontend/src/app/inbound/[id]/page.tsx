@@ -13,7 +13,13 @@ import {
   Table,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { ArrowLeftOutlined, CheckOutlined, RollbackOutlined, TruckOutlined } from "@ant-design/icons";
+import {
+  ArrowLeftOutlined,
+  CheckOutlined,
+  RollbackOutlined,
+  StopOutlined,
+  TruckOutlined,
+} from "@ant-design/icons";
 import dayjs from "dayjs";
 import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
@@ -80,6 +86,8 @@ export default function InboundOrderDetailPage() {
   const [voidReason, setVoidReason] = useState("");
   const [unreceiveBlocked, setUnreceiveBlocked] = useState<OperationBlockedItem[] | null>(null);
   const [purchaseReturnOpen, setPurchaseReturnOpen] = useState(false);
+  const [inTransitCancelOpen, setInTransitCancelOpen] = useState(false);
+  const [inTransitCancelReason, setInTransitCancelReason] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -132,6 +140,7 @@ export default function InboundOrderDetailPage() {
     [],
   );
 
+  const currentInboundStatus = detail?.order.status;
   const purchaseReturnColumns: ColumnsType<PurchaseReturnListItem> = [
       { title: "退货单号", dataIndex: "no", width: 150 },
       {
@@ -191,16 +200,18 @@ export default function InboundOrderDetailPage() {
               <Can perm={Permissions.INBOUND_MANAGE}>
                 <Button
                   size="small"
-                  icon={<TruckOutlined />}
+                  icon={currentInboundStatus === "IN_TRANSIT" ? <StopOutlined /> : <TruckOutlined />}
                   loading={busy}
                   onClick={() =>
                     actDialog(
-                      () => purchaseReturnApi.confirmReturnShipment(row.id, {}),
-                      "已确认退货出库",
+                      () => currentInboundStatus === "IN_TRANSIT"
+                        ? purchaseReturnApi.confirmInTransitCancellation(row.id, {})
+                        : purchaseReturnApi.confirmReturnShipment(row.id, {}),
+                      currentInboundStatus === "IN_TRANSIT" ? "已确认在途取消" : "已确认退货出库",
                     )
                   }
                 >
-                  确认退货出库
+                  {currentInboundStatus === "IN_TRANSIT" ? "确认在途取消" : "确认退货出库"}
                 </Button>
               </Can>
             )}
@@ -234,17 +245,32 @@ export default function InboundOrderDetailPage() {
           <Can perm={Permissions.INBOUND_MANAGE}>
             <Space>
               {inboundOrderReceivable(order.status) && (
-                <Button
-                  type="primary"
-                  loading={busy}
-                  onClick={() => {
-                    // 默认取预计到货日(运营自己填的到货估计,少改一次);未填才退回今天。
-                    setArrivedAt(order.eta ? dayjs(order.eta) : dayjs());
-                    setReceiveOpen(true);
-                  }}
-                >
-                  确认入库
-                </Button>
+                <>
+                  <Can perm={Permissions.PURCHASE_MANAGE}>
+                    <Button
+                      danger
+                      icon={<StopOutlined />}
+                      loading={busy}
+                      onClick={() => {
+                        setInTransitCancelReason("");
+                        setInTransitCancelOpen(true);
+                      }}
+                    >
+                      在途取消
+                    </Button>
+                  </Can>
+                  <Button
+                    type="primary"
+                    loading={busy}
+                    onClick={() => {
+                      // 默认取预计到货日(运营自己填的到货估计,少改一次);未填才退回今天。
+                      setArrivedAt(order.eta ? dayjs(order.eta) : dayjs());
+                      setReceiveOpen(true);
+                    }}
+                  >
+                    确认入库
+                  </Button>
+                </>
               )}
               {inboundOrderUnreceivable(order.status) && (
                 <>
@@ -381,6 +407,39 @@ export default function InboundOrderDetailPage() {
               onChange={(d) => d && setArrivedAt(d)}
             />
           </div>
+        </Space>
+      </Modal>
+
+      {/* 在途取消:货未确认入库,不扣库存;提交后走采购审核与供应商贷项单。 */}
+      <Modal
+        title="在途取消"
+        open={inTransitCancelOpen}
+        okText="提交审核"
+        okButtonProps={{ danger: true }}
+        confirmLoading={busy}
+        onCancel={() => setInTransitCancelOpen(false)}
+        onOk={async () => {
+          const ok = await actDialog(
+            () => purchaseReturnApi.createInTransitCancellation({
+              inbound_order_id: id,
+              reason: inTransitCancelReason.trim() || null,
+            }),
+            "已提交在途取消单",
+          );
+          if (ok) {
+            setInTransitCancelOpen(false);
+            setInTransitCancelReason("");
+          }
+        }}
+      >
+        <Space orientation="vertical" style={{ width: "100%" }}>
+          <span>提交后不会扣减库存;审核通过并确认在途取消后,系统会关闭该入库单并生成供应商贷项单。</span>
+          <Input.TextArea
+            rows={3}
+            placeholder="取消原因(选填,用于采购退货单和供应商贷项单)"
+            value={inTransitCancelReason}
+            onChange={(e) => setInTransitCancelReason(e.target.value)}
+          />
         </Space>
       </Modal>
 
