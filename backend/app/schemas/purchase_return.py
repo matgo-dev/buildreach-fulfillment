@@ -34,7 +34,18 @@ class InTransitCancellationCreateIn(BaseModel):
     reason: str | None = None
 
 
+class CompanyAssumedCancellationCreateIn(BaseModel):
+    inbound_order_id: int
+    reason: str | None = None
+    customer_refund_amount: float = Field(default=0, ge=0)
+
+
 class ConfirmInTransitCancellationIn(BaseModel):
+    cancellation_reference: str | None = Field(default=None, max_length=80)
+    cancellation_note: str | None = None
+
+
+class ConfirmCompanyAssumedCancellationIn(BaseModel):
     cancellation_reference: str | None = Field(default=None, max_length=80)
     cancellation_note: str | None = None
 
@@ -116,6 +127,70 @@ class APCreditMemoOut(BaseModel):
         return cls.model_validate(memo, from_attributes=True).model_dump()
 
 
+class CustomerRefundOut(BaseModel):
+    id: int
+    no: str
+    purchase_return_order_id: int
+    sales_order_id: int
+    customer_id: int
+    currency: str
+    status: str
+    amount: float
+    reason: str | None
+    paid_at: datetime | None
+    paid_by: int | None
+    created_by: int
+    created_at: datetime
+
+    @classmethod
+    def build(cls, refund) -> dict | None:
+        if refund is None:
+            return None
+        return cls.model_validate(refund, from_attributes=True).model_dump()
+
+
+class CompanyLossEntryOut(BaseModel):
+    id: int
+    no: str
+    purchase_return_order_id: int
+    payable_id: int
+    sales_order_id: int
+    currency: str
+    status: str
+    amount: float | None = None
+    supplier_payable_amount: float | None = None
+    customer_refund_amount: float | None = None
+    reason: str | None
+    posted_at: datetime
+    posted_by: int
+    created_by: int
+    created_at: datetime
+
+    @classmethod
+    def build(cls, entry, *, can_see_cost: bool) -> dict | None:
+        if entry is None:
+            return None
+        return {
+            "id": entry.id,
+            "no": entry.no,
+            "purchase_return_order_id": entry.purchase_return_order_id,
+            "payable_id": entry.payable_id,
+            "sales_order_id": entry.sales_order_id,
+            "currency": entry.currency,
+            "status": entry.status,
+            "amount": float(entry.amount) if can_see_cost else None,
+            "supplier_payable_amount": (
+                float(entry.supplier_payable_amount) if can_see_cost else None
+            ),
+            "customer_refund_amount": float(entry.customer_refund_amount),
+            "reason": entry.reason,
+            "posted_at": entry.posted_at,
+            "posted_by": entry.posted_by,
+            "created_by": entry.created_by,
+            "created_at": entry.created_at,
+        }
+
+
 class PurchaseReturnOut(BaseModel):
     id: int
     no: str
@@ -127,6 +202,8 @@ class PurchaseReturnOut(BaseModel):
     status: str
     return_kind: str
     total_amount: float | None = None
+    customer_refund_amount: float
+    company_loss_amount: float | None = None
     reason: str | None
     submitted_at: datetime
     approved_at: datetime | None
@@ -154,6 +231,8 @@ class PurchaseReturnOut(BaseModel):
             "status": order.status,
             "return_kind": order.return_kind,
             "total_amount": float(order.total_amount) if can_see_cost else None,
+            "customer_refund_amount": float(order.customer_refund_amount),
+            "company_loss_amount": float(order.company_loss_amount) if can_see_cost else None,
             "reason": order.reason,
             "submitted_at": order.submitted_at,
             "approved_at": order.approved_at,
@@ -186,6 +265,8 @@ class PurchaseReturnListItem(BaseModel):
     line_count: int
     total_qty: float
     ap_credit_memo_status: str | None = None
+    customer_refund_amount: float
+    company_loss_amount: float | None = None
     submitted_at: datetime
     created_at: datetime
 
@@ -193,4 +274,7 @@ class PurchaseReturnListItem(BaseModel):
     def build(cls, item: dict, *, can_see_cost: bool) -> dict:
         out = dict(item)
         out["total_amount"] = float(item["total_amount"]) if can_see_cost else None
+        out["company_loss_amount"] = (
+            float(item["company_loss_amount"]) if can_see_cost else None
+        )
         return out

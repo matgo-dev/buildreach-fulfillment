@@ -6,6 +6,8 @@ from sqlalchemy import event, func, select
 from app.audit.constants import AuditAction, AuditResourceType
 from app.db.models.ap_credit_memo import APCreditMemo, APCreditMemoStatus
 from app.db.models.audit_log import AuditLog
+from app.db.models.company_loss import CompanyLossEntry
+from app.db.models.customer_refund import CustomerRefund
 from app.db.models.inbound_order import InboundOrder
 from app.db.models.payable import Payable
 from app.db.models.payment import Payment
@@ -282,6 +284,156 @@ async def test_in_transit_cancellation_creates_ap_credit_without_stock_movement(
         "lines": [{"purchase_order_line_id": ctx["po_lines"][0]["id"], "qty": 10}],
     })
     assert reopened.status_code == 200, reopened.text
+
+
+async def test_company_assumed_cancellation_received_holds_stock_and_preserves_ap(
+        client, db_session, sales_headers, purchaser_headers):
+    ctx = await setup_available_stock(
+        client, db_session, sales_headers, purchaser_headers,
+        so_qty=10, po_price="5.00", received=10, sku_codes=("SKUPR_CA",))
+
+    created = await client.post(
+        "/api/v1/purchase-returns/company-assumed-cancellations",
+        headers=purchaser_headers,
+        json={
+            "inbound_order_id": ctx["inbound_order_id"],
+            "reason": "供应商不接受,公司承担",
+            "customer_refund_amount": 12.5,
+        },
+    )
+    assert created.status_code == 200, created.text
+    data = created.json()["data"]
+    assert data["order"]["return_kind"] == "COMPANY_ASSUMED_CANCELLATION"
+    assert data["order"]["status"] == "PENDING_APPROVAL"
+    assert data["order"]["total_amount"] == 50.0
+    assert data["order"]["customer_refund_amount"] == 12.5
+    assert data["order"]["company_loss_amount"] == 62.5
+    assert data["ap_credit_memo"] is None
+    assert data["customer_refund"] is None
+    assert data["company_loss_entry"] is None
+
+    approved = await client.post(
+        f"/api/v1/purchase-returns/{data['order']['id']}/approve",
+        headers=purchaser_headers,
+        json={},
+    )
+    assert approved.status_code == 200, approved.text
+
+    confirmed = await client.post(
+        f"/api/v1/purchase-returns/{data['order']['id']}/confirm-company-assumed-cancellation",
+        headers=purchaser_headers,
+        json={"cancellation_reference": "CA-001", "cancellation_note": "转待处置"},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    confirmed_data = confirmed.json()["data"]
+    assert confirmed_data["order"]["status"] == "COMPLETED"
+    assert confirmed_data["ap_credit_memo"] is None
+    assert confirmed_data["customer_refund"]["no"].startswith("CRF")
+    assert confirmed_data["customer_refund"]["status"] == "PENDING_PAYMENT"
+    assert confirmed_data["customer_refund"]["amount"] == 12.5
+    assert confirmed_data["company_loss_entry"]["no"].startswith("CL")
+    assert confirmed_data["company_loss_entry"]["status"] == "POSTED"
+    assert confirmed_data["company_loss_entry"]["amount"] == 62.5
+
+    payable = (await db_session.execute(
+        select(Payable).where(Payable.inbound_order_id == ctx["inbound_order_id"])
+    )).scalar_one()
+    assert float(payable.amount_original) == 50.0
+    assert float(payable.amount_credited) == 0.0
+    assert float(payable.amount_outstanding) == 50.0
+
+    balance = (await db_session.execute(
+        select(InventoryBalance).where(
+            InventoryBalance.sales_order_id == ctx["sales_order_id"],
+            InventoryBalance.sku_id == ctx["skus"][0].id,
+        )
+    )).scalar_one()
+    await db_session.refresh(balance)
+    assert float(balance.inbound_qty) == 10.0
+    assert float(balance.outbound_qty) == 0.0
+    assert float(balance.disposition_qty) == 10.0
+    assert float(balance.available_qty) == 0.0
+
+    movement = (await db_session.execute(
+        select(InventoryMovement).where(
+            InventoryMovement.movement_type
+            == InventoryMovementType.COMPANY_DISPOSITION_HOLD
+        )
+    )).scalar_one()
+    assert movement.source_type == "PURCHASE_RETURN_ORDER"
+    assert movement.source_id == data["order"]["id"]
+    assert float(movement.qty_delta) == -10.0
+    assert (await db_session.execute(select(func.count(APCreditMemo.id)))).scalar_one() == 0
+    assert (await db_session.execute(select(func.count(CustomerRefund.id)))).scalar_one() == 1
+    assert (await db_session.execute(select(func.count(CompanyLossEntry.id)))).scalar_one() == 1
+
+    duplicate_confirm = await client.post(
+        f"/api/v1/purchase-returns/{data['order']['id']}/confirm-company-assumed-cancellation",
+        headers=purchaser_headers,
+        json={},
+    )
+    assert duplicate_confirm.status_code == 409
+
+
+async def test_company_assumed_cancellation_in_transit_closes_inbound_without_stock_or_ap_credit(
+        client, db_session, sales_headers, purchaser_headers):
+    ctx = await setup_available_stock(
+        client, db_session, sales_headers, purchaser_headers,
+        so_qty=10, po_price="5.00", received=0, sku_codes=("SKUPR_CB",))
+
+    created_inbound = await client.post("/api/v1/inbound-orders", headers=purchaser_headers, json={
+        "purchase_order_id": ctx["purchase_order_id"],
+        "lines": [{"purchase_order_line_id": ctx["po_lines"][0]["id"], "qty": 10}],
+    })
+    assert created_inbound.status_code == 200, created_inbound.text
+    inbound_id = created_inbound.json()["data"]["order"]["id"]
+
+    created = await client.post(
+        "/api/v1/purchase-returns/company-assumed-cancellations",
+        headers=purchaser_headers,
+        json={
+            "inbound_order_id": inbound_id,
+            "reason": "供应商不接受取消但公司退款",
+            "customer_refund_amount": 0,
+        },
+    )
+    assert created.status_code == 200, created.text
+    order_id = created.json()["data"]["order"]["id"]
+
+    receive_blocked = await client.post(
+        f"/api/v1/inbound-orders/{inbound_id}/receive",
+        headers=purchaser_headers,
+        json={},
+    )
+    assert receive_blocked.status_code == 409
+
+    approved = await client.post(
+        f"/api/v1/purchase-returns/{order_id}/approve",
+        headers=purchaser_headers,
+        json={},
+    )
+    assert approved.status_code == 200, approved.text
+    confirmed = await client.post(
+        f"/api/v1/purchase-returns/{order_id}/confirm-company-assumed-cancellation",
+        headers=purchaser_headers,
+        json={"cancellation_reference": "CA-INTRANSIT"},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["data"]["order"]["status"] == "COMPLETED"
+    assert confirmed.json()["data"]["customer_refund"] is None
+    assert confirmed.json()["data"]["company_loss_entry"]["amount"] == 50.0
+
+    inbound = (await db_session.execute(
+        select(InboundOrder).where(InboundOrder.id == inbound_id)
+    )).scalar_one()
+    assert inbound.status == "CANCELLED"
+    payable = (await db_session.execute(
+        select(Payable).where(Payable.inbound_order_id == inbound_id)
+    )).scalar_one()
+    assert float(payable.amount_credited) == 0.0
+    assert float(payable.amount_outstanding) == 50.0
+    assert (await db_session.execute(select(func.count(APCreditMemo.id)))).scalar_one() == 0
+    assert (await db_session.execute(select(func.count(InventoryMovement.id)))).scalar_one() == 0
 
 
 async def test_rejected_in_transit_credit_memo_can_be_resubmitted_without_reopening_flow(

@@ -25,6 +25,8 @@ from app.core.exceptions import (
     PurchaseReturnWouldGoNegativeError,
 )
 from app.db.models.ap_credit_memo import APCreditMemo, APCreditMemoStatus, APCreditMemoType
+from app.db.models.company_loss import CompanyLossEntry, CompanyLossEntryStatus
+from app.db.models.customer_refund import CustomerRefund, CustomerRefundStatus
 from app.db.models.inbound_order import InboundOrder, InboundOrderLine, InboundOrderStatus
 from app.db.models.inbound_order import INBOUND_ORDER_TRANSITIONS
 from app.db.models.outbound_order import OutboundOrder, OutboundOrderStatus
@@ -49,6 +51,7 @@ _ACTIVE_RETURN_STATUSES = (
     PurchaseReturnStatus.PENDING_APPROVAL,
     PurchaseReturnStatus.APPROVED,
     PurchaseReturnStatus.RETURNED,
+    PurchaseReturnStatus.COMPLETED,
 )
 _OPEN_CREDIT_MEMO_STATUSES = (
     APCreditMemoStatus.PENDING_APPROVAL,
@@ -278,6 +281,81 @@ async def _create_credit_memo(
                "return_kind": order.return_kind},
         commit=False)
     return memo.id
+
+
+async def _create_customer_refund(
+    db: AsyncSession, *,
+    order: PurchaseReturnOrder,
+    sales_order: SalesOrder,
+    actor_user_id: int,
+    actor_user_email: str,
+    request: Request | None,
+) -> int | None:
+    amount = Decimal(str(order.customer_refund_amount))
+    if amount <= 0:
+        return None
+    refund = CustomerRefund(
+        no=await _next_no(db, NumberScope.CUSTOMER_REFUND),
+        purchase_return_order_id=order.id,
+        sales_order_id=order.sales_order_id,
+        customer_id=sales_order.customer_id,
+        currency=order.currency,
+        status=CustomerRefundStatus.PENDING_PAYMENT,
+        amount=amount,
+        reason=order.reason,
+        created_by=actor_user_id,
+    )
+    db.add(refund)
+    await db.flush()
+    await write_audit(
+        db, resource_type=AuditResourceType.CUSTOMER_REFUND,
+        action=AuditAction.CREATE, user_id=actor_user_id, user_email=actor_user_email,
+        resource_id=refund.id, request=request,
+        extra={"purchase_return_order_id": order.id, "sales_order_id": order.sales_order_id,
+               "return_kind": order.return_kind, "amount": float(amount)},
+        commit=False)
+    return refund.id
+
+
+async def _create_company_loss_entry(
+    db: AsyncSession, *,
+    order: PurchaseReturnOrder,
+    payable: Payable,
+    actor_user_id: int,
+    actor_user_email: str,
+    request: Request | None,
+) -> int | None:
+    amount = Decimal(str(order.company_loss_amount))
+    if amount <= 0:
+        return None
+    now = _utcnow()
+    entry = CompanyLossEntry(
+        no=await _next_no(db, NumberScope.COMPANY_LOSS),
+        purchase_return_order_id=order.id,
+        payable_id=payable.id,
+        sales_order_id=order.sales_order_id,
+        currency=order.currency,
+        status=CompanyLossEntryStatus.POSTED,
+        amount=amount,
+        supplier_payable_amount=order.total_amount,
+        customer_refund_amount=order.customer_refund_amount,
+        reason=order.reason,
+        posted_at=now,
+        posted_by=actor_user_id,
+        created_by=actor_user_id,
+    )
+    db.add(entry)
+    await db.flush()
+    await write_audit(
+        db, resource_type=AuditResourceType.COMPANY_LOSS_ENTRY,
+        action=AuditAction.POST, user_id=actor_user_id, user_email=actor_user_email,
+        resource_id=entry.id, request=request,
+        extra={"purchase_return_order_id": order.id, "payable_id": payable.id,
+               "return_kind": order.return_kind, "amount": float(amount),
+               "supplier_payable_amount": float(Decimal(str(order.total_amount))),
+               "customer_refund_amount": float(Decimal(str(order.customer_refund_amount)))},
+        commit=False)
+    return entry.id
 
 
 async def _release_paid_amount_for_credit_memo(
@@ -555,6 +633,123 @@ async def create_in_transit_cancellation(
     return order
 
 
+async def create_company_assumed_cancellation(
+    db: AsyncSession, *,
+    inbound_order_id: int,
+    reason: str | None,
+    customer_refund_amount,
+    actor_user_id: int,
+    actor_user_email: str,
+    request: Request | None = None,
+) -> PurchaseReturnOrder:
+    """创建公司承担型取消单。
+
+    供应商不接受取消/退回,公司仍决定对客户承担。该单据不代表供应商接受,所以后续确认
+    不生成供应商贷项单、不冲 payable;金额守恒为 company_loss = 保留供应商应付成本 + 客户退款。
+    """
+    inbound = (await db.execute(
+        select(InboundOrder).where(InboundOrder.id == inbound_order_id)
+        .with_for_update())).scalar_one_or_none()
+    if inbound is None:
+        raise InboundOrderNotFoundError(f"入库单不存在: {inbound_order_id}")
+    if inbound.status not in {InboundOrderStatus.IN_TRANSIT, InboundOrderStatus.RECEIVED}:
+        raise PurchaseReturnSourceInvalidError("仅在途或已确认入库单可创建公司承担型取消")
+
+    po = (await db.execute(
+        select(PurchaseOrder).where(PurchaseOrder.id == inbound.purchase_order_id)
+        .with_for_update())).scalar_one()
+    sales_order = (await db.execute(
+        select(SalesOrder).where(SalesOrder.id == po.source_sales_order_id)
+        .with_for_update())).scalar_one()
+    await _assert_no_active_outbound(db, sales_order.id)
+    await _assert_no_pending_reverse_order(db, inbound.id)
+    await _active_payable_for_update(db, inbound.id)
+
+    inbound_lines = list((await db.execute(
+        select(InboundOrderLine)
+        .where(InboundOrderLine.inbound_order_id == inbound.id)
+        .order_by(InboundOrderLine.sort_order, InboundOrderLine.id)
+    )).scalars().all())
+    if not inbound_lines:
+        raise InboundOrderEmptyError("公司承担型取消单必须至少有一行")
+
+    line_ids = [line.id for line in inbound_lines]
+    contexts = await _load_line_context(db, inbound.id, line_ids)
+    active_return_qty = await _return_qty_by_inbound_line(
+        db, line_ids, statuses=_ACTIVE_RETURN_STATUSES)
+    line_payload = []
+    for line in inbound_lines:
+        remaining = Decimal(str(line.qty)) - active_return_qty[line.id]
+        if remaining > 0:
+            line_payload.append({
+                "inbound_order_line_id": line.id,
+                "qty": remaining,
+                "sort_order": line.sort_order,
+                "remark": line.remark,
+            })
+    if not line_payload:
+        raise PurchaseReturnOverQtyError("源入库单已无可取消数量")
+    payloads, total = _build_line_payloads(line_payload, contexts, active_return_qty)
+
+    refund_amount = Decimal(str(customer_refund_amount or 0)).quantize(
+        _CENT, rounding=ROUND_HALF_UP)
+    if refund_amount < 0:
+        raise PurchaseReturnSourceInvalidError("客户退款金额不可为负")
+    company_loss_amount = (total + refund_amount).quantize(_CENT, rounding=ROUND_HALF_UP)
+
+    now = _utcnow()
+    order = PurchaseReturnOrder(
+        no=await _next_no(db, NumberScope.PURCHASE_RETURN),
+        inbound_order_id=inbound.id,
+        purchase_order_id=po.id,
+        sales_order_id=sales_order.id,
+        supplier_id=po.supplier_id,
+        currency=po.currency,
+        status=PurchaseReturnStatus.PENDING_APPROVAL,
+        return_kind=PurchaseReturnKind.COMPANY_ASSUMED_CANCELLATION,
+        total_amount=total,
+        customer_refund_amount=refund_amount,
+        company_loss_amount=company_loss_amount,
+        reason=reason,
+        created_by=actor_user_id,
+        submitted_at=now,
+    )
+    db.add(order)
+    await db.flush()
+
+    for payload in payloads:
+        iol = payload["inbound_line"]
+        pol = payload["purchase_line"]
+        db.add(PurchaseReturnLine(
+            purchase_return_order_id=order.id,
+            inbound_order_line_id=iol.id,
+            purchase_order_line_id=pol.id,
+            sku_id=iol.sku_id,
+            name_snapshot=iol.name_snapshot,
+            spec_text_snapshot=iol.spec_text_snapshot,
+            unit_snapshot=iol.unit_snapshot,
+            language=iol.language,
+            qty=payload["qty"],
+            unit_price=payload["unit_price"],
+            line_total=payload["line_total"],
+            sort_order=payload["idx"],
+            remark=payload["remark"],
+        ))
+
+    await write_audit(
+        db, resource_type=AuditResourceType.PURCHASE_RETURN_ORDER,
+        action=AuditAction.CREATE, user_id=actor_user_id, user_email=actor_user_email,
+        resource_id=order.id, request=request,
+        extra={"inbound_order_id": inbound.id, "purchase_order_id": po.id,
+               "reverse_kind": "COMPANY_ASSUMED_CANCELLATION",
+               "customer_refund_amount": float(refund_amount),
+               "company_loss_amount": float(company_loss_amount)},
+        commit=False)
+    await db.commit()
+    await db.refresh(order)
+    return order
+
+
 async def approve_purchase_return(
     db: AsyncSession, *, order_id: int, actor_user_id: int, actor_user_email: str,
     request: Request | None = None,
@@ -731,6 +926,106 @@ async def confirm_in_transit_cancellation(
     return order
 
 
+async def confirm_company_assumed_cancellation(
+    db: AsyncSession, *, order_id: int, cancellation_reference: str | None,
+    cancellation_note: str | None, actor_user_id: int, actor_user_email: str,
+    request: Request | None = None,
+) -> PurchaseReturnOrder:
+    """确认公司承担型取消。
+
+    - 供应商应付保持原样,不生成供应商贷项单;
+    - RECEIVED 入库:库存从 available 转入 disposition,仍挂原销售单;
+    - IN_TRANSIT 入库:由本真实逆向单关闭在途入库,不写库存流水;
+    - 客户退款单与公司损失确认单在同一事务内生成。
+    """
+    from app.services import stock_ledger_service
+
+    order = (await db.execute(
+        select(PurchaseReturnOrder).where(PurchaseReturnOrder.id == order_id)
+        .with_for_update())).scalar_one_or_none()
+    if order is None:
+        raise PurchaseReturnNotFoundError(f"采购退货单不存在: {order_id}")
+    if order.status != PurchaseReturnStatus.APPROVED:
+        raise PurchaseReturnSourceInvalidError("仅已审核公司承担型取消单可确认")
+    _assert_return_kind(
+        order, PurchaseReturnKind.COMPANY_ASSUMED_CANCELLATION,
+        "仅公司承担型取消单可确认公司承担取消")
+
+    await _assert_no_active_outbound(db, order.sales_order_id)
+    await stock_ledger_service.lock_sales_orders(db, [order.sales_order_id])
+    sales_order = (await db.execute(
+        select(SalesOrder).where(SalesOrder.id == order.sales_order_id)
+        .with_for_update())).scalar_one()
+    inbound = (await db.execute(
+        select(InboundOrder).where(InboundOrder.id == order.inbound_order_id)
+        .with_for_update())).scalar_one_or_none()
+    if inbound is None:
+        raise InboundOrderNotFoundError(f"入库单不存在: {order.inbound_order_id}")
+    if inbound.status not in {InboundOrderStatus.IN_TRANSIT, InboundOrderStatus.RECEIVED}:
+        raise PurchaseReturnSourceInvalidError("源入库单状态已不允许确认公司承担型取消")
+    payable = await _active_payable_for_update(db, inbound.id)
+
+    lines = await list_lines(db, order.id)
+    impacts = [
+        StockImpact(
+            sales_order_id=order.sales_order_id,
+            sku_id=line.sku_id,
+            source_line_id=line.id,
+            qty=Decimal(str(line.qty)),
+        )
+        for line in lines
+    ]
+    now = _utcnow()
+    if inbound.status == InboundOrderStatus.RECEIVED:
+        await _assert_stock_available(db, impacts)
+        await stock_ledger_service.record_company_assumed_disposition_hold(
+            db,
+            purchase_return_order_id=order.id,
+            impacts=impacts,
+            occurred_at=now,
+            actor_user_id=actor_user_id,
+            note=cancellation_note or order.reason,
+        )
+    else:
+        assert_transition(INBOUND_ORDER_TRANSITIONS, inbound.status, InboundOrderStatus.CANCELLED,
+                          InboundOrderInvalidTransitionError)
+        inbound.status = InboundOrderStatus.CANCELLED
+        inbound.arrived_at = None
+
+    order.status = PurchaseReturnStatus.COMPLETED
+    order.returned_at = now
+    order.returned_by = actor_user_id
+    order.return_shipment_reference = cancellation_reference
+    order.return_note = cancellation_note
+
+    refund_id = await _create_customer_refund(
+        db, order=order, sales_order=sales_order, actor_user_id=actor_user_id,
+        actor_user_email=actor_user_email, request=request)
+    loss_id = await _create_company_loss_entry(
+        db, order=order, payable=payable, actor_user_id=actor_user_id,
+        actor_user_email=actor_user_email, request=request)
+
+    await write_audit(
+        db, resource_type=AuditResourceType.PURCHASE_RETURN_ORDER,
+        action=AuditAction.CANCEL, user_id=actor_user_id,
+        user_email=actor_user_email, resource_id=order.id, request=request,
+        extra={"inbound_order_id": inbound.id, "customer_refund_id": refund_id,
+               "company_loss_entry_id": loss_id,
+               "return_kind": order.return_kind},
+        commit=False)
+    if inbound.status == InboundOrderStatus.CANCELLED:
+        await write_audit(
+            db, resource_type=AuditResourceType.INBOUND_ORDER,
+            action=AuditAction.CANCEL, user_id=actor_user_id,
+            user_email=actor_user_email, resource_id=inbound.id, request=request,
+            extra={"purchase_return_order_id": order.id,
+                   "company_loss_entry_id": loss_id},
+            commit=False)
+    await db.commit()
+    await db.refresh(order)
+    return order
+
+
 async def get_order(db: AsyncSession, order_id: int) -> PurchaseReturnOrder:
     order = (await db.execute(
         select(PurchaseReturnOrder).where(PurchaseReturnOrder.id == order_id)
@@ -756,6 +1051,30 @@ async def get_ap_credit_memo(db: AsyncSession, order_id: int) -> APCreditMemo | 
             APCreditMemo.status != APCreditMemoStatus.VOIDED,
         )
         .order_by(APCreditMemo.created_at.desc(), APCreditMemo.id.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+
+
+async def get_customer_refund(db: AsyncSession, order_id: int) -> CustomerRefund | None:
+    return (await db.execute(
+        select(CustomerRefund)
+        .where(
+            CustomerRefund.purchase_return_order_id == order_id,
+            CustomerRefund.status != CustomerRefundStatus.VOIDED,
+        )
+        .order_by(CustomerRefund.created_at.desc(), CustomerRefund.id.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+
+
+async def get_company_loss_entry(db: AsyncSession, order_id: int) -> CompanyLossEntry | None:
+    return (await db.execute(
+        select(CompanyLossEntry)
+        .where(
+            CompanyLossEntry.purchase_return_order_id == order_id,
+            CompanyLossEntry.status != CompanyLossEntryStatus.VOIDED,
+        )
+        .order_by(CompanyLossEntry.created_at.desc(), CompanyLossEntry.id.desc())
         .limit(1)
     )).scalar_one_or_none()
 
@@ -798,7 +1117,15 @@ async def get_detail(db: AsyncSession, order_id: int) -> dict:
     order = await get_order(db, order_id)
     lines = await list_lines(db, order.id)
     memo = await get_ap_credit_memo(db, order.id)
-    return {"order": order, "lines": lines, "ap_credit_memo": memo}
+    refund = await get_customer_refund(db, order.id)
+    loss = await get_company_loss_entry(db, order.id)
+    return {
+        "order": order,
+        "lines": lines,
+        "ap_credit_memo": memo,
+        "customer_refund": refund,
+        "company_loss_entry": loss,
+    }
 
 
 async def list_orders(db: AsyncSession, *, status: str | None = None,
@@ -853,6 +1180,8 @@ async def list_orders(db: AsyncSession, *, status: str | None = None,
         "purchase_order_id": o.purchase_order_id, "purchase_order_no": po_no,
         "sales_order_id": o.sales_order_id, "supplier_id": o.supplier_id,
         "currency": o.currency, "total_amount": float(o.total_amount),
+        "customer_refund_amount": float(o.customer_refund_amount),
+        "company_loss_amount": float(o.company_loss_amount),
         "line_count": line_count, "total_qty": float(total_qty),
         "ap_credit_memo_status": ap_credit_memo_status,
         "submitted_at": o.submitted_at, "created_at": o.created_at,

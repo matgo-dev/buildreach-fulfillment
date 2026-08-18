@@ -29,6 +29,8 @@ class AuditResourceType(str, Enum):
     PAYMENT = "payment"
     PURCHASE_RETURN_ORDER = "purchase_return_order"
     AP_CREDIT_MEMO = "ap_credit_memo"
+    CUSTOMER_REFUND = "customer_refund"
+    COMPANY_LOSS_ENTRY = "company_loss_entry"
 
 
 class AuditAction(str, Enum):

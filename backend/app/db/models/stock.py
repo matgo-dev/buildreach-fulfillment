@@ -25,7 +25,14 @@ class InventoryMovementType:
     INBOUND_UNRECEIVE = "INBOUND_UNRECEIVE"
     OUTBOUND_ISSUE = "OUTBOUND_ISSUE"
     PURCHASE_RETURN_ISSUE = "PURCHASE_RETURN_ISSUE"
-    ALL = (INBOUND_RECEIVE, INBOUND_UNRECEIVE, OUTBOUND_ISSUE, PURCHASE_RETURN_ISSUE)
+    COMPANY_DISPOSITION_HOLD = "COMPANY_DISPOSITION_HOLD"
+    ALL = (
+        INBOUND_RECEIVE,
+        INBOUND_UNRECEIVE,
+        OUTBOUND_ISSUE,
+        PURCHASE_RETURN_ISSUE,
+        COMPANY_DISPOSITION_HOLD,
+    )
 
 
 class InventorySourceType:
@@ -46,7 +53,8 @@ class InventoryBalance(Base, TimestampUpdateMixin):
         UniqueConstraint("sales_order_id", "sku_id", name="uq_inventory_balances_so_sku"),
         CheckConstraint("inbound_qty >= 0", name="ck_inventory_balances_inbound_nn"),
         CheckConstraint("outbound_qty >= 0", name="ck_inventory_balances_outbound_nn"),
-        CheckConstraint("inbound_qty >= outbound_qty",
+        CheckConstraint("disposition_qty >= 0", name="ck_inventory_balances_disposition_nn"),
+        CheckConstraint("inbound_qty >= outbound_qty + disposition_qty",
                         name="ck_inventory_balances_available_nn"),
     )
 
@@ -58,8 +66,9 @@ class InventoryBalance(Base, TimestampUpdateMixin):
         Integer, ForeignKey("skus.id", ondelete="RESTRICT"), nullable=False, index=True)
     inbound_qty: Mapped[float] = mapped_column(Numeric(18, 3), nullable=False, default=0)
     outbound_qty: Mapped[float] = mapped_column(Numeric(18, 3), nullable=False, default=0)
+    disposition_qty: Mapped[float] = mapped_column(Numeric(18, 3), nullable=False, default=0)
     available_qty: Mapped[float] = mapped_column(
-        Numeric(18, 3), Computed("inbound_qty - outbound_qty", persisted=True))
+        Numeric(18, 3), Computed("inbound_qty - outbound_qty - disposition_qty", persisted=True))
 
 
 class InventoryMovement(Base, TimestampMixin):
@@ -73,7 +82,7 @@ class InventoryMovement(Base, TimestampMixin):
         CheckConstraint(
             "movement_type IN ("
             "'INBOUND_RECEIVE','INBOUND_UNRECEIVE','OUTBOUND_ISSUE',"
-            "'PURCHASE_RETURN_ISSUE')",
+            "'PURCHASE_RETURN_ISSUE','COMPANY_DISPOSITION_HOLD')",
             name="ck_inventory_movements_type"),
         CheckConstraint(
             "source_type IN ('INBOUND_ORDER','OUTBOUND_ORDER','PURCHASE_RETURN_ORDER')",

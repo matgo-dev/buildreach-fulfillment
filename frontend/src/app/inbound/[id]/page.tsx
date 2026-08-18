@@ -8,6 +8,7 @@ import {
   DatePicker,
   Descriptions,
   Input,
+  InputNumber,
   Modal,
   Space,
   Table,
@@ -16,6 +17,7 @@ import type { ColumnsType } from "antd/es/table";
 import {
   ArrowLeftOutlined,
   CheckOutlined,
+  DollarOutlined,
   RollbackOutlined,
   StopOutlined,
   TruckOutlined,
@@ -88,6 +90,9 @@ export default function InboundOrderDetailPage() {
   const [purchaseReturnOpen, setPurchaseReturnOpen] = useState(false);
   const [inTransitCancelOpen, setInTransitCancelOpen] = useState(false);
   const [inTransitCancelReason, setInTransitCancelReason] = useState("");
+  const [companyCancelOpen, setCompanyCancelOpen] = useState(false);
+  const [companyCancelReason, setCompanyCancelReason] = useState("");
+  const [companyRefundAmount, setCompanyRefundAmount] = useState<number | null>(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -144,6 +149,7 @@ export default function InboundOrderDetailPage() {
   const purchaseReturnKindMeta = {
     PURCHASE_RETURN: { label: "采购退货", color: "info" },
     IN_TRANSIT_CANCELLATION: { label: "在途取消", color: "warning" },
+    COMPANY_ASSUMED_CANCELLATION: { label: "公司承担", color: "error" },
   } as const;
   const purchaseReturnColumns: ColumnsType<PurchaseReturnListItem> = [
       { title: "退货单号", dataIndex: "no", width: 150 },
@@ -169,6 +175,20 @@ export default function InboundOrderDetailPage() {
         width: 150,
         render: (s: PurchaseReturnListItem["ap_credit_memo_status"]) =>
           s ? <StatusTag meta={AP_CREDIT_MEMO_STATUS_META} value={s} /> : "—",
+      },
+      {
+        title: "客户退款",
+        dataIndex: "customer_refund_amount",
+        width: 120,
+        align: "right",
+        render: (v: number | string | null) => (v == null ? "—" : formatAmount(v)),
+      },
+      {
+        title: "公司损失",
+        dataIndex: "company_loss_amount",
+        width: 120,
+        align: "right",
+        render: (v: number | string | null) => (v == null ? "—" : formatAmount(v)),
       },
       { title: "行数", dataIndex: "line_count", width: 80, align: "right" },
       {
@@ -215,6 +235,8 @@ export default function InboundOrderDetailPage() {
                   icon={
                     row.return_kind === "IN_TRANSIT_CANCELLATION"
                       ? <StopOutlined />
+                      : row.return_kind === "COMPANY_ASSUMED_CANCELLATION"
+                        ? <DollarOutlined />
                       : <TruckOutlined />
                   }
                   loading={busy}
@@ -222,15 +244,21 @@ export default function InboundOrderDetailPage() {
                     actDialog(
                       () => row.return_kind === "IN_TRANSIT_CANCELLATION"
                         ? purchaseReturnApi.confirmInTransitCancellation(row.id, {})
+                        : row.return_kind === "COMPANY_ASSUMED_CANCELLATION"
+                          ? purchaseReturnApi.confirmCompanyAssumedCancellation(row.id, {})
                         : purchaseReturnApi.confirmReturnShipment(row.id, {}),
                       row.return_kind === "IN_TRANSIT_CANCELLATION"
                         ? "已确认在途取消"
+                        : row.return_kind === "COMPANY_ASSUMED_CANCELLATION"
+                          ? "已确认公司承担取消"
                         : "已确认退货出库",
                     )
                   }
                 >
                   {row.return_kind === "IN_TRANSIT_CANCELLATION"
                     ? "确认在途取消"
+                    : row.return_kind === "COMPANY_ASSUMED_CANCELLATION"
+                      ? "确认承担"
                     : "确认退货出库"}
                 </Button>
               </Can>
@@ -278,6 +306,18 @@ export default function InboundOrderDetailPage() {
                     >
                       在途取消
                     </Button>
+                    <Button
+                      danger
+                      icon={<DollarOutlined />}
+                      loading={busy}
+                      onClick={() => {
+                        setCompanyCancelReason("");
+                        setCompanyRefundAmount(0);
+                        setCompanyCancelOpen(true);
+                      }}
+                    >
+                      公司承担取消
+                    </Button>
                   </Can>
                   <Button
                     type="primary"
@@ -297,6 +337,17 @@ export default function InboundOrderDetailPage() {
                   <Can perm={Permissions.PURCHASE_MANAGE}>
                     <Button icon={<RollbackOutlined />} onClick={() => setPurchaseReturnOpen(true)}>
                       采购退货
+                    </Button>
+                    <Button
+                      danger
+                      icon={<DollarOutlined />}
+                      onClick={() => {
+                        setCompanyCancelReason("");
+                        setCompanyRefundAmount(0);
+                        setCompanyCancelOpen(true);
+                      }}
+                    >
+                      公司承担取消
                     </Button>
                   </Can>
                   <Button
@@ -459,6 +510,51 @@ export default function InboundOrderDetailPage() {
             placeholder="取消原因(选填,用于采购退货单和供应商贷项单)"
             value={inTransitCancelReason}
             onChange={(e) => setInTransitCancelReason(e.target.value)}
+          />
+        </Space>
+      </Modal>
+
+      {/* 公司承担型取消:供应商侧应付保持,客户退款/公司损失由确认后财务单据承载。 */}
+      <Modal
+        title="公司承担取消"
+        open={companyCancelOpen}
+        okText="提交审核"
+        okButtonProps={{ danger: true }}
+        confirmLoading={busy}
+        onCancel={() => setCompanyCancelOpen(false)}
+        onOk={async () => {
+          const ok = await actDialog(
+            () => purchaseReturnApi.createCompanyAssumedCancellation({
+              inbound_order_id: id,
+              reason: companyCancelReason.trim() || null,
+              customer_refund_amount: Number(companyRefundAmount || 0),
+            }),
+            "已提交公司承担型取消单",
+          );
+          if (ok) {
+            setCompanyCancelOpen(false);
+            setCompanyCancelReason("");
+            setCompanyRefundAmount(0);
+          }
+        }}
+      >
+        <Space orientation="vertical" style={{ width: "100%" }}>
+          <span>供应商应付不会冲正;确认后客户退款单和公司损失确认单会关联这张逆向单。</span>
+          <div>
+            <div style={{ marginBottom: 4 }}>客户退款金额</div>
+            <InputNumber
+              min={0}
+              precision={2}
+              value={companyRefundAmount}
+              onChange={(v) => setCompanyRefundAmount(v == null ? 0 : Number(v))}
+              style={{ width: "100%" }}
+            />
+          </div>
+          <Input.TextArea
+            rows={3}
+            placeholder="承担原因(选填,用于逆向单、客户退款单和损失确认单)"
+            value={companyCancelReason}
+            onChange={(e) => setCompanyCancelReason(e.target.value)}
           />
         </Space>
       </Modal>

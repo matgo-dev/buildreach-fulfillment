@@ -24,14 +24,16 @@ class PurchaseReturnStatus:
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
     RETURNED = "RETURNED"
+    COMPLETED = "COMPLETED"
     VOIDED = "VOIDED"
-    ALL = (PENDING_APPROVAL, APPROVED, REJECTED, RETURNED, VOIDED)
+    ALL = (PENDING_APPROVAL, APPROVED, REJECTED, RETURNED, COMPLETED, VOIDED)
 
 
 class PurchaseReturnKind:
     PURCHASE_RETURN = "PURCHASE_RETURN"
     IN_TRANSIT_CANCELLATION = "IN_TRANSIT_CANCELLATION"
-    ALL = (PURCHASE_RETURN, IN_TRANSIT_CANCELLATION)
+    COMPANY_ASSUMED_CANCELLATION = "COMPANY_ASSUMED_CANCELLATION"
+    ALL = (PURCHASE_RETURN, IN_TRANSIT_CANCELLATION, COMPANY_ASSUMED_CANCELLATION)
 
 
 class PurchaseReturnOrder(Base, TimestampUpdateMixin):
@@ -43,13 +45,26 @@ class PurchaseReturnOrder(Base, TimestampUpdateMixin):
     __tablename__ = "purchase_return_orders"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('PENDING_APPROVAL','APPROVED','REJECTED','RETURNED','VOIDED')",
+            "status IN ('PENDING_APPROVAL','APPROVED','REJECTED','RETURNED','COMPLETED','VOIDED')",
             name="ck_preturns_status"),
         CheckConstraint(
-            "return_kind IN ('PURCHASE_RETURN','IN_TRANSIT_CANCELLATION')",
+            "return_kind IN ('PURCHASE_RETURN','IN_TRANSIT_CANCELLATION',"
+            "'COMPANY_ASSUMED_CANCELLATION')",
             name="ck_preturns_kind"),
         CheckConstraint("currency ~ '^[A-Z]{3}$'", name="ck_preturns_currency_iso4217"),
         CheckConstraint("total_amount >= 0", name="ck_preturns_total_amount_nn"),
+        CheckConstraint("customer_refund_amount >= 0",
+                        name="ck_preturns_customer_refund_nn"),
+        CheckConstraint("company_loss_amount >= 0",
+                        name="ck_preturns_company_loss_nn"),
+        CheckConstraint(
+            "return_kind != 'COMPANY_ASSUMED_CANCELLATION' "
+            "OR company_loss_amount = total_amount + customer_refund_amount",
+            name="ck_preturns_company_loss_identity"),
+        CheckConstraint(
+            "return_kind = 'COMPANY_ASSUMED_CANCELLATION' "
+            "OR (customer_refund_amount = 0 AND company_loss_amount = 0)",
+            name="ck_preturns_non_company_amounts_zero"),
         Index("ix_preturns_status_created", "status", text("created_at DESC")),
         Index("ix_preturns_kind_status_created", "return_kind", "status", text("created_at DESC")),
         Index("ix_preturns_inbound_created", "inbound_order_id", text("created_at DESC")),
@@ -77,6 +92,10 @@ class PurchaseReturnOrder(Base, TimestampUpdateMixin):
     return_kind: Mapped[str] = mapped_column(
         String(40), nullable=False, default=PurchaseReturnKind.PURCHASE_RETURN)
     total_amount: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
+    customer_refund_amount: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0)
+    company_loss_amount: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, default=0)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)

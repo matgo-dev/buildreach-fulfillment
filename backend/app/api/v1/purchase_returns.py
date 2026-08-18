@@ -11,8 +11,12 @@ from app.rbac.guards import has_permission, require_permission
 from app.schemas.common import Page, PageParams
 from app.schemas.purchase_return import (
     APCreditMemoOut,
+    CompanyAssumedCancellationCreateIn,
+    CompanyLossEntryOut,
+    ConfirmCompanyAssumedCancellationIn,
     ConfirmInTransitCancellationIn,
     ConfirmReturnShipmentIn,
+    CustomerRefundOut,
     InTransitCancellationCreateIn,
     PurchaseReturnCreateIn,
     PurchaseReturnLineOut,
@@ -46,6 +50,9 @@ def _detail_payload(detail: dict, current: CurrentUser) -> dict:
             APCreditMemoOut.build(detail["ap_credit_memo"])
             if has_permission(current, Permissions.PAYABLE_READ) else None
         ),
+        "customer_refund": CustomerRefundOut.build(detail["customer_refund"]),
+        "company_loss_entry": CompanyLossEntryOut.build(
+            detail["company_loss_entry"], can_see_cost=can_see_cost),
     }
 
 
@@ -75,6 +82,24 @@ async def create_in_transit_cancellation(body: InTransitCancellationCreateIn,
         db,
         inbound_order_id=body.inbound_order_id,
         reason=body.reason,
+        actor_user_id=current.id,
+        actor_user_email=current.email,
+        request=request,
+    )
+    detail = await purchase_return_service.get_detail(db, order.id)
+    return success(_detail_payload(detail, current))
+
+
+@router.post("/company-assumed-cancellations", summary="创建并提交公司承担型取消单")
+async def create_company_assumed_cancellation(body: CompanyAssumedCancellationCreateIn,
+                                             request: Request,
+                                             current: CurrentUser = _MANAGE,
+                                             db: AsyncSession = Depends(get_db)):
+    order = await purchase_return_service.create_company_assumed_cancellation(
+        db,
+        inbound_order_id=body.inbound_order_id,
+        reason=body.reason,
+        customer_refund_amount=body.customer_refund_amount,
         actor_user_id=current.id,
         actor_user_email=current.email,
         request=request,
@@ -134,12 +159,31 @@ async def confirm_in_transit_cancellation(order_id: int,
     return success(_detail_payload(detail, current))
 
 
+@router.post("/{order_id}/confirm-company-assumed-cancellation", summary="确认公司承担型取消")
+async def confirm_company_assumed_cancellation(order_id: int,
+                                               body: ConfirmCompanyAssumedCancellationIn,
+                                               request: Request,
+                                               current: CurrentUser = _INBOUND_MANAGE,
+                                               db: AsyncSession = Depends(get_db)):
+    order = await purchase_return_service.confirm_company_assumed_cancellation(
+        db,
+        order_id=order_id,
+        cancellation_reference=body.cancellation_reference,
+        cancellation_note=body.cancellation_note,
+        actor_user_id=current.id,
+        actor_user_email=current.email,
+        request=request,
+    )
+    detail = await purchase_return_service.get_detail(db, order.id)
+    return success(_detail_payload(detail, current))
+
+
 @router.get("", summary="采购退货单列表")
 async def list_purchase_returns(page_params: PageParams = Depends(),
                                 status: str | None = Query(
                                     None,
                                     pattern=(
-                                        r"^(PENDING_APPROVAL|APPROVED|REJECTED|RETURNED|VOIDED)$"
+                                        r"^(PENDING_APPROVAL|APPROVED|REJECTED|RETURNED|COMPLETED|VOIDED)$"
                                     )),
                                 inbound_order_id: int | None = None,
                                 purchase_order_id: int | None = None,

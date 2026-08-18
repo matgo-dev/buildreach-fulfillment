@@ -100,6 +100,7 @@ async def _lock_balance(db: AsyncSession, sales_order_id: int, sku_id: int) -> I
             sku_id=sku_id,
             inbound_qty=0,
             outbound_qty=0,
+            disposition_qty=0,
         )
         db.add(balance)
         await db.flush()
@@ -112,12 +113,15 @@ async def _apply_balance_delta(
     sku_id: int,
     inbound_delta: Decimal = Decimal("0"),
     outbound_delta: Decimal = Decimal("0"),
+    disposition_delta: Decimal = Decimal("0"),
 ) -> InventoryBalance:
     balance = await _lock_balance(db, sales_order_id, sku_id)
     inbound_qty = Decimal(str(balance.inbound_qty)) + inbound_delta
     outbound_qty = Decimal(str(balance.outbound_qty)) + outbound_delta
+    disposition_qty = Decimal(str(balance.disposition_qty)) + disposition_delta
     balance.inbound_qty = inbound_qty
     balance.outbound_qty = outbound_qty
+    balance.disposition_qty = disposition_qty
     await db.flush()
     return balance
 
@@ -314,4 +318,35 @@ async def record_purchase_return_issue(
             sales_order_id=impact.sales_order_id,
             sku_id=impact.sku_id,
             inbound_delta=-impact.qty,
+        )
+
+
+async def record_company_assumed_disposition_hold(
+    db: AsyncSession, *,
+    purchase_return_order_id: int,
+    impacts: list[StockImpact],
+    occurred_at: datetime | None,
+    actor_user_id: int,
+    note: str | None = None,
+) -> None:
+    """公司承担型取消:货仍归属原销售单,但转入待处置,不可再被正向出库消费。"""
+    for impact in impacts:
+        await _record_movement(
+            db,
+            movement_type=InventoryMovementType.COMPANY_DISPOSITION_HOLD,
+            source_type=InventorySourceType.PURCHASE_RETURN_ORDER,
+            source_id=purchase_return_order_id,
+            source_line_id=impact.source_line_id,
+            sales_order_id=impact.sales_order_id,
+            sku_id=impact.sku_id,
+            qty_delta=-impact.qty,
+            occurred_at=occurred_at,
+            created_by=actor_user_id,
+            note=note,
+        )
+        await _apply_balance_delta(
+            db,
+            sales_order_id=impact.sales_order_id,
+            sku_id=impact.sku_id,
+            disposition_delta=impact.qty,
         )

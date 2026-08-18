@@ -32,6 +32,8 @@ from app.db.models.payment_allocation import PaymentAllocation  # noqa: F401
 from app.db.models.stock import InventoryBalance, InventoryMovement  # noqa: F401
 from app.db.models.purchase_return import PurchaseReturnOrder, PurchaseReturnLine  # noqa: F401
 from app.db.models.ap_credit_memo import APCreditMemo  # noqa: F401
+from app.db.models.customer_refund import CustomerRefund  # noqa: F401
+from app.db.models.company_loss import CompanyLossEntry  # noqa: F401
 from app.db.models.refresh_token_family import RefreshTokenFamily  # noqa: F401
 from app.db.models.refresh_token import RefreshToken  # noqa: F401
 
@@ -46,6 +48,6 @@ __all__ = [
     "CustomsDeclaration", "Attachment",
     "Receipt", "Payment", "ReceiptAllocation", "PaymentAllocation",
     "InventoryBalance", "InventoryMovement", "PurchaseReturnOrder", "PurchaseReturnLine",
-    "APCreditMemo",
+    "APCreditMemo", "CustomerRefund", "CompanyLossEntry",
     "RefreshTokenFamily", "RefreshToken",
 ]
