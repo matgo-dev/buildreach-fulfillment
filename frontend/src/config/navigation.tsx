@@ -5,6 +5,7 @@ import {
   AppstoreOutlined,
   CompassOutlined,
   ContainerOutlined,
+  CreditCardOutlined,
   DatabaseOutlined,
   ExportOutlined,
   FileTextOutlined,
@@ -78,6 +79,7 @@ export const MENU_GROUPS: MenuGroupConfig[] = [
     group: "财务",
     items: [
       { key: "/finance/receivables", icon: <AccountBookOutlined />, label: "应收款", perm: Permissions.RECEIVABLE_READ },
+      { key: "/finance/customer-credits", icon: <CreditCardOutlined />, label: "客户余额贷项", perm: Permissions.RECEIVABLE_READ },
       { key: "/finance/receipts", icon: <VerticalAlignBottomOutlined />, label: "收款单", perm: Permissions.RECEIPT_READ },
       { key: "/finance/payables", icon: <ReconciliationOutlined />, label: "应付款", perm: Permissions.PAYABLE_READ },
       { key: "/finance/payments", icon: <PayCircleOutlined />, label: "付款单", perm: Permissions.PAYMENT_READ },

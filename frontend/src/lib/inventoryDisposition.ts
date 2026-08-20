@@ -1,4 +1,5 @@
 import { api } from "./api";
+import type { CustomerCreditMemoOut } from "./customerCreditMemo";
 
 export type InventoryDispositionStatus =
   | "PENDING_RECEIPT"
@@ -54,6 +55,7 @@ export interface InventoryDispositionOut {
 export interface InventoryDispositionDetail {
   order: InventoryDispositionOut;
   lines: unknown[];
+  customer_credit_memo: CustomerCreditMemoOut | null;
 }
 
 export const inventoryDispositionApi = {
