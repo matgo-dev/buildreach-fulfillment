@@ -222,6 +222,7 @@ async def create_memo(
     db: AsyncSession, *,
     inventory_disposition_order_id: int,
     amount: Decimal,
+    amount_basis: str,
     reason: str | None,
     actor_user_id: int,
     actor_user_email: str,
@@ -270,7 +271,6 @@ async def create_memo(
     )).scalar_one_or_none()
     if customer is None:
         raise PurchaseReturnSourceInvalidError("销售单关联的客户不存在")
-
     memo = CustomerCreditMemo(
         no=await _next_no(db),
         inventory_disposition_order_id=order.id,
@@ -281,6 +281,7 @@ async def create_memo(
         status=CustomerCreditMemoStatus.PENDING_APPROVAL,
         amount=amount,
         amount_allocated=Decimal("0.00"),
+        amount_basis=amount_basis,
         reason=reason,
         created_by=actor_user_id,
     )
@@ -299,7 +300,8 @@ async def create_memo(
         action=AuditAction.CREATE, user_id=actor_user_id, user_email=actor_user_email,
         resource_id=memo.id, request=request,
         extra={"inventory_disposition_order_id": order.id, "sales_order_id": sales_order.id,
-               "customer_id": customer.id, "amount": str(amount), "currency": "CNY"},
+               "customer_id": customer.id, "amount": str(amount), "currency": "CNY",
+               "amount_basis": amount_basis},
         commit=False)
     await db.commit()
     await db.refresh(memo)
@@ -355,7 +357,6 @@ async def post_memo(
     )).scalar_one_or_none()
     if customer is None:
         raise PurchaseReturnSourceInvalidError("客户余额贷项单关联的客户不存在")
-
     memo.status = CustomerCreditMemoStatus.POSTED
     memo.posted_at = _utcnow()
     memo.posted_by = actor_user_id
@@ -364,7 +365,8 @@ async def post_memo(
         action=AuditAction.POST, user_id=actor_user_id, user_email=actor_user_email,
         resource_id=memo.id, request=request,
         extra={"inventory_disposition_order_id": order.id, "customer_id": customer.id,
-               "amount": str(memo.amount), "currency": memo.currency},
+               "amount": str(memo.amount), "currency": memo.currency,
+               "amount_basis": memo.amount_basis},
         commit=False)
     await db.commit()
     await db.refresh(memo)
@@ -406,6 +408,7 @@ async def resubmit_memo(
     db: AsyncSession, *,
     memo_id: int,
     amount: Decimal,
+    amount_basis: str,
     reason: str | None,
     actor_user_id: int,
     actor_user_email: str,
@@ -453,7 +456,6 @@ async def resubmit_memo(
     )).scalar_one_or_none()
     if customer is None:
         raise PurchaseReturnSourceInvalidError("客户余额贷项单关联的客户不存在")
-
     memo = CustomerCreditMemo(
         no=await _next_no(db),
         inventory_disposition_order_id=old.inventory_disposition_order_id,
@@ -464,6 +466,7 @@ async def resubmit_memo(
         status=CustomerCreditMemoStatus.PENDING_APPROVAL,
         amount=amount,
         amount_allocated=Decimal("0.00"),
+        amount_basis=amount_basis,
         reason=reason,
         resubmitted_from_id=old.id,
         created_by=actor_user_id,
@@ -485,7 +488,7 @@ async def resubmit_memo(
         extra={"inventory_disposition_order_id": order.id, "customer_id": customer.id,
                "resubmitted_from_customer_credit_memo_id": old.id,
                "rejected_reason": old.reject_reason, "amount": str(amount),
-               "currency": "CNY"},
+               "currency": "CNY", "amount_basis": amount_basis},
         commit=False)
     await db.commit()
     await db.refresh(memo)

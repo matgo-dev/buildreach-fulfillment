@@ -78,6 +78,7 @@ export default function CustomerCreditMemoPage() {
   const [rejectReason, setRejectReason] = useState("");
   const [resubmitTarget, setResubmitTarget] = useState<CustomerCreditMemoOut | null>(null);
   const [resubmitAmount, setResubmitAmount] = useState("");
+  const [resubmitBasis, setResubmitBasis] = useState("");
   const [resubmitReason, setResubmitReason] = useState("");
   const [voidTarget, setVoidTarget] = useState<CustomerCreditMemoOut | null>(null);
   const [voidReason, setVoidReason] = useState("");
@@ -341,6 +342,7 @@ export default function CustomerCreditMemoPage() {
                 onClick={() => {
                   setResubmitTarget(row);
                   setResubmitAmount(String(row.amount));
+                  setResubmitBasis(row.amount_basis || "");
                   setResubmitReason(row.reason || "");
                 }}
               >
@@ -438,6 +440,7 @@ export default function CustomerCreditMemoPage() {
                       { title: "值", dataIndex: "value" },
                     ]}
                     dataSource={[
+                      { label: "人民币金额依据", value: row.amount_basis || "—" },
                       { label: "原因", value: row.reason || "—" },
                       { label: "驳回原因", value: row.reject_reason || "—" },
                       { label: "过账时间", value: row.posted_at ? formatDateTime(row.posted_at) : "—" },
@@ -552,7 +555,7 @@ export default function CustomerCreditMemoPage() {
         open={!!resubmitTarget}
         okText="提交"
         okButtonProps={{
-          disabled: !resubmitAmount,
+          disabled: !resubmitAmount || !resubmitBasis.trim(),
           loading: actingKey === `${resubmitTarget?.id}:resubmit`,
         }}
         cancelText="取消"
@@ -563,6 +566,7 @@ export default function CustomerCreditMemoPage() {
             `${resubmitTarget.id}:resubmit`,
             () => customerCreditMemoApi.resubmit(resubmitTarget.id, {
               amount: resubmitAmount,
+              amount_basis: resubmitBasis.trim(),
               reason: resubmitReason || null,
             }),
             "客户余额贷项单已重新提交",
@@ -575,6 +579,14 @@ export default function CustomerCreditMemoPage() {
             value={resubmitAmount}
             onChange={(e) => setResubmitAmount(e.target.value)}
             placeholder="金额"
+          />
+          <Input.TextArea
+            rows={4}
+            value={resubmitBasis}
+            maxLength={1000}
+            showCount
+            onChange={(e) => setResubmitBasis(e.target.value)}
+            placeholder="人民币金额依据"
           />
           <Input.TextArea
             rows={4}

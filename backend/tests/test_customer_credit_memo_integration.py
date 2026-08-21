@@ -230,6 +230,7 @@ async def _seed_direct_posted_credit_graph(
             status=CustomerCreditMemoStatus.POSTED,
             amount=Decimal(memo_amount),
             amount_allocated=Decimal("0.00"),
+            amount_basis="并发测试人民币金额依据",
             posted_at=now,
             posted_by=1,
             created_by=1,
@@ -301,7 +302,8 @@ async def test_customer_credit_memo_posts_cny_balance_without_touching_supplier_
         client, db_session, sales_headers, purchaser_headers, finance_headers):
     ctx = await setup_available_stock(
         client, db_session, sales_headers, purchaser_headers,
-        so_qty=10, po_price="5.00", received=10, sku_codes=("SKUCCM_A",))
+        so_currency="CNY", so_qty=10, unit_price="20.00", po_price="5.00", received=10,
+        sku_codes=("SKUCCM_A",))
     disposition = await _create_held_disposition(
         client, purchaser_headers, ctx["inbound_order_id"])
 
@@ -318,6 +320,7 @@ async def test_customer_credit_memo_posts_cny_balance_without_touching_supplier_
             "inventory_disposition_order_id": disposition["order"]["id"],
             "amount": "123.45",
             "currency": "CNY",
+            "amount_basis": "线下审批单 OA-CCM-001 确认人民币补偿 123.45",
             "reason": "给客户挂人民币余额",
         },
     )
@@ -344,6 +347,18 @@ async def test_customer_credit_memo_posts_cny_balance_without_touching_supplier_
     posted_memo = posted.json()["data"]
     assert posted_memo["status"] == "POSTED"
     assert Decimal(str(posted_memo["amount_unallocated"])) == Decimal("123.45")
+    assert posted_memo["amount_basis"] == "线下审批单 OA-CCM-001 确认人民币补偿 123.45"
+    create_audit = (await db_session.execute(
+        select(AuditLog)
+        .where(
+            AuditLog.resource_type == AuditResourceType.CUSTOMER_CREDIT_MEMO,
+            AuditLog.action == AuditAction.CREATE,
+            AuditLog.resource_id == str(memo["id"]),
+        )
+        .order_by(AuditLog.id.desc())
+        .limit(1)
+    )).scalar_one()
+    assert create_audit.extra["amount_basis"] == "线下审批单 OA-CCM-001 确认人民币补偿 123.45"
 
     await db_session.refresh(payable)
     assert Decimal(str(payable.amount_credited)) == before_credited
@@ -366,7 +381,8 @@ async def test_customer_credit_memo_reject_resubmit_and_active_unique(
         client, db_session, sales_headers, purchaser_headers, finance_headers):
     ctx = await setup_available_stock(
         client, db_session, sales_headers, purchaser_headers,
-        so_qty=10, po_price="5.00", received=10, sku_codes=("SKUCCM_B",))
+        so_currency="CNY", so_qty=10, po_price="5.00", received=10,
+        sku_codes=("SKUCCM_B",))
     disposition = await _create_held_disposition(
         client, purchaser_headers, ctx["inbound_order_id"])
     disposition_id = disposition["order"]["id"]
@@ -374,7 +390,8 @@ async def test_customer_credit_memo_reject_resubmit_and_active_unique(
     first = await client.post(
         "/api/v1/customer-credit-memos",
         headers=sales_headers,
-        json={"inventory_disposition_order_id": disposition_id, "amount": "88.00"},
+        json={"inventory_disposition_order_id": disposition_id, "amount": "88.00",
+              "amount_basis": "首次人民币补偿依据"},
     )
     assert first.status_code == 200, first.text
     first_id = first.json()["data"]["id"]
@@ -382,7 +399,8 @@ async def test_customer_credit_memo_reject_resubmit_and_active_unique(
     duplicate = await client.post(
         "/api/v1/customer-credit-memos",
         headers=purchaser_headers,
-        json={"inventory_disposition_order_id": disposition_id, "amount": "88.00"},
+        json={"inventory_disposition_order_id": disposition_id, "amount": "88.00",
+              "amount_basis": "重复提交依据"},
     )
     assert duplicate.status_code == 409
     assert duplicate.json()["code"] == 41714
@@ -405,7 +423,8 @@ async def test_customer_credit_memo_reject_resubmit_and_active_unique(
     resubmitted = await client.post(
         f"/api/v1/customer-credit-memos/{first_id}/resubmit",
         headers=sales_headers,
-        json={"amount": "66.00", "reason": "补充材料后重提"},
+        json={"amount": "66.00", "amount_basis": "补充线下审批单后人民币补偿 66",
+              "reason": "补充材料后重提"},
     )
     assert resubmitted.status_code == 200, resubmitted.text
     new_id = resubmitted.json()["data"]["id"]
@@ -413,11 +432,12 @@ async def test_customer_credit_memo_reject_resubmit_and_active_unique(
     assert resubmitted.json()["data"]["status"] == "PENDING_APPROVAL"
     assert resubmitted.json()["data"]["resubmitted_from_id"] == first_id
     assert Decimal(str(resubmitted.json()["data"]["amount"])) == Decimal("66.00")
+    assert resubmitted.json()["data"]["amount_basis"] == "补充线下审批单后人民币补偿 66"
 
     duplicate_resubmit = await client.post(
         f"/api/v1/customer-credit-memos/{first_id}/resubmit",
         headers=sales_headers,
-        json={"amount": "66.00"},
+        json={"amount": "66.00", "amount_basis": "重复重提依据"},
     )
     assert duplicate_resubmit.status_code == 409
 
@@ -439,6 +459,87 @@ async def test_customer_credit_memo_reject_resubmit_and_active_unique(
     ]
 
 
+async def test_customer_credit_memo_manual_cny_basis_allows_foreign_source_sales_order(
+        client, db_session, sales_headers, purchaser_headers, finance_headers):
+    ctx = await setup_available_stock(
+        client, db_session, sales_headers, purchaser_headers,
+        so_currency="USD", so_qty=10, unit_price="10.00", po_price="5.00", received=10,
+        sku_codes=("SKUCCM_FX_MANUAL",))
+    disposition = await _create_held_disposition(
+        client, purchaser_headers, ctx["inbound_order_id"])
+    created = await client.post(
+        "/api/v1/customer-credit-memos",
+        headers=purchaser_headers,
+        json={"inventory_disposition_order_id": disposition["order"]["id"],
+              "amount": "500.00", "currency": "CNY",
+              "amount_basis": "销售为 USD,财务按线下审批确认人民币补偿 500"},
+    )
+    assert created.status_code == 200, created.text
+    memo = created.json()["data"]
+    assert memo["currency"] == "CNY"
+    assert memo["amount_basis"] == "销售为 USD,财务按线下审批确认人民币补偿 500"
+
+    posted = await client.post(
+        f"/api/v1/customer-credit-memos/{memo['id']}/post",
+        headers=finance_headers,
+        json={},
+    )
+    assert posted.status_code == 200, posted.text
+    assert posted.json()["data"]["status"] == "POSTED"
+
+
+async def test_customer_credit_memo_amount_basis_required_on_create_and_resubmit(
+        client, db_session, sales_headers, purchaser_headers, finance_headers):
+    create_ctx = await setup_available_stock(
+        client, db_session, sales_headers, purchaser_headers,
+        so_currency="CNY", so_qty=10, unit_price="10.00", po_price="5.00", received=10,
+        sku_codes=("SKUCCM_BASIS_CREATE",))
+    create_disposition = await _create_held_disposition(
+        client, purchaser_headers, create_ctx["inbound_order_id"])
+    missing_create = await client.post(
+        "/api/v1/customer-credit-memos",
+        headers=purchaser_headers,
+        json={"inventory_disposition_order_id": create_disposition["order"]["id"],
+              "amount": "10.00", "currency": "CNY"},
+    )
+    assert missing_create.status_code == 422
+    blank_create = await client.post(
+        "/api/v1/customer-credit-memos",
+        headers=purchaser_headers,
+        json={"inventory_disposition_order_id": create_disposition["order"]["id"],
+              "amount": "10.00", "currency": "CNY", "amount_basis": " "},
+    )
+    assert blank_create.status_code == 422
+
+    resubmit_ctx = await setup_available_stock(
+        client, db_session, sales_headers, purchaser_headers,
+        so_currency="CNY", so_qty=10, unit_price="10.00", po_price="5.00", received=10,
+        sku_codes=("SKUCCM_BASIS_RESUBMIT",))
+    resubmit_disposition = await _create_held_disposition(
+        client, purchaser_headers, resubmit_ctx["inbound_order_id"])
+    first = await client.post(
+        "/api/v1/customer-credit-memos",
+        headers=sales_headers,
+        json={"inventory_disposition_order_id": resubmit_disposition["order"]["id"],
+              "amount": "80.00", "currency": "CNY", "amount_basis": "初始审批依据"},
+    )
+    assert first.status_code == 200, first.text
+    first_id = first.json()["data"]["id"]
+    rejected = await client.post(
+        f"/api/v1/customer-credit-memos/{first_id}/reject",
+        headers=finance_headers,
+        json={"reject_reason": "需要重提"},
+    )
+    assert rejected.status_code == 200, rejected.text
+
+    missing_resubmit = await client.post(
+        f"/api/v1/customer-credit-memos/{first_id}/resubmit",
+        headers=sales_headers,
+        json={"amount": "80.00", "reason": "缺少依据"},
+    )
+    assert missing_resubmit.status_code == 422
+
+
 async def test_customer_credit_memo_allocates_to_receivable_and_can_reverse_then_void(
         client, db_session, sales_headers, purchaser_headers, finance_headers, logistics_headers):
     ctx = await setup_available_stock(
@@ -451,7 +552,7 @@ async def test_customer_credit_memo_allocates_to_receivable_and_can_reverse_then
         "/api/v1/customer-credit-memos",
         headers=purchaser_headers,
         json={"inventory_disposition_order_id": disposition["order"]["id"],
-              "amount": "70.00", "currency": "CNY"},
+              "amount": "70.00", "currency": "CNY", "amount_basis": "抵扣测试人民币依据"},
     )
     assert created.status_code == 200, created.text
     memo_id = created.json()["data"]["id"]
@@ -607,7 +708,7 @@ async def test_customer_credit_allocation_idempotency_is_bound_to_request(
         "/api/v1/customer-credit-memos",
         headers=purchaser_headers,
         json={"inventory_disposition_order_id": disposition["order"]["id"],
-              "amount": "90.00", "currency": "CNY"},
+              "amount": "90.00", "currency": "CNY", "amount_basis": "幂等测试人民币依据"},
     )
     memo_id = created.json()["data"]["id"]
     posted = await client.post(
@@ -669,7 +770,7 @@ async def test_customer_credit_eligible_receivables_are_memo_scoped_and_paginate
         client, db_session, sales_headers, purchaser_headers, finance_headers, logistics_headers):
     ctx = await setup_available_stock(
         client, db_session, sales_headers, purchaser_headers,
-        so_currency="CNY", so_qty=10, po_price="5.00", received=10,
+        so_currency="CNY", so_qty=10, unit_price="30.00", po_price="5.00", received=10,
         sku_codes=("SKUCCM_ELIGIBLE",))
     disposition = await _create_held_disposition(
         client, purchaser_headers, ctx["inbound_order_id"])
@@ -677,7 +778,7 @@ async def test_customer_credit_eligible_receivables_are_memo_scoped_and_paginate
         "/api/v1/customer-credit-memos",
         headers=purchaser_headers,
         json={"inventory_disposition_order_id": disposition["order"]["id"],
-              "amount": "300.00", "currency": "CNY"},
+              "amount": "300.00", "currency": "CNY", "amount_basis": "应收筛选测试人民币依据"},
     )
     memo_id = created.json()["data"]["id"]
     posted = await client.post(
@@ -928,7 +1029,7 @@ async def test_customer_credit_post_and_resubmit_recheck_no_active_outbound(
         "/api/v1/customer-credit-memos",
         headers=purchaser_headers,
         json={"inventory_disposition_order_id": post_disposition["order"]["id"],
-              "amount": "30.00", "currency": "CNY"},
+              "amount": "30.00", "currency": "CNY", "amount_basis": "过账重检测试依据"},
     )
     assert pending.status_code == 200, pending.text
     post_memo_id = pending.json()["data"]["id"]
@@ -957,7 +1058,7 @@ async def test_customer_credit_post_and_resubmit_recheck_no_active_outbound(
         "/api/v1/customer-credit-memos",
         headers=sales_headers,
         json={"inventory_disposition_order_id": resubmit_disposition["order"]["id"],
-              "amount": "30.00", "currency": "CNY"},
+              "amount": "30.00", "currency": "CNY", "amount_basis": "重提重检测试依据"},
     )
     first_id = first.json()["data"]["id"]
     rejected = await client.post(
@@ -977,7 +1078,7 @@ async def test_customer_credit_post_and_resubmit_recheck_no_active_outbound(
     blocked_resubmit = await client.post(
         f"/api/v1/customer-credit-memos/{first_id}/resubmit",
         headers=sales_headers,
-        json={"amount": "30.00"},
+        json={"amount": "30.00", "amount_basis": "出库阻断重提依据"},
     )
     assert blocked_resubmit.status_code == 409
 
@@ -994,7 +1095,7 @@ async def test_customer_credit_cancelled_outbound_does_not_block_post(
         "/api/v1/customer-credit-memos",
         headers=purchaser_headers,
         json={"inventory_disposition_order_id": disposition["order"]["id"],
-              "amount": "30.00", "currency": "CNY"},
+              "amount": "30.00", "currency": "CNY", "amount_basis": "取消出库不阻断测试依据"},
     )
     memo_id = created.json()["data"]["id"]
     ship = await create_shipment(client, logistics_headers)
@@ -1020,7 +1121,7 @@ async def test_customer_credit_auto_allocate_fifo_and_audit_on_outbound(
         "/api/v1/customer-credit-memos",
         headers=purchaser_headers,
         json={"inventory_disposition_order_id": disp_a["order"]["id"],
-              "amount": "30.00", "currency": "CNY"},
+              "amount": "30.00", "currency": "CNY", "amount_basis": "FIFO 第一笔人民币依据"},
     )).json()["data"]
     posted_a = await client.post(
         f"/api/v1/customer-credit-memos/{memo_a['id']}/post",
@@ -1039,7 +1140,7 @@ async def test_customer_credit_auto_allocate_fifo_and_audit_on_outbound(
         "/api/v1/customer-credit-memos",
         headers=purchaser_headers,
         json={"inventory_disposition_order_id": disp_b["order"]["id"],
-              "amount": "80.00", "currency": "CNY"},
+              "amount": "80.00", "currency": "CNY", "amount_basis": "FIFO 第二笔人民币依据"},
     )).json()["data"]
     posted_b = await client.post(
         f"/api/v1/customer-credit-memos/{memo_b['id']}/post",
@@ -1094,14 +1195,14 @@ async def test_customer_credit_auto_allocate_one_memo_across_multiple_receivable
         client, db_session, sales_headers, purchaser_headers, finance_headers, logistics_headers):
     source = await setup_available_stock(
         client, db_session, sales_headers, purchaser_headers,
-        so_currency="CNY", so_qty=10, po_price="5.00", received=10,
+        so_currency="CNY", so_qty=10, unit_price="12.00", po_price="5.00", received=10,
         sku_codes=("SKUCCM_MULTI_SRC",))
     disp = await _create_held_disposition(client, purchaser_headers, source["inbound_order_id"])
     memo = (await client.post(
         "/api/v1/customer-credit-memos",
         headers=purchaser_headers,
         json={"inventory_disposition_order_id": disp["order"]["id"],
-              "amount": "120.00", "currency": "CNY"},
+              "amount": "120.00", "currency": "CNY", "amount_basis": "跨多应收自动抵扣测试依据"},
     )).json()["data"]
     posted = await client.post(
         f"/api/v1/customer-credit-memos/{memo['id']}/post",
@@ -1139,13 +1240,15 @@ async def test_customer_credit_reject_requires_reason_and_finance_cannot_resubmi
         client, db_session, sales_headers, purchaser_headers, finance_headers):
     ctx = await setup_available_stock(
         client, db_session, sales_headers, purchaser_headers,
-        so_qty=10, po_price="5.00", received=10, sku_codes=("SKUCCM_REASON",))
+        so_currency="CNY", so_qty=10, po_price="5.00", received=10,
+        sku_codes=("SKUCCM_REASON",))
     disposition = await _create_held_disposition(
         client, purchaser_headers, ctx["inbound_order_id"])
     created = await client.post(
         "/api/v1/customer-credit-memos",
         headers=sales_headers,
-        json={"inventory_disposition_order_id": disposition["order"]["id"], "amount": "45.00"},
+        json={"inventory_disposition_order_id": disposition["order"]["id"], "amount": "45.00",
+              "amount_basis": "驳回权限测试人民币依据"},
     )
     assert created.status_code == 200, created.text
     memo_id = created.json()["data"]["id"]
@@ -1175,7 +1278,8 @@ async def test_customer_credit_memo_currency_fixed_by_api_and_db_check(
         client, db_session, sales_headers, purchaser_headers):
     ctx = await setup_available_stock(
         client, db_session, sales_headers, purchaser_headers,
-        so_qty=10, po_price="5.00", received=10, sku_codes=("SKUCCM_C",))
+        so_currency="CNY", so_qty=10, po_price="5.00", received=10,
+        sku_codes=("SKUCCM_C",))
     disposition = await _create_held_disposition(
         client, purchaser_headers, ctx["inbound_order_id"])
     disposition_id = disposition["order"]["id"]
@@ -1201,6 +1305,7 @@ async def test_customer_credit_memo_currency_fixed_by_api_and_db_check(
         status=CustomerCreditMemoStatus.PENDING_APPROVAL,
         amount=Decimal("10.00"),
         amount_allocated=Decimal("0.00"),
+        amount_basis="DB 约束测试人民币依据",
         created_by=1,
     ))
     with pytest.raises(IntegrityError):

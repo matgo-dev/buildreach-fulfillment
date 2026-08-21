@@ -99,6 +99,7 @@ class CustomerCreditMemo(Base, TimestampMixin):
     amount_allocated: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=0)
     amount_unallocated: Mapped[Decimal] = mapped_column(
         Numeric(18, 2), Computed("amount - amount_allocated", persisted=True))
+    amount_basis: Mapped[str] = mapped_column(Text, nullable=False)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     posted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     posted_by: Mapped[int | None] = mapped_column(
