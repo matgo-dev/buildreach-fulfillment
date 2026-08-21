@@ -37,6 +37,35 @@ const STATUS_TABS = [
   { label: CUSTOMER_CREDIT_MEMO_STATUS_META.VOIDED.label, value: "VOIDED" },
 ];
 
+type DecimalLike = number | string;
+
+function decimalParts(value: DecimalLike) {
+  const raw = String(value).trim();
+  const [intRaw = "0", fracRaw = ""] = raw.split(".");
+  const intPart = intRaw.replace(/^0+(?=\d)/, "") || "0";
+  const fracPart = fracRaw.replace(/0+$/, "");
+  return { intPart, fracPart };
+}
+
+function compareDecimal(a: DecimalLike, b: DecimalLike) {
+  const left = decimalParts(a);
+  const right = decimalParts(b);
+  if (left.intPart.length !== right.intPart.length) {
+    return left.intPart.length > right.intPart.length ? 1 : -1;
+  }
+  if (left.intPart !== right.intPart) return left.intPart > right.intPart ? 1 : -1;
+
+  const fracLen = Math.max(left.fracPart.length, right.fracPart.length);
+  const leftFrac = left.fracPart.padEnd(fracLen, "0");
+  const rightFrac = right.fracPart.padEnd(fracLen, "0");
+  if (leftFrac === rightFrac) return 0;
+  return leftFrac > rightFrac ? 1 : -1;
+}
+
+function minDecimalString(a: DecimalLike, b: DecimalLike) {
+  return compareDecimal(a, b) <= 0 ? String(a) : String(b);
+}
+
 export default function CustomerCreditMemoPage() {
   const { message } = App.useApp();
   const [status, setStatus] = useState("");
@@ -118,7 +147,7 @@ export default function CustomerCreditMemoPage() {
 
   function defaultAmount(memo: CustomerCreditMemoOut, receivable?: CustomerCreditEligibleReceivableOut) {
     if (!receivable) return "";
-    return String(Math.min(Number(memo.amount_unallocated), Number(receivable.amount_outstanding)));
+    return minDecimalString(memo.amount_unallocated, receivable.amount_outstanding);
   }
 
   function newOperationKey(prefix: string) {
@@ -320,7 +349,7 @@ export default function CustomerCreditMemoPage() {
             ) : null}
           </Can>
           <Can perm={Permissions.CUSTOMER_CREDIT_POST} fallback={null}>
-            {row.status === "POSTED" && Number(row.amount_unallocated) > 0 ? (
+            {row.status === "POSTED" && compareDecimal(row.amount_unallocated, "0") > 0 ? (
               <Button
                 size="small"
                 icon={<LinkOutlined />}
@@ -332,7 +361,7 @@ export default function CustomerCreditMemoPage() {
             ) : null}
           </Can>
           <Can perm={Permissions.CUSTOMER_CREDIT_VOID} fallback={null}>
-            {row.status === "POSTED" && Number(row.amount_allocated) === 0 ? (
+            {row.status === "POSTED" && compareDecimal(row.amount_allocated, "0") === 0 ? (
               <Button
                 size="small"
                 danger
