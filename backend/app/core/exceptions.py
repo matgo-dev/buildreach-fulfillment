@@ -22,12 +22,14 @@
   20 | 柜/发运    | 420xx(42002 非法转移·单义;42003/42004 封柜守卫;42005 字段门禁;42006 编辑冲突;
        |            |       42007 撤离港带活动事件;42008 非 DEPARTED 不可录事件;42009 重复到港;42010 事件越柜;
        |            |       42011 撤封柜带活动报关;42012 柜态不可报关;42013 重复活动报关;42014 报关越柜;42015 报关编辑冲突;
-       |            |       42016 报关单号已被占用)
+       |            |       42016 报关单号已被占用;42017 封柜带客户退货)
   21 | 附件       | 421xx(42101 类型不允许;42102 超大;42103 孤儿配额;42104 不可用;42105 数量超上限)
   22 | 财务       | 422xx(核销引擎:42201 核销超收付款未分配;42202 核销超账未结金额;42203 跨币种;
        |            |       42204 客户/供应商不匹配;42205 反核销记录不存在/已反核销;42206 账已作废不可核销;
        |            |       42207 认领非 UNCLAIMED;42208 已有活动核销不可作废;42209 收付款单已作废不可操作;
        |            |       42210 同对已有活动核销,先反核销再重核;42211 幂等键复用但请求参数不一致)
+  23 | 售后逆向   | 423xx(42301 客户退货源单无效;42302 超过出库可退量;42303 空单;
+       |            |       42304 行不属于出库单;42305 重复行)
 
 兜底码:
   40000 = 通用客户端兜底(裸 HTTPException 降级)
@@ -693,6 +695,14 @@ class CustomsDeclarationNoTakenError(BusinessError):
         super().__init__(status.HTTP_409_CONFLICT, 42016, message)
 
 
+class ShipmentHasCustomerReturnError(BusinessError):
+    """封柜被拦:柜内出库单已有客户退货。退回货不可继续参与正向封柜。"""
+
+    def __init__(self, message: str = "Cannot load: shipment has customer return orders",
+                 data: Any = None):
+        super().__init__(status.HTTP_409_CONFLICT, 42017, message, data=data)
+
+
 # ── 附件域(段 21;单据扫描件基建。见 db/models/attachment.py)──────────────
 class AttachmentTypeNotAllowedError(BusinessError):
     """42101 — 附件类型不允许(不落允许族:扩展名/声明 MIME/嗅探 MIME 任一不匹配)。"""
@@ -728,6 +738,45 @@ class AttachmentTooManyError(BusinessError):
 
     def __init__(self, message: str = "Too many attachments, maximum 10 allowed"):
         super().__init__(422, 42105, message)
+
+
+# ---------- 售后逆向(出库后客户退货,模块段 23)----------
+
+
+class CustomerReturnSourceInvalidError(BusinessError):
+    """客户退货源单无效:只能基于已确认出库单创建,且原正向单据不回滚。"""
+
+    def __init__(self, message: str = "Customer return source is not eligible"):
+        super().__init__(status.HTTP_409_CONFLICT, 42301, message)
+
+
+class CustomerReturnOverQtyError(BusinessError):
+    """客户退货数量超过出库行剩余可退量。"""
+
+    def __init__(self, message: str = "Customer return quantity exceeds remaining returnable quantity",
+                 data: Any = None):
+        super().__init__(status.HTTP_409_CONFLICT, 42302, message, data=data)
+
+
+class CustomerReturnEmptyError(BusinessError):
+    """空客户退货单。"""
+
+    def __init__(self, message: str = "Customer return order must have at least one line"):
+        super().__init__(status.HTTP_400_BAD_REQUEST, 42303, message)
+
+
+class CustomerReturnLineNotInOutboundError(BusinessError):
+    """客户退货行引用的出库行不属于该退货单来源出库单。"""
+
+    def __init__(self, message: str = "Customer return line references an outbound line not on this outbound order"):
+        super().__init__(status.HTTP_400_BAD_REQUEST, 42304, message)
+
+
+class CustomerReturnDuplicateLineError(BusinessError):
+    """客户退货单 payload 同一出库行重复出现。"""
+
+    def __init__(self, message: str = "Duplicate outbound line in customer return payload"):
+        super().__init__(status.HTTP_400_BAD_REQUEST, 42305, message)
 
 
 # ---------- 财务(核销引擎,模块段 22)----------

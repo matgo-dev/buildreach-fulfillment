@@ -26,10 +26,12 @@ from app.core.exceptions import (
     ShipmentHasActiveCustomsError,
     ShipmentHasActiveLogisticsEventError,
     ShipmentHasActiveOutboundError,
+    ShipmentHasCustomerReturnError,
     ShipmentHasDraftOutboundError,
     ShipmentInvalidTransitionError,
 )
 from app.core.statemachine import assert_transition
+from app.db.models.customer_return import CustomerReturnOrder, CustomerReturnStatus
 from app.db.models.outbound_order import OutboundOrder, OutboundOrderStatus
 from app.db.models.customs_declaration import CustomsDeclaration
 from app.db.models.shipment_event import LogisticsMilestone, ShipmentEvent
@@ -174,6 +176,17 @@ async def load_order(db: AsyncSession, *, shipment_id, expected_updated_at,
     draft_nos = [no for no, st in rows if st == OutboundOrderStatus.DRAFT]
     if draft_nos:
         raise ShipmentHasDraftOutboundError(data={"draft_nos": draft_nos})
+    returned_nos = list((await db.execute(
+        select(CustomerReturnOrder.no)
+        .join(OutboundOrder, OutboundOrder.id == CustomerReturnOrder.outbound_order_id)
+        .where(
+            OutboundOrder.shipment_id == shipment_id,
+            CustomerReturnOrder.status != CustomerReturnStatus.VOIDED,
+        )
+        .order_by(CustomerReturnOrder.id)
+    )).scalars().all())
+    if returned_nos:
+        raise ShipmentHasCustomerReturnError(data={"customer_return_nos": returned_nos})
     # 补录覆盖旧值 → extra 留痕(排障:谁在封柜时改了柜号/封条、改前是什么)。
     extra: dict = {}
     if container_no is not None and container_no != ship.container_no:

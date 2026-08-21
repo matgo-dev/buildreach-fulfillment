@@ -26,12 +26,14 @@ class InventoryMovementType:
     OUTBOUND_ISSUE = "OUTBOUND_ISSUE"
     PURCHASE_RETURN_ISSUE = "PURCHASE_RETURN_ISSUE"
     DISPOSITION_HOLD = "DISPOSITION_HOLD"
+    CUSTOMER_RETURN_RECEIVE = "CUSTOMER_RETURN_RECEIVE"
     ALL = (
         INBOUND_RECEIVE,
         INBOUND_UNRECEIVE,
         OUTBOUND_ISSUE,
         PURCHASE_RETURN_ISSUE,
         DISPOSITION_HOLD,
+        CUSTOMER_RETURN_RECEIVE,
     )
 
 
@@ -40,11 +42,13 @@ class InventorySourceType:
     OUTBOUND_ORDER = "OUTBOUND_ORDER"
     PURCHASE_RETURN_ORDER = "PURCHASE_RETURN_ORDER"
     INVENTORY_DISPOSITION_ORDER = "INVENTORY_DISPOSITION_ORDER"
+    CUSTOMER_RETURN_ORDER = "CUSTOMER_RETURN_ORDER"
     ALL = (
         INBOUND_ORDER,
         OUTBOUND_ORDER,
         PURCHASE_RETURN_ORDER,
         INVENTORY_DISPOSITION_ORDER,
+        CUSTOMER_RETURN_ORDER,
     )
 
 
@@ -80,7 +84,7 @@ class InventoryBalance(Base, TimestampUpdateMixin):
 class InventoryMovement(Base, TimestampMixin):
     """库存流水。
 
-    movement_type 表达业务动作,qty_delta 表达可发库存方向:入库为正,出库/撤销入库为负。
+    movement_type 表达业务动作,qty_delta 表达库存事实方向:入库/客户退回为正,出库/撤销入库为负。
     DISPOSITION_HOLD 是可发口径重分类,物理库存仍由 inbound_qty/disposition_qty 同时表达。
     source_* 指回真实业务单据,后续供应商退货/客户退货/处置单据可以继续复用这张事实表。
     """
@@ -89,11 +93,11 @@ class InventoryMovement(Base, TimestampMixin):
         CheckConstraint(
             "movement_type IN ("
             "'INBOUND_RECEIVE','INBOUND_UNRECEIVE','OUTBOUND_ISSUE',"
-            "'PURCHASE_RETURN_ISSUE','DISPOSITION_HOLD')",
+            "'PURCHASE_RETURN_ISSUE','DISPOSITION_HOLD','CUSTOMER_RETURN_RECEIVE')",
             name="ck_inventory_movements_type"),
         CheckConstraint(
             "source_type IN ('INBOUND_ORDER','OUTBOUND_ORDER','PURCHASE_RETURN_ORDER',"
-            "'INVENTORY_DISPOSITION_ORDER')",
+            "'INVENTORY_DISPOSITION_ORDER','CUSTOMER_RETURN_ORDER')",
             name="ck_inventory_movements_source_type"),
         CheckConstraint("qty_delta <> 0", name="ck_inventory_movements_qty_nonzero"),
         Index("ix_inventory_movements_so_sku_occurred", "sales_order_id", "sku_id",

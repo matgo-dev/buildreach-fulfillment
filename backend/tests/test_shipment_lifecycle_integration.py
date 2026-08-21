@@ -118,6 +118,32 @@ async def test_load_with_draft_outbound_42003(
     assert ob_no in r.json()["data"]["draft_nos"]
 
 
+async def test_load_rejects_customer_returned_outbound_42017(
+        client, db_session, sales_headers, purchaser_headers, logistics_headers):
+    """已发生客户退货的出库单不可再参与封柜。"""
+    d = await make_loadable_shipment(client, db_session, sales_headers, purchaser_headers,
+                                     logistics_headers)
+    sid = d["shipment"]["id"]
+    loaded = await _load(client, logistics_headers, sid, d["shipment"]["updated_at"])
+    assert loaded.status_code == 200, loaded.text
+    outbound_detail = await client.get(
+        f"/api/v1/outbound-orders/{d['outbound_id']}", headers=logistics_headers)
+    outbound_line_id = outbound_detail.json()["data"]["lines"][0]["id"]
+    returned = await client.post("/api/v1/customer-returns", headers=logistics_headers, json={
+        "outbound_order_id": d["outbound_id"],
+        "lines": [{"outbound_order_line_id": outbound_line_id, "qty": "1"}],
+    })
+    assert returned.status_code == 200, returned.text
+
+    unloaded = await client.post(f"/api/v1/shipments/{sid}/unload", headers=logistics_headers)
+    assert unloaded.status_code == 200, unloaded.text
+    reloaded = await _load(
+        client, logistics_headers, sid, unloaded.json()["data"]["shipment"]["updated_at"])
+    assert reloaded.status_code == 409
+    assert reloaded.json()["code"] == 42017
+    assert reloaded.json()["data"]["customer_return_nos"]
+
+
 async def test_load_records_seal_and_container(
         client, db_session, sales_headers, purchaser_headers, logistics_headers):
     """封柜动作可补录封条/柜号(封条贴上才知)。"""
