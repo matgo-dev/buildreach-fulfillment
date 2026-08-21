@@ -9,10 +9,10 @@ from pydantic import BaseModel, Field, field_validator
 
 def _strip_required(value: str) -> str:
     if not isinstance(value, str):
-        raise ValueError("reason is required")
+        raise ValueError("value is required")
     stripped = value.strip()
     if not stripped:
-        raise ValueError("reason is required")
+        raise ValueError("value is required")
     return stripped
 
 
@@ -20,7 +20,10 @@ class CustomerCreditMemoCreateIn(BaseModel):
     inventory_disposition_order_id: int
     amount: Decimal = Field(..., gt=0, max_digits=18, decimal_places=2)
     currency: Literal["CNY"] = "CNY"
+    amount_basis: str = Field(..., max_length=1000)
     reason: str | None = Field(default=None, max_length=500)
+
+    _strip_amount_basis = field_validator("amount_basis", mode="before")(_strip_required)
 
 
 class CustomerCreditMemoRejectIn(BaseModel):
@@ -31,7 +34,10 @@ class CustomerCreditMemoRejectIn(BaseModel):
 
 class CustomerCreditMemoResubmitIn(BaseModel):
     amount: Decimal = Field(..., gt=0, max_digits=18, decimal_places=2)
+    amount_basis: str = Field(..., max_length=1000)
     reason: str | None = Field(default=None, max_length=500)
+
+    _strip_amount_basis = field_validator("amount_basis", mode="before")(_strip_required)
 
 
 class CustomerCreditMemoAllocateIn(BaseModel):
@@ -65,6 +71,7 @@ class CustomerCreditMemoOut(BaseModel):
     amount: Decimal
     amount_allocated: Decimal
     amount_unallocated: Decimal
+    amount_basis: str
     reason: str | None
     posted_at: datetime | None
     posted_by: int | None
@@ -94,6 +101,7 @@ class CustomerCreditMemoOut(BaseModel):
             "amount": Decimal(str(memo.amount)),
             "amount_allocated": Decimal(str(memo.amount_allocated)),
             "amount_unallocated": Decimal(str(memo.amount_unallocated)),
+            "amount_basis": memo.amount_basis,
             "reason": memo.reason,
             "posted_at": memo.posted_at,
             "posted_by": memo.posted_by,

@@ -453,13 +453,6 @@ class APCreditMemoExceedsOutstandingError(BusinessError):
         super().__init__(status.HTTP_409_CONFLICT, 41717, message)
 
 
-class CustomerCreditMemoExceedsSourceAmountError(BusinessError):
-    """客户余额贷项单金额超过库存处置单对应销售货值。"""
-
-    def __init__(self, message: str = "Customer credit memo exceeds source amount"):
-        super().__init__(status.HTTP_409_CONFLICT, 41718, message)
-
-
 # 模块段 18 = 销售单(SO 状态机)。见 db/models/sales_order.py SalesOrderStatus。
 class SalesOrderInvalidTransitionError(BusinessError):
     """状态转移不在 SALES_ORDER_TRANSITIONS 矩阵(重复取消等)。"""

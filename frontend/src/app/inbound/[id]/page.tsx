@@ -109,6 +109,7 @@ export default function InboundOrderDetailPage() {
     useState<InventoryDispositionReceiptHandling>("RECEIVE_TO_DISPOSITION");
   const [customerCreditOpen, setCustomerCreditOpen] = useState(false);
   const [customerCreditAmount, setCustomerCreditAmount] = useState<number | null>(null);
+  const [customerCreditBasis, setCustomerCreditBasis] = useState("");
   const [customerCreditReason, setCustomerCreditReason] = useState("");
 
   const load = useCallback(async () => {
@@ -450,6 +451,7 @@ export default function InboundOrderDetailPage() {
                     icon={<DollarOutlined />}
                     onClick={() => {
                       setCustomerCreditAmount(null);
+                      setCustomerCreditBasis(inventoryDisposition.order.reason || "");
                       setCustomerCreditReason(inventoryDisposition.order.reason || "");
                       setCustomerCreditOpen(true);
                     }}
@@ -639,15 +641,18 @@ export default function InboundOrderDetailPage() {
         open={customerCreditOpen}
         okText="提交财务审核"
         confirmLoading={busy}
-        okButtonProps={{ disabled: !customerCreditAmount || customerCreditAmount <= 0 }}
+        okButtonProps={{
+          disabled: !customerCreditAmount || customerCreditAmount <= 0 || !customerCreditBasis.trim(),
+        }}
         onCancel={() => setCustomerCreditOpen(false)}
         onOk={async () => {
-          if (!inventoryDisposition || !customerCreditAmount) return;
+          if (!inventoryDisposition || !customerCreditAmount || !customerCreditBasis.trim()) return;
           const ok = await actDialog(
             () => customerCreditMemoApi.create({
               inventory_disposition_order_id: inventoryDisposition.order.id,
               amount: customerCreditAmount.toFixed(2),
               currency: "CNY",
+              amount_basis: customerCreditBasis.trim(),
               reason: customerCreditReason.trim() || null,
             }),
             "已提交客户余额贷项单",
@@ -655,6 +660,7 @@ export default function InboundOrderDetailPage() {
           if (ok) {
             setCustomerCreditOpen(false);
             setCustomerCreditAmount(null);
+            setCustomerCreditBasis("");
             setCustomerCreditReason("");
           }
         }}
@@ -671,6 +677,14 @@ export default function InboundOrderDetailPage() {
               onChange={(v) => setCustomerCreditAmount(typeof v === "number" ? v : null)}
             />
           </div>
+          <Input.TextArea
+            rows={3}
+            placeholder="人民币金额依据(必填,如线下审批单号/赔付计算说明)"
+            value={customerCreditBasis}
+            maxLength={1000}
+            showCount
+            onChange={(e) => setCustomerCreditBasis(e.target.value)}
+          />
           <Input.TextArea
             rows={3}
             placeholder="原因(选填,用于财务审核)"

@@ -26,6 +26,7 @@ export interface CustomerCreditMemoOut {
   amount: number | string;
   amount_allocated: number | string;
   amount_unallocated: number | string;
+  amount_basis: string;
   reason: string | null;
   posted_at: string | null;
   posted_by: number | null;
@@ -44,6 +45,7 @@ export interface CustomerCreditMemoCreateBody {
   inventory_disposition_order_id: number;
   amount: number | string;
   currency?: "CNY";
+  amount_basis: string;
   reason?: string | null;
 }
 
@@ -90,6 +92,7 @@ export interface CustomerCreditEligibleReceivableOut {
 
 export interface CustomerCreditMemoResubmitBody {
   amount: number | string;
+  amount_basis: string;
   reason?: string | null;
 }
 
