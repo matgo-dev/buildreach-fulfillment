@@ -21,24 +21,28 @@ class InboundOrderStatus:
     IN_TRANSIT = "IN_TRANSIT"
     RECEIVED = "RECEIVED"
     CANCELLED = "CANCELLED"
-    ALL = (IN_TRANSIT, RECEIVED, CANCELLED)
-    # 「含在途」口径的单一源头:计入采购超采守卫累计的状态(在途 + 已收,排 CANCELLED)。
+    CLOSED = "CLOSED"
+    ALL = (IN_TRANSIT, RECEIVED, CANCELLED, CLOSED)
+    # 「含在途」口径的单一源头:计入采购超采守卫累计的状态(在途 + 已收 + 关闭未收货,排 CANCELLED)。
     # compute_inbounded_qty(超采守卫)与 receivable_only 选单器共用此集,禁两处各写谓词——
     # 新增入库状态时在此一处决定是否计入,两条路径自动跟随(单一源头,不靠对拍测试兜)。
-    INBOUNDED_STATUSES = (IN_TRANSIT, RECEIVED)
+    INBOUNDED_STATUSES = (IN_TRANSIT, RECEIVED, CLOSED)
 
 
 # 状态机单一源头(model 层常量)。入库单 = ASN:供应商发货即建,
-# 货到货代仓确认入库。创建入库单即产生应付,作废/关闭需走采购退货/供应商贷项单等真实逆向单据。
-# RECEIVED→IN_TRANSIT = 撤销入库库存事实;IN_TRANSIT→CANCELLED 仅可由在途取消逆向流程触发,
+# 货到货代仓确认入库。创建入库单即产生应付,作废/关闭需走采购退货/库存处置/贷项单等真实单据。
+# RECEIVED→IN_TRANSIT = 撤销入库库存事实;IN_TRANSIT→CANCELLED 仅可由供应商接受的在途取消触发;
+# IN_TRANSIT→CLOSED = 不再收货但供应商应付保留的关闭未收货路径,由库存处置流程触发。
 # 裸 cancel_order 仍在 service 层拦截。
 INBOUND_ORDER_TRANSITIONS: dict[str, set[str]] = {
     InboundOrderStatus.IN_TRANSIT: {
         InboundOrderStatus.RECEIVED,
         InboundOrderStatus.CANCELLED,
+        InboundOrderStatus.CLOSED,
     },
     InboundOrderStatus.RECEIVED: {InboundOrderStatus.IN_TRANSIT},
     InboundOrderStatus.CANCELLED: set(),
+    InboundOrderStatus.CLOSED: set(),
 }
 # 创建入库单即产生应付,整单编辑/裸作废不再作为基础回退入口。
 INBOUND_ORDER_EDITABLE_STATUSES: set[str] = set()
@@ -59,7 +63,8 @@ class InboundOrder(Base, TimestampUpdateMixin):
     __table_args__ = (
         # 状态 DB 兜底,bound 到状态机全集(单一源头 InboundOrderStatus.ALL)。
         CheckConstraint(
-            "status IN ('IN_TRANSIT','RECEIVED','CANCELLED')", name="ck_inborders_status"),
+            "status IN ('IN_TRANSIT','RECEIVED','CANCELLED','CLOSED')",
+            name="ck_inborders_status"),
         # 列表默认 status tab 过滤 + created_at DESC 排序(镜像 ix_porders_status_created)。
         Index("ix_inborders_status_created", "status", text("created_at DESC")),
     )

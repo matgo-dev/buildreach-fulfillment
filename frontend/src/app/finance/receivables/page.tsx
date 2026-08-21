@@ -51,11 +51,11 @@ export default function ReceivableListPage() {
   const [currency, setCurrency] = useState<string | undefined>(undefined);
   const [customers, setCustomers] = useState<CustomerListItem[]>([]);
 
-  // 行下钻抽屉:账头 + 核销记录(哪笔收款冲了多少)。
+  // 行下钻抽屉:账头 + 结算记录(哪笔收款或客户贷方冲了多少)。
   const [detail, setDetail] = useState<ReceivableDetail | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
-  // 「有未分配收款」标记只在列表行下发(详情端点不含),点行时随手带入抽屉。
+  // 「有未分配收款/客户贷方余额」标记只在列表行下发,点行时随手带入抽屉。
   const [hasUnalloc, setHasUnalloc] = useState(false);
 
   async function openDetail(row: ReceivableListItem) {
@@ -107,8 +107,7 @@ export default function ReceivableListPage() {
       render: (v: string, r) => (
         <Space size={4}>
           <span>{v}</span>
-          {/* 该客户有未分配收款 → 提示可核销(下钻抽屉内一键入口)。 */}
-          {r.counterparty_has_unallocated && <Tag color="warning">有未分配收款</Tag>}
+          {r.counterparty_has_unallocated && <Tag color="warning">有可用余额</Tag>}
         </Space>
       ),
     },
@@ -169,7 +168,7 @@ export default function ReceivableListPage() {
       render: (v: number | string) => formatMoney(v),
     },
     {
-      title: "已核销",
+      title: "已结算",
       dataIndex: "amount_allocated",
       width: 120,
       align: "right",
@@ -269,7 +268,7 @@ export default function ReceivableListPage() {
         )}
       </ListPageBody>
 
-      {/* 行下钻抽屉:账头 + 核销记录(哪笔收款冲了多少)+ 用未分配收款核销入口。 */}
+      {/* 行下钻抽屉:账头 + 结算记录(现金收款 / 客户贷方余额)。 */}
       <Drawer
         title={detail ? `应收款 ${detail.outbound_order_no}` : "应收款详情"}
         size={640}
@@ -280,13 +279,13 @@ export default function ReceivableListPage() {
           detail &&
           hasUnalloc &&
           detail.status !== "PAID" && (
-            // D10:该客户有未分配收款 → 一键入口。跳转收款单页并预筛该客户,不做复杂联动。
+            // D10:该客户有未分配收款或客户贷方余额 → 跳转收款单页做现金核销。
             <Can perm={Permissions.RECEIPT_MANAGE}>
               <Button
                 type="primary"
                 onClick={() => router.push(`/finance/receipts?customer_id=${detail.customer_id}`)}
               >
-                用未分配收款核销
+                去处理可用余额
               </Button>
             </Can>
           )
@@ -304,7 +303,7 @@ export default function ReceivableListPage() {
               <Descriptions.Item label="应收金额">
                 {formatMoney(detail.amount_original)} {detail.currency}
               </Descriptions.Item>
-              <Descriptions.Item label="已核销">
+              <Descriptions.Item label="已结算">
                 {formatMoney(detail.amount_allocated)} {detail.currency}
               </Descriptions.Item>
               <Descriptions.Item label="未结应收" span={2}>
@@ -315,16 +314,22 @@ export default function ReceivableListPage() {
             </Descriptions>
 
             <Typography.Title level={5} style={{ marginTop: 20 }}>
-              核销记录
+              结算记录
             </Typography.Title>
             <Table
               rowKey="id"
               size="small"
               dataSource={detail.allocations}
               pagination={false}
-              locale={{ emptyText: "暂无核销记录" }}
+              locale={{ emptyText: "暂无结算记录" }}
               columns={[
-                { title: "收款单号", dataIndex: "receipt_no", width: 170 },
+                {
+                  title: "来源",
+                  dataIndex: "source_type",
+                  width: 110,
+                  render: (v: string) => v === "RECEIPT" ? "现金收款" : "客户贷方",
+                },
+                { title: "单号", dataIndex: "source_no", width: 170 },
                 {
                   title: "金额",
                   dataIndex: "amount",

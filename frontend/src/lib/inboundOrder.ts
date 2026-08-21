@@ -7,7 +7,7 @@ import type { PurchaseOrderOut } from "./purchaseOrder";
 import type { PayableOut } from "./payable";
 import { qs } from "./qs";
 
-export type InboundOrderStatus = "IN_TRANSIT" | "RECEIVED" | "CANCELLED";
+export type InboundOrderStatus = "IN_TRANSIT" | "RECEIVED" | "CANCELLED" | "CLOSED";
 
 export interface InboundOrderOut {
   id: number;

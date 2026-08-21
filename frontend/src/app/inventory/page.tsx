@@ -83,6 +83,13 @@ export default function InventoryListPage() {
       render: (v: number | string) => <NumCell value={v} />,
     },
     {
+      title: "待处置",
+      dataIndex: "disposition_qty",
+      width: 100,
+      align: "right",
+      render: (v: number | string) => <NumCell value={v} />,
+    },
+    {
       title: "可发量",
       dataIndex: "available_qty",
       width: 100,

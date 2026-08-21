@@ -15,6 +15,7 @@ export interface StockBalanceItem {
   ordered_qty: number | string;
   inbound_qty: number | string;
   outbound_qty: number | string;
+  disposition_qty: number | string;
   available_qty: number | string;
 }
 
@@ -28,6 +29,7 @@ export interface StockBalanceLine {
   ordered_qty: number | string;
   inbound_qty: number | string;
   outbound_qty: number | string;
+  disposition_qty: number | string;
   available_qty: number | string;
 }
 

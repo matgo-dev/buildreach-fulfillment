@@ -25,14 +25,27 @@ class InventoryMovementType:
     INBOUND_UNRECEIVE = "INBOUND_UNRECEIVE"
     OUTBOUND_ISSUE = "OUTBOUND_ISSUE"
     PURCHASE_RETURN_ISSUE = "PURCHASE_RETURN_ISSUE"
-    ALL = (INBOUND_RECEIVE, INBOUND_UNRECEIVE, OUTBOUND_ISSUE, PURCHASE_RETURN_ISSUE)
+    DISPOSITION_HOLD = "DISPOSITION_HOLD"
+    ALL = (
+        INBOUND_RECEIVE,
+        INBOUND_UNRECEIVE,
+        OUTBOUND_ISSUE,
+        PURCHASE_RETURN_ISSUE,
+        DISPOSITION_HOLD,
+    )
 
 
 class InventorySourceType:
     INBOUND_ORDER = "INBOUND_ORDER"
     OUTBOUND_ORDER = "OUTBOUND_ORDER"
     PURCHASE_RETURN_ORDER = "PURCHASE_RETURN_ORDER"
-    ALL = (INBOUND_ORDER, OUTBOUND_ORDER, PURCHASE_RETURN_ORDER)
+    INVENTORY_DISPOSITION_ORDER = "INVENTORY_DISPOSITION_ORDER"
+    ALL = (
+        INBOUND_ORDER,
+        OUTBOUND_ORDER,
+        PURCHASE_RETURN_ORDER,
+        INVENTORY_DISPOSITION_ORDER,
+    )
 
 
 class InventoryBalance(Base, TimestampUpdateMixin):
@@ -46,7 +59,8 @@ class InventoryBalance(Base, TimestampUpdateMixin):
         UniqueConstraint("sales_order_id", "sku_id", name="uq_inventory_balances_so_sku"),
         CheckConstraint("inbound_qty >= 0", name="ck_inventory_balances_inbound_nn"),
         CheckConstraint("outbound_qty >= 0", name="ck_inventory_balances_outbound_nn"),
-        CheckConstraint("inbound_qty >= outbound_qty",
+        CheckConstraint("disposition_qty >= 0", name="ck_inventory_balances_disposition_nn"),
+        CheckConstraint("inbound_qty >= outbound_qty + disposition_qty",
                         name="ck_inventory_balances_available_nn"),
     )
 
@@ -58,14 +72,16 @@ class InventoryBalance(Base, TimestampUpdateMixin):
         Integer, ForeignKey("skus.id", ondelete="RESTRICT"), nullable=False, index=True)
     inbound_qty: Mapped[float] = mapped_column(Numeric(18, 3), nullable=False, default=0)
     outbound_qty: Mapped[float] = mapped_column(Numeric(18, 3), nullable=False, default=0)
+    disposition_qty: Mapped[float] = mapped_column(Numeric(18, 3), nullable=False, default=0)
     available_qty: Mapped[float] = mapped_column(
-        Numeric(18, 3), Computed("inbound_qty - outbound_qty", persisted=True))
+        Numeric(18, 3), Computed("inbound_qty - outbound_qty - disposition_qty", persisted=True))
 
 
 class InventoryMovement(Base, TimestampMixin):
     """库存流水。
 
-    movement_type 表达业务动作,qty_delta 表达库存方向:入库为正,出库/撤销入库为负。
+    movement_type 表达业务动作,qty_delta 表达可发库存方向:入库为正,出库/撤销入库为负。
+    DISPOSITION_HOLD 是可发口径重分类,物理库存仍由 inbound_qty/disposition_qty 同时表达。
     source_* 指回真实业务单据,后续供应商退货/客户退货/处置单据可以继续复用这张事实表。
     """
     __tablename__ = "inventory_movements"
@@ -73,10 +89,11 @@ class InventoryMovement(Base, TimestampMixin):
         CheckConstraint(
             "movement_type IN ("
             "'INBOUND_RECEIVE','INBOUND_UNRECEIVE','OUTBOUND_ISSUE',"
-            "'PURCHASE_RETURN_ISSUE')",
+            "'PURCHASE_RETURN_ISSUE','DISPOSITION_HOLD')",
             name="ck_inventory_movements_type"),
         CheckConstraint(
-            "source_type IN ('INBOUND_ORDER','OUTBOUND_ORDER','PURCHASE_RETURN_ORDER')",
+            "source_type IN ('INBOUND_ORDER','OUTBOUND_ORDER','PURCHASE_RETURN_ORDER',"
+            "'INVENTORY_DISPOSITION_ORDER')",
             name="ck_inventory_movements_source_type"),
         CheckConstraint("qty_delta <> 0", name="ck_inventory_movements_qty_nonzero"),
         Index("ix_inventory_movements_so_sku_occurred", "sales_order_id", "sku_id",

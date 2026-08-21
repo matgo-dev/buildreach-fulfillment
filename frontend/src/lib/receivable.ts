@@ -5,7 +5,7 @@ import { api } from "./api";
 import type { Page } from "./catalog";
 import { qs } from "./qs";
 
-/** 派生状态:未收 / 部分收 / 已收清(后端由 amount_* 单一口径派生,沿用应付三色)。 */
+/** 派生状态:未结 / 部分结 / 已结清(后端由 amount_* 单一口径派生,沿用应付三色)。 */
 export type ReceivableStatus = "UNPAID" | "PARTIALLY_PAID" | "PAID";
 
 export interface ReceivableListItem {
@@ -23,18 +23,27 @@ export interface ReceivableListItem {
   status: ReceivableStatus;
   due_at: string | null;
   created_at: string;
-  /** 该客户名下有未分配收款(可一键核销此账)。 */
+  /** 该客户名下有未分配收款或客户贷方余额(可核销/抵扣此账)。 */
   counterparty_has_unallocated: boolean;
 }
 
-/** 应收详情内活动核销记录行:哪笔收款、冲了多少、何时。 */
+/** 应收详情内活动结算记录行:哪笔收款或客户贷方、冲了多少、何时。 */
 export interface ReceivableAllocationRow {
   id: number;
-  receipt_id: number;
-  receipt_no: string;
+  source_type: "RECEIPT" | "CUSTOMER_CREDIT_MEMO";
+  source_id: number;
+  source_no: string;
+  receipt_id: number | null;
+  receipt_no: string | null;
+  customer_credit_memo_id: number | null;
+  customer_credit_memo_no: string | null;
   amount: number;
   alloc_type: "AUTO" | "MANUAL";
   created_at: string;
+  status: "ACTIVE" | "REVERSED";
+  reversed_at: string | null;
+  reversed_by: number | null;
+  reverse_reason: string | null;
 }
 
 /** 应收详情(账头 + 活动核销记录),GET /receivables/{id}。 */
@@ -57,9 +66,9 @@ export interface ReceivableDetail {
 
 /** 派生状态徽标映射(沿用应付三色:warning / processing / success)。 */
 export const RECEIVABLE_STATUS_META: Record<ReceivableStatus, { label: string; color: string }> = {
-  UNPAID: { label: "未收", color: "warning" },
-  PARTIALLY_PAID: { label: "部分收", color: "processing" },
-  PAID: { label: "已收清", color: "success" },
+  UNPAID: { label: "未结", color: "warning" },
+  PARTIALLY_PAID: { label: "部分结", color: "processing" },
+  PAID: { label: "已结清", color: "success" },
 };
 
 export interface ReceivableListFilters {

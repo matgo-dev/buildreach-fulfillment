@@ -8,7 +8,9 @@ import {
   DatePicker,
   Descriptions,
   Input,
+  InputNumber,
   Modal,
+  Radio,
   Space,
   Table,
 } from "antd";
@@ -16,6 +18,7 @@ import type { ColumnsType } from "antd/es/table";
 import {
   ArrowLeftOutlined,
   CheckOutlined,
+  DollarOutlined,
   RollbackOutlined,
   StopOutlined,
   TruckOutlined,
@@ -48,6 +51,17 @@ import {
   purchaseReturnApi,
   type PurchaseReturnListItem,
 } from "@/lib/purchaseReturn";
+import {
+  INVENTORY_DISPOSITION_STATUS_META,
+  INVENTORY_DISPOSITION_RECEIPT_HANDLING_META,
+  inventoryDispositionApi,
+  type InventoryDispositionDetail,
+  type InventoryDispositionReceiptHandling,
+} from "@/lib/inventoryDisposition";
+import {
+  CUSTOMER_CREDIT_MEMO_STATUS_META,
+  customerCreditMemoApi,
+} from "@/lib/customerCreditMemo";
 
 /** 41710 穿仓明细行。后端 data 形状:{ items: [{ sales_order_no, name_snapshot, available_qty }] }(镜像 41902)。 */
 interface UnreceiveNegative {
@@ -75,6 +89,7 @@ export default function InboundOrderDetailPage() {
 
   const [detail, setDetail] = useState<InboundOrderDetail | null>(null);
   const [purchaseReturns, setPurchaseReturns] = useState<PurchaseReturnListItem[]>([]);
+  const [inventoryDisposition, setInventoryDisposition] = useState<InventoryDispositionDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -88,17 +103,26 @@ export default function InboundOrderDetailPage() {
   const [purchaseReturnOpen, setPurchaseReturnOpen] = useState(false);
   const [inTransitCancelOpen, setInTransitCancelOpen] = useState(false);
   const [inTransitCancelReason, setInTransitCancelReason] = useState("");
+  const [dispositionOpen, setDispositionOpen] = useState(false);
+  const [dispositionReason, setDispositionReason] = useState("");
+  const [dispositionReceiptHandling, setDispositionReceiptHandling] =
+    useState<InventoryDispositionReceiptHandling>("RECEIVE_TO_DISPOSITION");
+  const [customerCreditOpen, setCustomerCreditOpen] = useState(false);
+  const [customerCreditAmount, setCustomerCreditAmount] = useState<number | null>(null);
+  const [customerCreditReason, setCustomerCreditReason] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(false);
     try {
-      const [nextDetail, returns] = await Promise.all([
+      const [nextDetail, returns, disposition] = await Promise.all([
         inboundOrderApi.get(id),
         purchaseReturnApi.list({ inbound_order_id: id, page: 1, size: 20 }),
+        inventoryDispositionApi.byInbound(id),
       ]);
       setDetail(nextDetail);
       setPurchaseReturns(returns.items);
+      setInventoryDisposition(disposition);
     } catch (e) {
       setLoadError(true);
       message.error(resolveBizError(e, "加载失败"));
@@ -278,6 +302,18 @@ export default function InboundOrderDetailPage() {
                     >
                       在途取消
                     </Button>
+                    <Button
+                      danger
+                      icon={<DollarOutlined />}
+                      loading={busy}
+                      onClick={() => {
+                        setDispositionReason("");
+                        setDispositionReceiptHandling("RECEIVE_TO_DISPOSITION");
+                        setDispositionOpen(true);
+                      }}
+                    >
+                      库存处置
+                    </Button>
                   </Can>
                   <Button
                     type="primary"
@@ -297,6 +333,17 @@ export default function InboundOrderDetailPage() {
                   <Can perm={Permissions.PURCHASE_MANAGE}>
                     <Button icon={<RollbackOutlined />} onClick={() => setPurchaseReturnOpen(true)}>
                       采购退货
+                    </Button>
+                    <Button
+                      danger
+                      icon={<DollarOutlined />}
+                      onClick={() => {
+                        setDispositionReason("");
+                        setDispositionReceiptHandling("RECEIVE_TO_DISPOSITION");
+                        setDispositionOpen(true);
+                      }}
+                    >
+                      库存处置
                     </Button>
                   </Can>
                   <Button
@@ -389,6 +436,73 @@ export default function InboundOrderDetailPage() {
         </Card>
       )}
 
+      {inventoryDisposition && (
+        <Card
+          title="库存处置"
+          size="small"
+          extra={
+            <Space>
+              {!inventoryDisposition.customer_credit_memo
+                && ["HELD", "CLOSED_WITHOUT_RECEIPT"].includes(inventoryDisposition.order.status) ? (
+                <Can perm={Permissions.CUSTOMER_CREDIT_CREATE}>
+                  <Button
+                    size="small"
+                    icon={<DollarOutlined />}
+                    onClick={() => {
+                      setCustomerCreditAmount(null);
+                      setCustomerCreditReason(inventoryDisposition.order.reason || "");
+                      setCustomerCreditOpen(true);
+                    }}
+                  >
+                    客户余额贷项
+                  </Button>
+                </Can>
+              ) : null}
+              <StatusTag
+                meta={INVENTORY_DISPOSITION_STATUS_META}
+                value={inventoryDisposition.order.status}
+              />
+            </Space>
+          }
+        >
+          <Descriptions column={2} size="small" bordered>
+            <Descriptions.Item label="处置单号">{inventoryDisposition.order.no}</Descriptions.Item>
+            <Descriptions.Item label="收货处理">
+              {INVENTORY_DISPOSITION_RECEIPT_HANDLING_META[
+                inventoryDisposition.order.receipt_handling
+              ]}
+            </Descriptions.Item>
+            <Descriptions.Item label="采购币种">
+              {inventoryDisposition.order.purchase_currency}
+            </Descriptions.Item>
+            <Descriptions.Item label="应付成本参考">
+              {inventoryDisposition.order.supplier_payable_amount == null
+                ? "—"
+                : formatAmount(inventoryDisposition.order.supplier_payable_amount)}
+            </Descriptions.Item>
+            <Descriptions.Item label="原因" span={2}>
+              {inventoryDisposition.order.reason || "—"}
+            </Descriptions.Item>
+            <Descriptions.Item label="客户余额贷项单">
+              {inventoryDisposition.customer_credit_memo ? (
+                <Space size={6}>
+                  <span>{inventoryDisposition.customer_credit_memo.no}</span>
+                  <StatusTag
+                    meta={CUSTOMER_CREDIT_MEMO_STATUS_META}
+                    value={inventoryDisposition.customer_credit_memo.status}
+                  />
+                </Space>
+              ) : "—"}
+            </Descriptions.Item>
+            <Descriptions.Item label="客户贷方金额">
+              {inventoryDisposition.customer_credit_memo
+                ? `${formatAmount(inventoryDisposition.customer_credit_memo.amount)} CNY`
+                : "—"}
+            </Descriptions.Item>
+          </Descriptions>
+        </Card>
+      )}
+
       <Card title="相关采购退货单" size="small">
         <Table<PurchaseReturnListItem>
           rowKey="id"
@@ -459,6 +573,109 @@ export default function InboundOrderDetailPage() {
             placeholder="取消原因(选填,用于采购退货单和供应商贷项单)"
             value={inTransitCancelReason}
             onChange={(e) => setInTransitCancelReason(e.target.value)}
+          />
+        </Space>
+      </Modal>
+
+      {/* 库存处置:供应商侧应付保持,客户退款/损失确认由真实财务单据承载。 */}
+      <Modal
+        title="库存处置"
+        open={dispositionOpen}
+        okText="创建处置单"
+        okButtonProps={{ danger: true }}
+        confirmLoading={busy}
+        onCancel={() => setDispositionOpen(false)}
+        onOk={async () => {
+          const ok = await actDialog(
+            () => inventoryDispositionApi.create({
+              inbound_order_id: id,
+              receipt_handling: order.status === "IN_TRANSIT"
+                ? dispositionReceiptHandling
+                : "RECEIVE_TO_DISPOSITION",
+              reason: dispositionReason.trim() || null,
+            }),
+            "已创建库存处置单",
+          );
+          if (ok) {
+            setDispositionOpen(false);
+            setDispositionReason("");
+            setDispositionReceiptHandling("RECEIVE_TO_DISPOSITION");
+          }
+        }}
+      >
+        <Space orientation="vertical" style={{ width: "100%" }}>
+          <span>供应商应付不会冲正;客户退款、损失确认需由后续财务流程单独处理。</span>
+          {order.status === "IN_TRANSIT" ? (
+            <div>
+              <div style={{ marginBottom: 4 }}>收货处理</div>
+              <Radio.Group
+                value={dispositionReceiptHandling}
+                onChange={(e) =>
+                  setDispositionReceiptHandling(e.target.value as InventoryDispositionReceiptHandling)
+                }
+              >
+                <Space orientation="vertical">
+                  <Radio value="RECEIVE_TO_DISPOSITION">
+                    到货代仓收货,直接进入待处置
+                  </Radio>
+                  <Radio value="CLOSE_WITHOUT_RECEIPT">
+                    终止入仓,关闭未收货
+                  </Radio>
+                </Space>
+              </Radio.Group>
+            </div>
+          ) : null}
+          <Input.TextArea
+            rows={3}
+            placeholder="处置原因(选填,用于库存处置单)"
+            value={dispositionReason}
+            onChange={(e) => setDispositionReason(e.target.value)}
+          />
+        </Space>
+      </Modal>
+
+      <Modal
+        title="客户余额贷项单"
+        open={customerCreditOpen}
+        okText="提交财务审核"
+        confirmLoading={busy}
+        okButtonProps={{ disabled: !customerCreditAmount || customerCreditAmount <= 0 }}
+        onCancel={() => setCustomerCreditOpen(false)}
+        onOk={async () => {
+          if (!inventoryDisposition || !customerCreditAmount) return;
+          const ok = await actDialog(
+            () => customerCreditMemoApi.create({
+              inventory_disposition_order_id: inventoryDisposition.order.id,
+              amount: customerCreditAmount.toFixed(2),
+              currency: "CNY",
+              reason: customerCreditReason.trim() || null,
+            }),
+            "已提交客户余额贷项单",
+          );
+          if (ok) {
+            setCustomerCreditOpen(false);
+            setCustomerCreditAmount(null);
+            setCustomerCreditReason("");
+          }
+        }}
+      >
+        <Space orientation="vertical" style={{ width: "100%" }}>
+          <span>金额固定进入客户人民币余额;提交后仍需财务过账,不会冲减供应商应付。</span>
+          <div>
+            <div style={{ marginBottom: 4 }}>贷项金额 CNY</div>
+            <InputNumber
+              min={0.01}
+              precision={2}
+              style={{ width: "100%" }}
+              value={customerCreditAmount}
+              onChange={(v) => setCustomerCreditAmount(typeof v === "number" ? v : null)}
+            />
+          </div>
+          <Input.TextArea
+            rows={3}
+            placeholder="原因(选填,用于财务审核)"
+            value={customerCreditReason}
+            onChange={(e) => setCustomerCreditReason(e.target.value)}
           />
         </Space>
       </Modal>

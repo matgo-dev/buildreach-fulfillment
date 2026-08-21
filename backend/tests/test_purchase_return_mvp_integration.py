@@ -1,17 +1,41 @@
+import asyncio
+from datetime import date
 from decimal import Decimal
+from uuid import uuid4
 
 import pytest
-from sqlalchemy import event, func, select
+from sqlalchemy import delete, event, func, select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.audit.constants import AuditAction, AuditResourceType
+from app.core.exceptions import InboundOrderInvalidTransitionError, PurchaseReturnSourceInvalidError
 from app.db.models.ap_credit_memo import APCreditMemo, APCreditMemoStatus
 from app.db.models.audit_log import AuditLog
-from app.db.models.inbound_order import InboundOrder
+from app.db.models.category import Category
+from app.db.models.customer import Customer
+from app.db.models.inbound_order import InboundOrder, InboundOrderLine, InboundOrderStatus
+from app.db.models.inventory_disposition import (
+    InventoryDispositionLine,
+    InventoryDispositionOrder,
+    InventoryDispositionReceiptHandling,
+)
 from app.db.models.payable import Payable
 from app.db.models.payment import Payment
 from app.db.models.payment_allocation import PaymentAllocation
+from app.db.models.purchase_order import PurchaseOrder, PurchaseOrderLine
 from app.db.models.purchase_return import PurchaseReturnKind, PurchaseReturnOrder
+from app.db.models.purchase_return import PurchaseReturnLine
+from app.db.models.quotation import QuotationLine, QuotationOrder, QuotationStatus
+from app.db.models.sales_order import SalesOrder, SalesOrderLine, SalesOrderStatus
+from app.db.models.sku import Sku
+from app.db.models.spu import Spu
 from app.db.models.stock import InventoryBalance, InventoryMovement, InventoryMovementType
+from app.db.models.supplier import Supplier
+from app.services import (
+    inbound_order_service,
+    inventory_disposition_service,
+    purchase_return_service,
+)
 from tests.outbound_helpers import create_outbound, create_shipment, setup_available_stock
 
 pytestmark = pytest.mark.asyncio
@@ -21,6 +45,355 @@ async def _inbound_line_id(client, purchaser_headers, inbound_order_id):
     detail = (await client.get(f"/api/v1/inbound-orders/{inbound_order_id}",
                                headers=purchaser_headers)).json()["data"]
     return detail["lines"][0]["id"]
+
+
+async def _create_lock_chain(_engine, *, received: bool) -> dict[str, int]:
+    """Create a committed one-line SO->PO->Inbound chain for real two-connection tests."""
+    Session = async_sessionmaker(_engine, expire_on_commit=False)
+    suffix = uuid4().hex[:8]
+    async with Session() as db:
+        category = Category(
+            code=f"LC{suffix}",
+            parent_code=None,
+            name_i18n={"zh": "锁序测试"},
+            level=1,
+            is_leaf=True,
+            sort_order=0,
+        )
+        db.add(category)
+        await db.flush()
+        spu = Spu(
+            spu_code=f"SP{suffix}",
+            category_code=category.code,
+            name_i18n={"zh": "锁序商品"},
+            spec_jsonb=[],
+            search_text="锁序商品",
+            created_by=1,
+            status="ACTIVE",
+        )
+        db.add(spu)
+        await db.flush()
+        sku = Sku(
+            spu_id=spu.id,
+            sku_code=f"SK{suffix}",
+            unit="ton",
+            spec_jsonb=[],
+            search_text="锁序SKU",
+            name_i18n={"zh": "锁序SKU"},
+            status="ACTIVE",
+            created_by=1,
+        )
+        customer = Customer(code=f"C{suffix}", name="锁序客户")
+        supplier = Supplier(code=f"S{suffix}", name="锁序供应商", default_currency="USD")
+        db.add_all([sku, customer, supplier])
+        await db.flush()
+        quotation = QuotationOrder(
+            no=f"Q{suffix}",
+            customer_id=customer.id,
+            salesperson_id=1,
+            language="zh",
+            currency="USD",
+            status=QuotationStatus.CONVERTED,
+            total_amount=Decimal("90.00"),
+            created_by=1,
+        )
+        db.add(quotation)
+        await db.flush()
+        quotation_line = QuotationLine(
+            quotation_order_id=quotation.id,
+            sku_id=sku.id,
+            name_snapshot="锁序SKU",
+            spec_text_snapshot="",
+            unit_snapshot="ton",
+            unit_price=Decimal("9.00"),
+            qty=Decimal("10.000"),
+            line_total=Decimal("90.00"),
+            language="zh",
+            sort_order=0,
+        )
+        db.add(quotation_line)
+        await db.flush()
+        sales_order = SalesOrder(
+            no=f"SO{suffix}",
+            source_quotation_id=quotation.id,
+            customer_id=customer.id,
+            salesperson_id=1,
+            language="zh",
+            currency="USD",
+            status=SalesOrderStatus.CONFIRMED,
+            total_amount=Decimal("90.00"),
+            created_by=1,
+        )
+        db.add(sales_order)
+        await db.flush()
+        sales_line = SalesOrderLine(
+            sales_order_id=sales_order.id,
+            sku_id=sku.id,
+            source_quotation_line_id=quotation_line.id,
+            name_snapshot="锁序SKU",
+            spec_text_snapshot="",
+            unit_snapshot="ton",
+            unit_price=Decimal("9.00"),
+            qty=Decimal("10.000"),
+            line_total=Decimal("90.00"),
+            covered_qty=Decimal("10.000"),
+            language="zh",
+            sort_order=0,
+        )
+        db.add(sales_line)
+        await db.flush()
+        purchase_order = PurchaseOrder(
+            no=f"PO{suffix}",
+            source_sales_order_id=sales_order.id,
+            supplier_id=supplier.id,
+            currency="USD",
+            status="CONFIRMED",
+            total_amount=Decimal("50.00"),
+            created_by=1,
+        )
+        db.add(purchase_order)
+        await db.flush()
+        purchase_line = PurchaseOrderLine(
+            purchase_order_id=purchase_order.id,
+            sku_id=sku.id,
+            source_sales_order_line_id=sales_line.id,
+            name_snapshot="锁序SKU",
+            spec_text_snapshot="",
+            unit_snapshot="ton",
+            unit_price=Decimal("5.00"),
+            qty=Decimal("10.000"),
+            line_total=Decimal("50.00"),
+            language="zh",
+            sort_order=0,
+        )
+        db.add(purchase_line)
+        await db.flush()
+        inbound = InboundOrder(
+            no=f"IN{suffix}",
+            purchase_order_id=purchase_order.id,
+            status=InboundOrderStatus.RECEIVED if received else InboundOrderStatus.IN_TRANSIT,
+            arrived_at=date.today() if received else None,
+            created_by=1,
+        )
+        db.add(inbound)
+        await db.flush()
+        inbound_line = InboundOrderLine(
+            inbound_order_id=inbound.id,
+            purchase_order_line_id=purchase_line.id,
+            sku_id=sku.id,
+            name_snapshot="锁序SKU",
+            spec_text_snapshot="",
+            unit_snapshot="ton",
+            language="zh",
+            qty=Decimal("10.000"),
+            sort_order=0,
+        )
+        payable = Payable(
+            inbound_order_id=inbound.id,
+            purchase_order_id=purchase_order.id,
+            supplier_id=supplier.id,
+            currency="USD",
+            amount_original=Decimal("50.00"),
+            amount_credited=Decimal("0.00"),
+            amount_allocated=Decimal("0.00"),
+            created_by=1,
+        )
+        db.add_all([inbound_line, payable])
+        if received:
+            db.add(InventoryBalance(
+                sales_order_id=sales_order.id,
+                sku_id=sku.id,
+                inbound_qty=Decimal("10.000"),
+                outbound_qty=Decimal("0.000"),
+                disposition_qty=Decimal("0.000"),
+            ))
+        await db.commit()
+        return {
+            "category_code": category.code,
+            "spu_id": spu.id,
+            "sku_id": sku.id,
+            "customer_id": customer.id,
+            "supplier_id": supplier.id,
+            "quotation_id": quotation.id,
+            "quotation_line_id": quotation_line.id,
+            "sales_order_id": sales_order.id,
+            "sales_line_id": sales_line.id,
+            "purchase_order_id": purchase_order.id,
+            "purchase_line_id": purchase_line.id,
+            "inbound_order_id": inbound.id,
+            "inbound_line_id": inbound_line.id,
+        }
+
+
+async def _cleanup_lock_chain(_engine, ids: dict[str, int]) -> None:
+    Session = async_sessionmaker(_engine, expire_on_commit=False)
+    async with Session() as db:
+        disposition_ids = select(InventoryDispositionOrder.id).where(
+            InventoryDispositionOrder.inbound_order_id == ids["inbound_order_id"])
+        purchase_return_ids = select(PurchaseReturnOrder.id).where(
+            PurchaseReturnOrder.inbound_order_id == ids["inbound_order_id"])
+        await db.execute(delete(InventoryMovement).where(
+            InventoryMovement.sales_order_id == ids["sales_order_id"]))
+        await db.execute(delete(InventoryDispositionLine).where(
+            InventoryDispositionLine.inventory_disposition_order_id.in_(disposition_ids)))
+        await db.execute(delete(InventoryDispositionOrder).where(
+            InventoryDispositionOrder.inbound_order_id == ids["inbound_order_id"]))
+        await db.execute(delete(PurchaseReturnLine).where(
+            PurchaseReturnLine.purchase_return_order_id.in_(purchase_return_ids)))
+        await db.execute(delete(PurchaseReturnOrder).where(
+            PurchaseReturnOrder.inbound_order_id == ids["inbound_order_id"]))
+        await db.execute(delete(Payable).where(
+            Payable.inbound_order_id == ids["inbound_order_id"]))
+        await db.execute(delete(InventoryBalance).where(
+            InventoryBalance.sales_order_id == ids["sales_order_id"]))
+        await db.execute(delete(InboundOrderLine).where(
+            InboundOrderLine.inbound_order_id == ids["inbound_order_id"]))
+        await db.execute(delete(InboundOrder).where(
+            InboundOrder.id == ids["inbound_order_id"]))
+        await db.execute(delete(PurchaseOrderLine).where(
+            PurchaseOrderLine.purchase_order_id == ids["purchase_order_id"]))
+        await db.execute(delete(PurchaseOrder).where(
+            PurchaseOrder.id == ids["purchase_order_id"]))
+        await db.execute(delete(SalesOrderLine).where(
+            SalesOrderLine.sales_order_id == ids["sales_order_id"]))
+        await db.execute(delete(SalesOrder).where(
+            SalesOrder.id == ids["sales_order_id"]))
+        await db.execute(delete(QuotationLine).where(
+            QuotationLine.quotation_order_id == ids["quotation_id"]))
+        await db.execute(delete(QuotationOrder).where(
+            QuotationOrder.id == ids["quotation_id"]))
+        await db.execute(delete(Sku).where(Sku.id == ids["sku_id"]))
+        await db.execute(delete(Spu).where(Spu.id == ids["spu_id"]))
+        await db.execute(delete(Category).where(Category.code == ids["category_code"]))
+        await db.execute(delete(Customer).where(Customer.id == ids["customer_id"]))
+        await db.execute(delete(Supplier).where(Supplier.id == ids["supplier_id"]))
+        await db.commit()
+
+
+async def _run_in_session(_engine, fn):
+    Session = async_sessionmaker(_engine, expire_on_commit=False)
+    async with Session() as db:
+        try:
+            return await fn(db)
+        except Exception as exc:  # noqa: BLE001 - tests assert business conflict, not task crash.
+            return exc
+
+
+async def test_disposition_and_purchase_return_creation_share_sales_order_first_lock_order(
+        _engine):
+    ids = await _create_lock_chain(_engine, received=True)
+    Session = async_sessionmaker(_engine, expire_on_commit=False)
+    async with Session() as disposition_db:
+        try:
+            await disposition_db.execute(
+                select(SalesOrder)
+                .where(SalesOrder.id == ids["sales_order_id"])
+                .with_for_update())
+
+            contender = asyncio.create_task(_run_in_session(
+                _engine,
+                lambda db: purchase_return_service.create_purchase_return(
+                    db,
+                    inbound_order_id=ids["inbound_order_id"],
+                    reason="并发采购退货",
+                    lines=[{"inbound_order_line_id": ids["inbound_line_id"], "qty": 1}],
+                    actor_user_id=1,
+                    actor_user_email="lock@test.local",
+                ),
+            ))
+            await asyncio.sleep(0.2)
+            disposition = await inventory_disposition_service.create_disposition(
+                disposition_db,
+                inbound_order_id=ids["inbound_order_id"],
+                receipt_handling=InventoryDispositionReceiptHandling.RECEIVE_TO_DISPOSITION,
+                reason="并发库存处置",
+                actor_user_id=1,
+                actor_user_email="lock@test.local",
+            )
+            result = await asyncio.wait_for(contender, timeout=8)
+
+            assert disposition.inbound_order_id == ids["inbound_order_id"]
+            assert isinstance(result, PurchaseReturnSourceInvalidError)
+        finally:
+            await disposition_db.close()
+            await _cleanup_lock_chain(_engine, ids)
+
+
+async def test_disposition_and_in_transit_cancellation_share_sales_order_first_lock_order(
+        _engine):
+    ids = await _create_lock_chain(_engine, received=False)
+    Session = async_sessionmaker(_engine, expire_on_commit=False)
+    async with Session() as disposition_db:
+        try:
+            await disposition_db.execute(
+                select(SalesOrder)
+                .where(SalesOrder.id == ids["sales_order_id"])
+                .with_for_update())
+
+            contender = asyncio.create_task(_run_in_session(
+                _engine,
+                lambda db: purchase_return_service.create_in_transit_cancellation(
+                    db,
+                    inbound_order_id=ids["inbound_order_id"],
+                    reason="并发在途取消",
+                    actor_user_id=1,
+                    actor_user_email="lock@test.local",
+                ),
+            ))
+            await asyncio.sleep(0.2)
+            disposition = await inventory_disposition_service.create_disposition(
+                disposition_db,
+                inbound_order_id=ids["inbound_order_id"],
+                receipt_handling=InventoryDispositionReceiptHandling.CLOSE_WITHOUT_RECEIPT,
+                reason="并发库存处置",
+                actor_user_id=1,
+                actor_user_email="lock@test.local",
+            )
+            result = await asyncio.wait_for(contender, timeout=8)
+
+            assert disposition.inbound_order_id == ids["inbound_order_id"]
+            assert isinstance(result, PurchaseReturnSourceInvalidError)
+        finally:
+            await disposition_db.close()
+            await _cleanup_lock_chain(_engine, ids)
+
+
+async def test_disposition_and_receive_share_sales_order_first_lock_order(_engine):
+    ids = await _create_lock_chain(_engine, received=False)
+    Session = async_sessionmaker(_engine, expire_on_commit=False)
+    async with Session() as disposition_db:
+        try:
+            await disposition_db.execute(
+                select(SalesOrder)
+                .where(SalesOrder.id == ids["sales_order_id"])
+                .with_for_update())
+
+            contender = asyncio.create_task(_run_in_session(
+                _engine,
+                lambda db: inbound_order_service.receive_order(
+                    db,
+                    order_id=ids["inbound_order_id"],
+                    arrived_at=date.today(),
+                    actor_user_id=1,
+                    actor_user_email="lock@test.local",
+                ),
+            ))
+            await asyncio.sleep(0.2)
+            disposition = await inventory_disposition_service.create_disposition(
+                disposition_db,
+                inbound_order_id=ids["inbound_order_id"],
+                receipt_handling=InventoryDispositionReceiptHandling.CLOSE_WITHOUT_RECEIPT,
+                reason="并发库存处置",
+                actor_user_id=1,
+                actor_user_email="lock@test.local",
+            )
+            result = await asyncio.wait_for(contender, timeout=8)
+
+            assert disposition.inbound_order_id == ids["inbound_order_id"]
+            assert isinstance(result, InboundOrderInvalidTransitionError)
+        finally:
+            await disposition_db.close()
+            await _cleanup_lock_chain(_engine, ids)
 
 
 async def test_purchase_return_flow_separates_approval_stock_and_ap_credit_memo(
@@ -282,6 +655,215 @@ async def test_in_transit_cancellation_creates_ap_credit_without_stock_movement(
         "lines": [{"purchase_order_line_id": ctx["po_lines"][0]["id"], "qty": 10}],
     })
     assert reopened.status_code == 200, reopened.text
+
+
+async def test_inventory_disposition_received_holds_stock_and_preserves_ap(
+        client, db_session, sales_headers, purchaser_headers):
+    ctx = await setup_available_stock(
+        client, db_session, sales_headers, purchaser_headers,
+        so_qty=10, po_price="5.00", received=10, sku_codes=("SKUPR_CA",))
+
+    created = await client.post(
+        "/api/v1/inventory-dispositions",
+        headers=purchaser_headers,
+        json={
+            "inbound_order_id": ctx["inbound_order_id"],
+            "receipt_handling": "RECEIVE_TO_DISPOSITION",
+            "reason": "供应商不接受,客户取消后转待处置",
+        },
+    )
+    assert created.status_code == 200, created.text
+    data = created.json()["data"]
+    assert data["order"]["no"].startswith("IDP")
+    assert data["order"]["status"] == "HELD"
+    assert data["order"]["receipt_handling"] == "RECEIVE_TO_DISPOSITION"
+    assert data["order"]["purchase_currency"] == "USD"
+    assert data["order"]["supplier_payable_amount"] == 50.0
+    assert "customer_refund" not in data
+    assert "company_loss_entry" not in data
+
+    payable = (await db_session.execute(
+        select(Payable).where(Payable.inbound_order_id == ctx["inbound_order_id"])
+    )).scalar_one()
+    assert float(payable.amount_original) == 50.0
+    assert float(payable.amount_credited) == 0.0
+    assert float(payable.amount_outstanding) == 50.0
+
+    balance = (await db_session.execute(
+        select(InventoryBalance).where(
+            InventoryBalance.sales_order_id == ctx["sales_order_id"],
+            InventoryBalance.sku_id == ctx["skus"][0].id,
+        )
+    )).scalar_one()
+    await db_session.refresh(balance)
+    assert float(balance.inbound_qty) == 10.0
+    assert float(balance.outbound_qty) == 0.0
+    assert float(balance.disposition_qty) == 10.0
+    assert float(balance.available_qty) == 0.0
+
+    movement = (await db_session.execute(
+        select(InventoryMovement).where(
+            InventoryMovement.movement_type
+            == InventoryMovementType.DISPOSITION_HOLD
+        )
+    )).scalar_one()
+    assert movement.source_type == "INVENTORY_DISPOSITION_ORDER"
+    assert movement.source_id == data["order"]["id"]
+    # DISPOSITION_HOLD 只冻结可发口径;货仍由 inbound_qty/disposition_qty 表达为待处置资产。
+    assert float(movement.qty_delta) == -10.0
+    assert (await db_session.execute(select(func.count(APCreditMemo.id)))).scalar_one() == 0
+
+    duplicate = await client.post(
+        "/api/v1/inventory-dispositions",
+        headers=purchaser_headers,
+        json={
+            "inbound_order_id": ctx["inbound_order_id"],
+            "receipt_handling": "RECEIVE_TO_DISPOSITION",
+        },
+    )
+    assert duplicate.status_code == 409
+
+
+async def test_inventory_disposition_in_transit_receives_into_disposition_without_ap_credit(
+        client, db_session, sales_headers, purchaser_headers):
+    ctx = await setup_available_stock(
+        client, db_session, sales_headers, purchaser_headers,
+        so_qty=10, po_price="5.00", received=0, sku_codes=("SKUPR_CB",))
+
+    created_inbound = await client.post("/api/v1/inbound-orders", headers=purchaser_headers, json={
+        "purchase_order_id": ctx["purchase_order_id"],
+        "lines": [{"purchase_order_line_id": ctx["po_lines"][0]["id"], "qty": 10}],
+    })
+    assert created_inbound.status_code == 200, created_inbound.text
+    inbound_id = created_inbound.json()["data"]["order"]["id"]
+
+    created = await client.post(
+        "/api/v1/inventory-dispositions",
+        headers=purchaser_headers,
+        json={
+            "inbound_order_id": inbound_id,
+            "receipt_handling": "RECEIVE_TO_DISPOSITION",
+            "reason": "供应商不接受取消但客户侧已退款",
+        },
+    )
+    assert created.status_code == 200, created.text
+    order_id = created.json()["data"]["order"]["id"]
+    assert created.json()["data"]["order"]["status"] == "PENDING_RECEIPT"
+    assert created.json()["data"]["order"]["receipt_handling"] == "RECEIVE_TO_DISPOSITION"
+    assert "customer_refund" not in created.json()["data"]
+    assert "company_loss_entry" not in created.json()["data"]
+
+    received = await client.post(
+        f"/api/v1/inbound-orders/{inbound_id}/receive",
+        headers=purchaser_headers,
+        json={},
+    )
+    assert received.status_code == 200, received.text
+
+    inbound = (await db_session.execute(
+        select(InboundOrder).where(InboundOrder.id == inbound_id)
+    )).scalar_one()
+    assert inbound.status == "RECEIVED"
+    payable = (await db_session.execute(
+        select(Payable).where(Payable.inbound_order_id == inbound_id)
+    )).scalar_one()
+    assert float(payable.amount_credited) == 0.0
+    assert float(payable.amount_outstanding) == 50.0
+    assert (await db_session.execute(select(func.count(APCreditMemo.id)))).scalar_one() == 0
+    balance = (await db_session.execute(
+        select(InventoryBalance).where(
+            InventoryBalance.sales_order_id == ctx["sales_order_id"],
+            InventoryBalance.sku_id == ctx["skus"][0].id,
+        )
+    )).scalar_one()
+    assert float(balance.inbound_qty) == 10.0
+    assert float(balance.disposition_qty) == 10.0
+    assert float(balance.available_qty) == 0.0
+    movement_types = set((await db_session.execute(
+        select(InventoryMovement.movement_type)
+    )).scalars().all())
+    assert movement_types == {
+        InventoryMovementType.INBOUND_RECEIVE,
+        InventoryMovementType.DISPOSITION_HOLD,
+    }
+    detail = await client.get(
+        f"/api/v1/inventory-dispositions/by-inbound/{inbound_id}",
+        headers=purchaser_headers,
+    )
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["data"]["order"]["id"] == order_id
+    assert detail.json()["data"]["order"]["status"] == "HELD"
+
+
+async def test_inventory_disposition_in_transit_can_close_without_receipt(
+        client, db_session, sales_headers, purchaser_headers):
+    ctx = await setup_available_stock(
+        client, db_session, sales_headers, purchaser_headers,
+        so_qty=10, po_price="5.00", received=0, sku_codes=("SKUPR_CC",))
+
+    created_inbound = await client.post("/api/v1/inbound-orders", headers=purchaser_headers, json={
+        "purchase_order_id": ctx["purchase_order_id"],
+        "lines": [{"purchase_order_line_id": ctx["po_lines"][0]["id"], "qty": 10}],
+    })
+    assert created_inbound.status_code == 200, created_inbound.text
+    inbound_id = created_inbound.json()["data"]["order"]["id"]
+
+    created = await client.post(
+        "/api/v1/inventory-dispositions",
+        headers=purchaser_headers,
+        json={
+            "inbound_order_id": inbound_id,
+            "receipt_handling": "CLOSE_WITHOUT_RECEIPT",
+            "reason": "货不再进入货代仓,供应商应付保留",
+        },
+    )
+    assert created.status_code == 200, created.text
+    data = created.json()["data"]
+    assert data["order"]["status"] == "CLOSED_WITHOUT_RECEIPT"
+    assert data["order"]["receipt_handling"] == "CLOSE_WITHOUT_RECEIPT"
+    assert data["order"]["purchase_currency"] == "USD"
+    assert data["order"]["supplier_payable_amount"] == 50.0
+    assert "customer_refund" not in data
+    assert "company_loss_entry" not in data
+
+    inbound = (await db_session.execute(
+        select(InboundOrder).where(InboundOrder.id == inbound_id)
+    )).scalar_one()
+    assert inbound.status == "CLOSED"
+    assert inbound.arrived_at is None
+    payable = (await db_session.execute(
+        select(Payable).where(Payable.inbound_order_id == inbound_id)
+    )).scalar_one()
+    assert float(payable.amount_original) == 50.0
+    assert float(payable.amount_credited) == 0.0
+    assert float(payable.amount_outstanding) == 50.0
+    assert (await db_session.execute(select(func.count(APCreditMemo.id)))).scalar_one() == 0
+    assert (await db_session.execute(select(func.count(InventoryMovement.id)))).scalar_one() == 0
+    assert (await db_session.execute(select(func.count(InventoryBalance.id)))).scalar_one() == 0
+
+    received = await client.post(
+        f"/api/v1/inbound-orders/{inbound_id}/receive",
+        headers=purchaser_headers,
+        json={},
+    )
+    assert received.status_code == 409
+    assert received.json()["code"] == 41704
+
+    reopened = await client.post("/api/v1/inbound-orders", headers=purchaser_headers, json={
+        "purchase_order_id": ctx["purchase_order_id"],
+        "lines": [{"purchase_order_line_id": ctx["po_lines"][0]["id"], "qty": 10}],
+    })
+    assert reopened.status_code == 409
+    assert reopened.json()["code"] == 41703
+
+    inbound_audit = (await db_session.execute(
+        select(AuditLog).where(
+            AuditLog.resource_type == AuditResourceType.INBOUND_ORDER.value,
+            AuditLog.resource_id == str(inbound_id),
+            AuditLog.action == AuditAction.UPDATE.value,
+        )
+    )).scalar_one()
+    assert inbound_audit.extra["receipt_handling"] == "CLOSE_WITHOUT_RECEIPT"
 
 
 async def test_rejected_in_transit_credit_memo_can_be_resubmitted_without_reopening_flow(

@@ -14,13 +14,16 @@ from tests.purchase_helpers import create_supplier
 
 async def setup_available_stock(client, db_session, sales_headers, purchaser_headers, *,
                                 sku_codes=("SKUOB_A",), so_qty=10, unit_price="9.00",
-                                po_price="5.00", received=None):
+                                po_price="5.00", received=None, so_currency="USD",
+                                customer=None):
     """建到「有可发库存」:catalog(N SKU)→ CONFIRMED SO(每 SKU 一行 so_qty @ unit_price)
     → CONFIRMED PO(每行 so_qty @ po_price)→ 收货 received(默认=so_qty,None→不收)。
     返回 dict:customer / skus / sales_order_id / so_lines / purchase_order_id / po_lines。"""
-    cust, skus = await seed_inventory_catalog(db_session, sku_codes=sku_codes)
+    cust, skus = await seed_inventory_catalog(
+        db_session, sku_codes=sku_codes, customer=customer)
     so_lines_in = [{"sku_id": s.id, "unit_price": unit_price, "qty": so_qty} for s in skus]
-    so_id, so_lines = await make_confirmed_so(client, sales_headers, cust, so_lines_in)
+    so_id, so_lines = await make_confirmed_so(
+        client, sales_headers, cust, so_lines_in, currency=so_currency)
     supplier = await create_supplier(client, purchaser_headers)
     po_line_payload = [{"source_sales_order_line_id": ln["id"], "qty": so_qty,
                         "unit_price": po_price} for ln in so_lines]

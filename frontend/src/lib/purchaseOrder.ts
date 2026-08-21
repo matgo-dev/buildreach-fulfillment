@@ -18,7 +18,7 @@ export type ReceiptProgress = "NOT_RECEIVED" | "PARTIALLY_RECEIVED" | "FULLY_REC
 export interface RelatedInboundOrder {
   id: number;
   no: string;
-  status: "IN_TRANSIT" | "RECEIVED" | "CANCELLED";
+  status: "IN_TRANSIT" | "RECEIVED" | "CANCELLED" | "CLOSED";
   carrier_name: string | null;
   tracking_no: string | null;
   eta: string | null;

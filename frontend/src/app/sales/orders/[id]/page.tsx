@@ -296,6 +296,8 @@ export default function SalesOrderDetailPage() {
                 render: (v: number | string) => <NumCell value={v} /> },
               { title: "已出库", dataIndex: "outbound_qty", width: 90, align: "right",
                 render: (v: number | string) => <NumCell value={v} /> },
+              { title: "待处置", dataIndex: "disposition_qty", width: 90, align: "right",
+                render: (v: number | string) => <NumCell value={v} /> },
               { title: "可发量", dataIndex: "available_qty", width: 90, align: "right",
                 render: (v: number | string) => <NumCell value={v} strong /> },
             ]}

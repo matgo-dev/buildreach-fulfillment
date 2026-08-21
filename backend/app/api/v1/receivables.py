@@ -29,11 +29,15 @@ async def list_receivables(page_params: PageParams = Depends(), customer_id: int
                                None, pattern=r"^(UNPAID|PARTIALLY_PAID|PAID)$"),
                            q: str | None = None,
                            current: CurrentUser = _READ, db: AsyncSession = Depends(get_db)):
-    # D10 提示位派生自收款域:无 receipt:read 者不下发(恒 False),权限跟数据走。
+    # D10 提示位派生自收款/客户贷方域:无相关权限者不下发(恒 False),权限跟数据走。
     items, total = await receivable_service.list_receivables(
         db, customer_id=customer_id, currency=currency, status=status, q=q,
         page=page_params.page, size=page_params.size,
-        can_read_receipt=has_permission(current, Permissions.RECEIPT_READ))
+        can_read_receipt=has_permission(current, Permissions.RECEIPT_READ),
+        can_read_customer_credit=(
+            has_permission(current, Permissions.CUSTOMER_CREDIT_CREATE)
+            or has_permission(current, Permissions.CUSTOMER_CREDIT_POST)
+            or has_permission(current, Permissions.CUSTOMER_CREDIT_VOID)))
     return success(Page(
         items=[ReceivableListItem.build(it) for it in items],
         total=total, page=page_params.page, size=page_params.size).model_dump())
@@ -42,6 +46,11 @@ async def list_receivables(page_params: PageParams = Depends(), customer_id: int
 @router.get("/{receivable_id}", summary="应收款详情(嵌活动核销记录:哪笔收款冲了多少)")
 async def get_receivable(receivable_id: int, current: CurrentUser = _READ,
                          db: AsyncSession = Depends(get_db)):
-    # 核销记录派生自收款域:无 receipt:read 不下发(整块脱敏),与列表提示位同源门控。
+    # 核销记录派生自收款/客户贷方域:无相关权限不下发(整块脱敏),与列表提示位同源门控。
     return success(await receivable_service.get_detail(
-        db, receivable_id, can_read_receipt=has_permission(current, Permissions.RECEIPT_READ)))
+        db, receivable_id,
+        can_read_receipt=has_permission(current, Permissions.RECEIPT_READ),
+        can_read_customer_credit=(
+            has_permission(current, Permissions.CUSTOMER_CREDIT_CREATE)
+            or has_permission(current, Permissions.CUSTOMER_CREDIT_POST)
+            or has_permission(current, Permissions.CUSTOMER_CREDIT_VOID))))

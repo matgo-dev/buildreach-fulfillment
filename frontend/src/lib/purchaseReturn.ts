@@ -9,7 +9,9 @@ export type PurchaseReturnStatus =
   | "RETURNED"
   | "VOIDED";
 
-export type PurchaseReturnKind = "PURCHASE_RETURN" | "IN_TRANSIT_CANCELLATION";
+export type PurchaseReturnKind =
+  | "PURCHASE_RETURN"
+  | "IN_TRANSIT_CANCELLATION";
 
 export type APCreditMemoStatus = "PENDING_APPROVAL" | "POSTED" | "REJECTED" | "VOIDED";
 
