@@ -133,6 +133,8 @@ class CustomerCreditAllocation(Base):
             "(reversed_at IS NULL) = (reversed_by IS NULL)",
             name="ck_customer_credit_alloc_reverse_pair"),
         Index("uq_customer_credit_alloc_idempotency", "idempotency_key", unique=True),
+        Index("uq_customer_credit_alloc_reverse_idempotency", "reverse_idempotency_key",
+              unique=True, postgresql_where=text("reverse_idempotency_key IS NOT NULL")),
         Index("ix_customer_credit_alloc_credit_active", "customer_credit_memo_id",
               "reversed_at"),
         Index("ix_customer_credit_alloc_receivable_active", "receivable_id", "reversed_at"),
@@ -147,6 +149,7 @@ class CustomerCreditAllocation(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     alloc_type: Mapped[str] = mapped_column(String(16), nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    reverse_idempotency_key: Mapped[str | None] = mapped_column(String(120), nullable=True)
     reversed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     reversed_by: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, index=True)

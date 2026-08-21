@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
@@ -48,6 +48,7 @@ class CustomerCreditMemoVoidIn(BaseModel):
 
 class CustomerCreditAllocationReverseIn(BaseModel):
     reverse_reason: str = Field(..., min_length=1, max_length=500)
+    idempotency_key: str = Field(..., min_length=1, max_length=120)
 
     _strip_reason = field_validator("reverse_reason", mode="before")(_strip_required)
 
@@ -125,6 +126,7 @@ class CustomerCreditAllocationOut(BaseModel):
     reversed_at: datetime | None
     reversed_by: int | None
     reverse_reason: str | None
+    reverse_idempotency_key: str | None
 
     @classmethod
     def build(cls, row) -> dict:
@@ -146,6 +148,7 @@ class CustomerCreditAllocationOut(BaseModel):
             "reversed_at": alloc.reversed_at,
             "reversed_by": alloc.reversed_by,
             "reverse_reason": alloc.reverse_reason,
+            "reverse_idempotency_key": alloc.reverse_idempotency_key,
         }
 
 
@@ -161,4 +164,42 @@ class CustomerCreditMemoDetailOut(BaseModel):
                 CustomerCreditAllocationOut.build(row)
                 for row in detail["allocations"]
             ],
+        }
+
+
+class CustomerCreditEligibleReceivableOut(BaseModel):
+    id: int
+    outbound_order_id: int
+    outbound_order_no: str
+    sales_order_id: int
+    sales_order_no: str
+    customer_id: int
+    customer_display: str
+    currency: str
+    amount_original: Decimal
+    amount_allocated: Decimal
+    amount_outstanding: Decimal
+    due_at: date | None
+    created_at: datetime
+
+    @classmethod
+    def build(cls, row) -> dict:
+        receivable, customer_name, outbound_no, sales_order_no = row
+        return {
+            "id": receivable.id,
+            "outbound_order_id": receivable.outbound_order_id,
+            "outbound_order_no": outbound_no,
+            "sales_order_id": receivable.sales_order_id,
+            "sales_order_no": sales_order_no,
+            "customer_id": receivable.customer_id,
+            "customer_display": customer_name,
+            "currency": receivable.currency,
+            "amount_original": Decimal(str(receivable.amount_original)),
+            "amount_allocated": Decimal(str(receivable.amount_allocated)),
+            "amount_outstanding": (
+                Decimal(str(receivable.amount_original))
+                - Decimal(str(receivable.amount_allocated))
+            ),
+            "due_at": receivable.due_at,
+            "created_at": receivable.created_at,
         }

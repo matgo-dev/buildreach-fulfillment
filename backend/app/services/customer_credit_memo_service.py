@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import func, nullslast, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
@@ -166,6 +166,40 @@ async def list_memos(
     base = select(CustomerCreditMemo).where(*conds).order_by(
         CustomerCreditMemo.created_at.desc(), CustomerCreditMemo.id.desc())
     return await paginate(db, base, page=page, size=size)
+
+
+async def list_eligible_receivables(
+    db: AsyncSession, *,
+    memo_id: int,
+    q: str | None = None,
+    page: int = 1,
+    size: int = 20,
+) -> tuple[list[tuple[Receivable, str, str, str]], int]:
+    memo = await get(db, memo_id)
+    if memo.status != CustomerCreditMemoStatus.POSTED:
+        raise PurchaseReturnSourceInvalidError("仅已过账客户余额贷项单可选择未结应收")
+    if _memo_remaining(memo) <= 0:
+        raise AllocationExceedsSourceError("客户余额贷项单未分配余额不足")
+
+    conds = [
+        Receivable.customer_id == memo.customer_id,
+        Receivable.currency == memo.currency,
+        Receivable.voided_at.is_(None),
+        Receivable.amount_outstanding > 0,
+    ]
+    if q and q.strip():
+        like = f"%{q.strip()}%"
+        conds.append(OutboundOrder.no.ilike(like) | SalesOrder.no.ilike(like))
+
+    base = (
+        select(Receivable, Customer.name, OutboundOrder.no, SalesOrder.no)
+        .join(Customer, Customer.id == Receivable.customer_id)
+        .join(OutboundOrder, OutboundOrder.id == Receivable.outbound_order_id)
+        .join(SalesOrder, SalesOrder.id == Receivable.sales_order_id)
+        .where(*conds)
+        .order_by(nullslast(Receivable.due_at.asc()), Receivable.created_at.asc(), Receivable.id.asc())
+    )
+    return await paginate(db, base, page=page, size=size, scalars=False)
 
 
 async def posted_unallocated_balance(
@@ -503,6 +537,16 @@ async def _allocation_by_idempotency_key(
     )).scalar_one_or_none()
 
 
+async def _allocation_by_reverse_idempotency_key(
+    db: AsyncSession,
+    idempotency_key: str,
+) -> CustomerCreditAllocation | None:
+    return (await db.execute(
+        select(CustomerCreditAllocation)
+        .where(CustomerCreditAllocation.reverse_idempotency_key == idempotency_key)
+    )).scalar_one_or_none()
+
+
 def _assert_same_idempotent_allocation(
     existing: CustomerCreditAllocation,
     *,
@@ -513,6 +557,17 @@ def _assert_same_idempotent_allocation(
     if existing.customer_credit_memo_id != memo_id or existing.receivable_id != receivable_id:
         raise AllocationIdempotencyConflictError()
     if amount is not None and _d(existing.amount) != _d(amount):
+        raise AllocationIdempotencyConflictError()
+    return existing
+
+
+def _assert_same_reverse_idempotent_allocation(
+    existing: CustomerCreditAllocation,
+    *,
+    allocation_id: int,
+    reverse_reason: str,
+) -> CustomerCreditAllocation:
+    if existing.id != allocation_id or existing.reverse_reason != reverse_reason:
         raise AllocationIdempotencyConflictError()
     return existing
 
@@ -683,21 +738,39 @@ async def reverse_allocation(
     db: AsyncSession, *,
     allocation_id: int,
     reverse_reason: str,
+    idempotency_key: str,
     actor_user_id: int,
     actor_user_email: str,
     request: Request | None = None,
 ) -> CustomerCreditAllocation:
     reverse_reason = _assert_required_text(reverse_reason, field="反抵扣原因")
+    existing = await _allocation_by_reverse_idempotency_key(db, idempotency_key)
+    if existing is not None:
+        return _assert_same_reverse_idempotent_allocation(
+            existing, allocation_id=allocation_id, reverse_reason=reverse_reason)
+
     snapshot = (await db.execute(
         select(
             CustomerCreditAllocation.id,
             CustomerCreditAllocation.customer_credit_memo_id,
             CustomerCreditAllocation.receivable_id,
             CustomerCreditAllocation.reversed_at,
+            CustomerCreditAllocation.reverse_idempotency_key,
+            CustomerCreditAllocation.reverse_reason,
         )
         .where(CustomerCreditAllocation.id == allocation_id)
     )).one_or_none()
-    if snapshot is None or snapshot.reversed_at is not None:
+    if snapshot is None:
+        raise AllocationReverseNotFoundError()
+    if snapshot.reversed_at is not None:
+        if (snapshot.reverse_idempotency_key == idempotency_key
+                and snapshot.reverse_reason == reverse_reason):
+            return (await db.execute(
+                select(CustomerCreditAllocation)
+                .where(CustomerCreditAllocation.id == allocation_id)
+            )).scalar_one()
+        if snapshot.reverse_idempotency_key is not None:
+            raise AllocationReverseNotFoundError("抵扣记录已被其他操作反抵扣")
         raise AllocationReverseNotFoundError()
 
     memo_snapshot = (await db.execute(
@@ -705,6 +778,11 @@ async def reverse_allocation(
         .where(CustomerCreditMemo.id == snapshot.customer_credit_memo_id)
     )).scalar_one()
     await _lock_customer(db, memo_snapshot)
+    existing = await _allocation_by_reverse_idempotency_key(db, idempotency_key)
+    if existing is not None:
+        return _assert_same_reverse_idempotent_allocation(
+            existing, allocation_id=allocation_id, reverse_reason=reverse_reason)
+
     memo = (await db.execute(
         select(CustomerCreditMemo)
         .where(CustomerCreditMemo.id == snapshot.customer_credit_memo_id)
@@ -720,16 +798,34 @@ async def reverse_allocation(
         .where(CustomerCreditAllocation.id == allocation_id)
         .with_for_update()
     )).scalar_one_or_none()
-    if alloc is None or alloc.reversed_at is not None:
+    if alloc is None:
+        raise AllocationReverseNotFoundError()
+    if alloc.reversed_at is not None:
+        if (alloc.reverse_idempotency_key == idempotency_key
+                and alloc.reverse_reason == reverse_reason):
+            return alloc
+        if alloc.reverse_idempotency_key is not None:
+            raise AllocationReverseNotFoundError("抵扣记录已被其他操作反抵扣")
         raise AllocationReverseNotFoundError()
 
     amt = _d(alloc.amount)
     alloc.reversed_at = _utcnow()
     alloc.reversed_by = actor_user_id
     alloc.reverse_reason = reverse_reason
+    alloc.reverse_idempotency_key = idempotency_key
     memo.amount_allocated = _d(memo.amount_allocated) - amt
     receivable.amount_allocated = _d(receivable.amount_allocated) - amt
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        await db.rollback()
+        if "uq_customer_credit_alloc_reverse_idempotency" in str(exc.orig):
+            existing = await _allocation_by_reverse_idempotency_key(db, idempotency_key)
+            if existing is not None:
+                return _assert_same_reverse_idempotent_allocation(
+                    existing, allocation_id=allocation_id, reverse_reason=reverse_reason)
+            raise AllocationIdempotencyConflictError() from exc
+        raise
     await write_audit(
         db, resource_type=AuditResourceType.CUSTOMER_CREDIT_MEMO,
         action=AuditAction.REVERSE, user_id=actor_user_id, user_email=actor_user_email,

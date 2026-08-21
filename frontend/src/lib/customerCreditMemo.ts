@@ -64,11 +64,28 @@ export interface CustomerCreditAllocationOut {
   reversed_at: string | null;
   reversed_by: number | null;
   reverse_reason: string | null;
+  reverse_idempotency_key: string | null;
 }
 
 export interface CustomerCreditMemoDetailOut {
   memo: CustomerCreditMemoOut;
   allocations: CustomerCreditAllocationOut[];
+}
+
+export interface CustomerCreditEligibleReceivableOut {
+  id: number;
+  outbound_order_id: number;
+  outbound_order_no: string;
+  sales_order_id: number;
+  sales_order_no: string;
+  customer_id: number;
+  customer_display: string;
+  currency: string;
+  amount_original: number | string;
+  amount_allocated: number | string;
+  amount_outstanding: number | string;
+  due_at: string | null;
+  created_at: string;
 }
 
 export interface CustomerCreditMemoResubmitBody {
@@ -94,12 +111,16 @@ export const customerCreditMemoApi = {
     api.post<CustomerCreditMemoOut>(`/api/v1/customer-credit-memos/${id}/reject`, { reject_reason }),
   resubmit: (id: number, body: CustomerCreditMemoResubmitBody) =>
     api.post<CustomerCreditMemoOut>(`/api/v1/customer-credit-memos/${id}/resubmit`, body),
+  eligibleReceivables: (id: number, p: { q?: string; page?: number; size?: number }) =>
+    api.get<Page<CustomerCreditEligibleReceivableOut>>(
+      `/api/v1/customer-credit-memos/${id}/eligible-receivables${qs(p as Record<string, unknown>)}`,
+    ),
   allocate: (id: number, body: { account_id: number; amount?: number | string; idempotency_key: string }) =>
     api.post<{ allocation_id: number }>(`/api/v1/customer-credit-memos/${id}/allocations`, body),
-  reverseAllocation: (allocationId: number, reverse_reason: string) =>
+  reverseAllocation: (allocationId: number, body: { reverse_reason: string; idempotency_key: string }) =>
     api.post<{ allocation_id: number }>(
       `/api/v1/customer-credit-memos/allocations/${allocationId}/reverse`,
-      { reverse_reason },
+      body,
     ),
   void: (id: number, void_reason: string) =>
     api.post<CustomerCreditMemoOut>(`/api/v1/customer-credit-memos/${id}/void`, { void_reason }),

@@ -23,11 +23,11 @@ import { resolveBizError } from "@/lib/errorMessages";
 import {
   CUSTOMER_CREDIT_MEMO_STATUS_META,
   customerCreditMemoApi,
+  type CustomerCreditEligibleReceivableOut,
   type CustomerCreditMemoDetailOut,
   type CustomerCreditMemoOut,
   type CustomerCreditMemoStatus,
 } from "@/lib/customerCreditMemo";
-import { receivableApi, type ReceivableListItem } from "@/lib/receivable";
 
 const STATUS_TABS = [
   { label: "全部", value: "" },
@@ -53,11 +53,17 @@ export default function CustomerCreditMemoPage() {
   const [voidTarget, setVoidTarget] = useState<CustomerCreditMemoOut | null>(null);
   const [voidReason, setVoidReason] = useState("");
   const [allocateTarget, setAllocateTarget] = useState<CustomerCreditMemoOut | null>(null);
-  const [eligibleReceivables, setEligibleReceivables] = useState<ReceivableListItem[]>([]);
+  const [eligibleReceivables, setEligibleReceivables] = useState<CustomerCreditEligibleReceivableOut[]>([]);
+  const [eligibleReceivablesTotal, setEligibleReceivablesTotal] = useState(0);
+  const [eligibleReceivablesPage, setEligibleReceivablesPage] = useState(1);
+  const [eligibleReceivablesSearch, setEligibleReceivablesSearch] = useState("");
+  const [eligibleReceivablesLoading, setEligibleReceivablesLoading] = useState(false);
   const [receivableId, setReceivableId] = useState<number | undefined>(undefined);
   const [allocateAmount, setAllocateAmount] = useState("");
+  const [allocateRequestKey, setAllocateRequestKey] = useState<string | null>(null);
   const [reverseTarget, setReverseTarget] = useState<{ id: number; memoId: number } | null>(null);
   const [reverseReason, setReverseReason] = useState("");
+  const [reverseRequestKey, setReverseRequestKey] = useState<string | null>(null);
 
   const fetcher = useCallback(
     ({ page, size }: { page: number; size: number }) =>
@@ -81,15 +87,17 @@ export default function CustomerCreditMemoPage() {
       .catch(() => undefined);
   }, []);
 
-  async function act(key: string, fn: () => Promise<unknown>, ok: string) {
+  async function act(key: string, fn: () => Promise<unknown>, ok: string): Promise<boolean> {
     setActingKey(key);
     try {
       await fn();
       message.success(ok);
       setDetailById({});
-      load();
+      await load();
+      return true;
     } catch (e) {
       message.error(resolveBizError(e, "操作失败"));
+      return false;
     } finally {
       setActingKey(null);
     }
@@ -108,49 +116,88 @@ export default function CustomerCreditMemoPage() {
     }
   }
 
-  function defaultAmount(memo: CustomerCreditMemoOut, receivable?: ReceivableListItem) {
+  function defaultAmount(memo: CustomerCreditMemoOut, receivable?: CustomerCreditEligibleReceivableOut) {
     if (!receivable) return "";
     return String(Math.min(Number(memo.amount_unallocated), Number(receivable.amount_outstanding)));
   }
 
-  async function openAllocate(row: CustomerCreditMemoOut) {
-    setAllocateTarget(row);
+  function newOperationKey(prefix: string) {
+    const random = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+    return `${prefix}:${random}`;
+  }
+
+  function getOrCreateAllocateRequestKey(memoId: number, targetReceivableId: number) {
+    if (allocateRequestKey) return allocateRequestKey;
+    const key = newOperationKey(`manual:${memoId}:${targetReceivableId}`);
+    setAllocateRequestKey(key);
+    return key;
+  }
+
+  function getOrCreateReverseRequestKey(allocationId: number) {
+    if (reverseRequestKey) return reverseRequestKey;
+    const key = newOperationKey(`reverse:${allocationId}`);
+    setReverseRequestKey(key);
+    return key;
+  }
+
+  function resetAllocateOperation() {
+    setAllocateTarget(null);
     setEligibleReceivables([]);
+    setEligibleReceivablesTotal(0);
+    setEligibleReceivablesPage(1);
+    setEligibleReceivablesSearch("");
     setReceivableId(undefined);
     setAllocateAmount("");
-    setActingKey(`${row.id}:load-receivables`);
+    setAllocateRequestKey(null);
+  }
+
+  function resetReverseOperation() {
+    setReverseTarget(null);
+    setReverseReason("");
+    setReverseRequestKey(null);
+  }
+
+  async function loadEligibleReceivables(
+    memoId: number,
+    search: string,
+    page: number,
+    append = false,
+    memoForDefault?: CustomerCreditMemoOut,
+  ) {
+    setEligibleReceivablesLoading(true);
     try {
-      const [unpaid, partial] = await Promise.all([
-        receivableApi.list({
-          customer_id: row.customer_id,
-          currency: "CNY",
-          status: "UNPAID",
-          size: 100,
-        }),
-        receivableApi.list({
-          customer_id: row.customer_id,
-          currency: "CNY",
-          status: "PARTIALLY_PAID",
-          size: 100,
-        }),
-      ]);
-      const items = [...unpaid.items, ...partial.items]
-        .filter((item) => Number(item.amount_outstanding) > 0);
-      setEligibleReceivables(items);
-      const first = items[0];
-      if (first) {
-        setReceivableId(first.id);
-        setAllocateAmount(defaultAmount(row, first));
+      const res = await customerCreditMemoApi.eligibleReceivables(memoId, {
+        q: search || undefined,
+        page,
+        size: 20,
+      });
+      setEligibleReceivables((prev) => {
+        const items = append ? [...prev, ...res.items] : res.items;
+        return Array.from(new Map(items.map((item) => [item.id, item])).values());
+      });
+      setEligibleReceivablesTotal(res.total);
+      setEligibleReceivablesPage(page);
+      if (!append && memoForDefault && res.items[0]) {
+        setAllocateRequestKey(null);
+        setReceivableId(res.items[0].id);
+        setAllocateAmount(defaultAmount(memoForDefault, res.items[0]));
       }
     } catch (e) {
       message.error(resolveBizError(e, "加载未结应收失败"));
-      setAllocateTarget(null);
+      if (!append) resetAllocateOperation();
     } finally {
-      setActingKey(null);
+      setEligibleReceivablesLoading(false);
     }
   }
 
+  async function openAllocate(row: CustomerCreditMemoOut) {
+    resetAllocateOperation();
+    setAllocateTarget(row);
+    await loadEligibleReceivables(row.id, "", 1, false, row);
+  }
+
   function selectReceivable(id: number | undefined) {
+    setAllocateRequestKey(null);
     setReceivableId(id);
     if (!allocateTarget || id == null) {
       setAllocateAmount("");
@@ -162,9 +209,21 @@ export default function CustomerCreditMemoPage() {
     ));
   }
 
-  function idempotencyKey(memoId: number, targetReceivableId: number) {
-    const random = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
-    return `manual:${memoId}:${targetReceivableId}:${random}`;
+  async function searchEligibleReceivables(value: string) {
+    setEligibleReceivablesSearch(value);
+    if (!allocateTarget) return;
+    await loadEligibleReceivables(allocateTarget.id, value, 1, false, allocateTarget);
+  }
+
+  async function loadMoreEligibleReceivables() {
+    if (!allocateTarget || eligibleReceivablesLoading) return;
+    if (eligibleReceivables.length >= eligibleReceivablesTotal) return;
+    await loadEligibleReceivables(
+      allocateTarget.id,
+      eligibleReceivablesSearch,
+      eligibleReceivablesPage + 1,
+      true,
+    );
   }
 
   const columns: ColumnsType<CustomerCreditMemoOut> = [
@@ -220,7 +279,7 @@ export default function CustomerCreditMemoPage() {
                     size="small"
                     icon={<CheckOutlined />}
                     loading={actingKey === `${row.id}:post`}
-                    onClick={() => act(
+                    onClick={() => void act(
                       `${row.id}:post`,
                       () => customerCreditMemoApi.post(row.id),
                       "客户余额贷项单已过账",
@@ -266,7 +325,7 @@ export default function CustomerCreditMemoPage() {
                 size="small"
                 icon={<LinkOutlined />}
                 loading={actingKey === `${row.id}:load-receivables`}
-                onClick={() => openAllocate(row)}
+                onClick={() => void openAllocate(row)}
               >
                 抵扣
               </Button>
@@ -413,6 +472,7 @@ export default function CustomerCreditMemoPage() {
                               onClick={() => {
                                 setReverseTarget({ id: a.id, memoId: row.id });
                                 setReverseReason("");
+                                setReverseRequestKey(null);
                               }}
                             >
                               反抵扣
@@ -439,11 +499,15 @@ export default function CustomerCreditMemoPage() {
         }}
         cancelText="取消"
         onCancel={() => setRejectTarget(null)}
-        onOk={() => rejectTarget && act(
-          `${rejectTarget.id}:reject`,
-          () => customerCreditMemoApi.reject(rejectTarget.id, rejectReason.trim()),
-          "客户余额贷项单已驳回",
-        ).then(() => setRejectTarget(null))}
+        onOk={async () => {
+          if (!rejectTarget) return;
+          const ok = await act(
+            `${rejectTarget.id}:reject`,
+            () => customerCreditMemoApi.reject(rejectTarget.id, rejectReason.trim()),
+            "客户余额贷项单已驳回",
+          );
+          if (ok) setRejectTarget(null);
+        }}
       >
         <Input.TextArea
           rows={4}
@@ -464,14 +528,18 @@ export default function CustomerCreditMemoPage() {
         }}
         cancelText="取消"
         onCancel={() => setResubmitTarget(null)}
-        onOk={() => resubmitTarget && act(
-          `${resubmitTarget.id}:resubmit`,
-          () => customerCreditMemoApi.resubmit(resubmitTarget.id, {
-            amount: resubmitAmount,
-            reason: resubmitReason || null,
-          }),
-          "客户余额贷项单已重新提交",
-        ).then(() => setResubmitTarget(null))}
+        onOk={async () => {
+          if (!resubmitTarget) return;
+          const ok = await act(
+            `${resubmitTarget.id}:resubmit`,
+            () => customerCreditMemoApi.resubmit(resubmitTarget.id, {
+              amount: resubmitAmount,
+              reason: resubmitReason || null,
+            }),
+            "客户余额贷项单已重新提交",
+          );
+          if (ok) setResubmitTarget(null);
+        }}
       >
         <Space orientation="vertical" style={{ width: "100%" }}>
           <Input
@@ -500,11 +568,15 @@ export default function CustomerCreditMemoPage() {
         }}
         cancelText="取消"
         onCancel={() => setVoidTarget(null)}
-        onOk={() => voidTarget && act(
-          `${voidTarget.id}:void`,
-          () => customerCreditMemoApi.void(voidTarget.id, voidReason.trim()),
-          "客户余额贷项单已作废",
-        ).then(() => setVoidTarget(null))}
+        onOk={async () => {
+          if (!voidTarget) return;
+          const ok = await act(
+            `${voidTarget.id}:void`,
+            () => customerCreditMemoApi.void(voidTarget.id, voidReason.trim()),
+            "客户余额贷项单已作废",
+          );
+          if (ok) setVoidTarget(null);
+        }}
       >
         <Input.TextArea
           rows={4}
@@ -524,27 +596,43 @@ export default function CustomerCreditMemoPage() {
           loading: actingKey === `${allocateTarget?.id}:allocate`,
         }}
         cancelText="取消"
-        onCancel={() => setAllocateTarget(null)}
-        onOk={() => allocateTarget && receivableId && act(
-          `${allocateTarget.id}:allocate`,
-          () => customerCreditMemoApi.allocate(allocateTarget.id, {
-            account_id: receivableId,
-            amount: allocateAmount,
-            idempotency_key: idempotencyKey(allocateTarget.id, receivableId),
-          }),
-          "客户余额已抵扣应收",
-        ).then(() => {
-          setAllocateTarget(null);
-          void loadDetail(allocateTarget.id, true);
-        })}
+        onCancel={resetAllocateOperation}
+        onOk={async () => {
+          if (!allocateTarget || !receivableId) return;
+          const memoId = allocateTarget.id;
+          const key = getOrCreateAllocateRequestKey(memoId, receivableId);
+          const ok = await act(
+            `${memoId}:allocate`,
+            () => customerCreditMemoApi.allocate(memoId, {
+              account_id: receivableId,
+              amount: allocateAmount,
+              idempotency_key: key,
+            }),
+            "客户余额已抵扣应收",
+          );
+          if (!ok) return;
+          resetAllocateOperation();
+          await loadDetail(memoId, true);
+        }}
       >
         <Space orientation="vertical" style={{ width: "100%" }}>
           <Select
             showSearch
             placeholder="选择未结应收"
-            optionFilterProp="label"
+            filterOption={false}
+            loading={eligibleReceivablesLoading}
+            disabled={actingKey === `${allocateTarget?.id}:allocate`}
             value={receivableId}
             onChange={selectReceivable}
+            onSearch={(value) => {
+              void searchEligibleReceivables(value);
+            }}
+            onPopupScroll={(e) => {
+              const target = e.currentTarget;
+              if (target.scrollTop + target.offsetHeight >= target.scrollHeight - 24) {
+                void loadMoreEligibleReceivables();
+              }
+            }}
             options={eligibleReceivables.map((item) => ({
               value: item.id,
               label: `${item.outbound_order_no} · 未结 ${formatMoney(item.amount_outstanding)} CNY`,
@@ -553,7 +641,11 @@ export default function CustomerCreditMemoPage() {
           />
           <Input
             value={allocateAmount}
-            onChange={(e) => setAllocateAmount(e.target.value)}
+            disabled={actingKey === `${allocateTarget?.id}:allocate`}
+            onChange={(e) => {
+              setAllocateRequestKey(null);
+              setAllocateAmount(e.target.value);
+            }}
             placeholder="抵扣金额"
           />
         </Space>
@@ -568,23 +660,34 @@ export default function CustomerCreditMemoPage() {
           loading: actingKey === `alloc:${reverseTarget?.id}:reverse`,
         }}
         cancelText="取消"
-        onCancel={() => setReverseTarget(null)}
-        onOk={() => reverseTarget && act(
-          `alloc:${reverseTarget.id}:reverse`,
-          () => customerCreditMemoApi.reverseAllocation(reverseTarget.id, reverseReason.trim()),
-          "抵扣记录已反抵扣",
-        ).then(() => {
-          const memoId = reverseTarget.memoId;
-          setReverseTarget(null);
-          void loadDetail(memoId, true);
-        })}
+        onCancel={resetReverseOperation}
+        onOk={async () => {
+          if (!reverseTarget) return;
+          const target = reverseTarget;
+          const key = getOrCreateReverseRequestKey(target.id);
+          const ok = await act(
+            `alloc:${target.id}:reverse`,
+            () => customerCreditMemoApi.reverseAllocation(target.id, {
+              reverse_reason: reverseReason.trim(),
+              idempotency_key: key,
+            }),
+            "抵扣记录已反抵扣",
+          );
+          if (!ok) return;
+          resetReverseOperation();
+          await loadDetail(target.memoId, true);
+        }}
       >
         <Input.TextArea
           rows={4}
           value={reverseReason}
           maxLength={500}
           showCount
-          onChange={(e) => setReverseReason(e.target.value)}
+          disabled={actingKey === `alloc:${reverseTarget?.id}:reverse`}
+          onChange={(e) => {
+            setReverseRequestKey(null);
+            setReverseReason(e.target.value);
+          }}
           placeholder="反抵扣原因"
         />
       </Modal>

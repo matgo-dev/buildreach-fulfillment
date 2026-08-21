@@ -517,16 +517,36 @@ async def test_customer_credit_memo_allocates_to_receivable_and_can_reverse_then
     empty_reverse = await client.post(
         f"/api/v1/customer-credit-memos/allocations/{alloc_id}/reverse",
         headers=finance_headers,
-        json={"reverse_reason": "   "},
+        json={"reverse_reason": "   ", "idempotency_key": f"reverse-empty-{alloc_id}"},
     )
     assert empty_reverse.status_code == 422
 
+    reverse_key = f"reverse-{alloc_id}"
     reversed_alloc = await client.post(
         f"/api/v1/customer-credit-memos/allocations/{alloc_id}/reverse",
         headers=finance_headers,
-        json={"reverse_reason": "测试反抵扣"},
+        json={"reverse_reason": "测试反抵扣", "idempotency_key": reverse_key},
     )
     assert reversed_alloc.status_code == 200, reversed_alloc.text
+    reverse_replay = await client.post(
+        f"/api/v1/customer-credit-memos/allocations/{alloc_id}/reverse",
+        headers=finance_headers,
+        json={"reverse_reason": "测试反抵扣", "idempotency_key": reverse_key},
+    )
+    assert reverse_replay.status_code == 200, reverse_replay.text
+    reverse_conflict = await client.post(
+        f"/api/v1/customer-credit-memos/allocations/{alloc_id}/reverse",
+        headers=finance_headers,
+        json={"reverse_reason": "不同原因", "idempotency_key": reverse_key},
+    )
+    assert reverse_conflict.status_code == 409
+    assert reverse_conflict.json()["code"] == 42211
+    reverse_other_key = await client.post(
+        f"/api/v1/customer-credit-memos/allocations/{alloc_id}/reverse",
+        headers=finance_headers,
+        json={"reverse_reason": "测试反抵扣", "idempotency_key": f"reverse-other-{alloc_id}"},
+    )
+    assert reverse_other_key.status_code == 404
     await db_session.refresh(receivable)
     await db_session.refresh(memo)
     assert Decimal(str(receivable.amount_allocated)) == Decimal("20.00")
@@ -552,7 +572,8 @@ async def test_customer_credit_memo_allocates_to_receivable_and_can_reverse_then
     second_reverse = await client.post(
         f"/api/v1/customer-credit-memos/allocations/{second_alloc_id}/reverse",
         headers=finance_headers,
-        json={"reverse_reason": "清空剩余抵扣"},
+        json={"reverse_reason": "清空剩余抵扣",
+              "idempotency_key": f"reverse-{second_alloc_id}"},
     )
     assert second_reverse.status_code == 200, second_reverse.text
     empty_void = await client.post(
@@ -642,6 +663,86 @@ async def test_customer_credit_allocation_idempotency_is_bound_to_request(
     )
     assert mismatched_account.status_code == 409
     assert mismatched_account.json()["code"] == 42211
+
+
+async def test_customer_credit_eligible_receivables_are_memo_scoped_and_paginated(
+        client, db_session, sales_headers, purchaser_headers, finance_headers, logistics_headers):
+    ctx = await setup_available_stock(
+        client, db_session, sales_headers, purchaser_headers,
+        so_currency="CNY", so_qty=10, po_price="5.00", received=10,
+        sku_codes=("SKUCCM_ELIGIBLE",))
+    disposition = await _create_held_disposition(
+        client, purchaser_headers, ctx["inbound_order_id"])
+    created = await client.post(
+        "/api/v1/customer-credit-memos",
+        headers=purchaser_headers,
+        json={"inventory_disposition_order_id": disposition["order"]["id"],
+              "amount": "300.00", "currency": "CNY"},
+    )
+    memo_id = created.json()["data"]["id"]
+    posted = await client.post(
+        f"/api/v1/customer-credit-memos/{memo_id}/post",
+        headers=finance_headers,
+        json={},
+    )
+    assert posted.status_code == 200, posted.text
+
+    receivables = []
+    for idx in range(3):
+        ship = await create_shipment(client, logistics_headers)
+        receivables.append(await _direct_cny_receivable(
+            db_session,
+            sales_order_id=ctx["sales_order_id"],
+            customer_id=ctx["customer"].id,
+            shipment_id=ship["id"],
+            amount="100.00",
+        ))
+
+    other_ctx = await setup_available_stock(
+        client, db_session, sales_headers, purchaser_headers,
+        so_currency="CNY", so_qty=10, po_price="5.00", received=10,
+        sku_codes=("SKUCCM_ELIGIBLE_OTHER",))
+    other_ship = await create_shipment(client, logistics_headers)
+    other_receivable = await _direct_cny_receivable(
+        db_session,
+        sales_order_id=other_ctx["sales_order_id"],
+        customer_id=other_ctx["customer"].id,
+        shipment_id=other_ship["id"],
+        amount="100.00",
+    )
+
+    first_page = await client.get(
+        f"/api/v1/customer-credit-memos/{memo_id}/eligible-receivables",
+        headers=finance_headers,
+        params={"page": 1, "size": 2},
+    )
+    assert first_page.status_code == 200, first_page.text
+    data = first_page.json()["data"]
+    assert data["total"] == 3
+    assert len(data["items"]) == 2
+    assert [item["id"] for item in data["items"]] == [r.id for r in receivables[:2]]
+
+    second_page = await client.get(
+        f"/api/v1/customer-credit-memos/{memo_id}/eligible-receivables",
+        headers=finance_headers,
+        params={"page": 2, "size": 2},
+    )
+    assert second_page.status_code == 200, second_page.text
+    assert [item["id"] for item in second_page.json()["data"]["items"]] == [receivables[2].id]
+
+    target_outbound_no = (await db_session.execute(
+        select(OutboundOrder.no).where(
+            OutboundOrder.id == receivables[1].outbound_order_id)
+    )).scalar_one()
+    searched = await client.get(
+        f"/api/v1/customer-credit-memos/{memo_id}/eligible-receivables",
+        headers=finance_headers,
+        params={"q": target_outbound_no, "page": 1, "size": 20},
+    )
+    assert searched.status_code == 200, searched.text
+    searched_ids = [item["id"] for item in searched.json()["data"]["items"]]
+    assert receivables[1].id in searched_ids
+    assert other_receivable.id not in searched_ids
 
 
 async def test_customer_credit_same_idempotency_key_concurrent_replay_is_single_allocation(
@@ -751,6 +852,7 @@ async def test_customer_credit_concurrent_reverse_allocation_is_idempotently_blo
                     db,
                     allocation_id=allocation.id,
                     reverse_reason="并发反抵扣",
+                    idempotency_key=f"reverse-concurrent-{allocation.id}",
                     actor_user_id=1,
                     actor_user_email="finance@test",
                 )
@@ -760,8 +862,8 @@ async def test_customer_credit_concurrent_reverse_allocation_is_idempotently_blo
             reverse_in_new_session(),
             return_exceptions=True,
         )
-        assert sum(isinstance(r, CustomerCreditAllocation) for r in results) == 1
-        assert sum(isinstance(r, AllocationReverseNotFoundError) for r in results) == 1
+        assert sum(isinstance(r, CustomerCreditAllocation) for r in results) == 2
+        assert results[0].id == results[1].id
         async with Session() as db:
             memo = await db.get(CustomerCreditMemo, ids["memo_id"])
             receivable = await db.get(Receivable, ids["receivable_id"])
@@ -769,6 +871,47 @@ async def test_customer_credit_concurrent_reverse_allocation_is_idempotently_blo
         assert refreshed_alloc.reversed_at is not None
         assert Decimal(str(memo.amount_allocated)) == Decimal("0.00")
         assert Decimal(str(receivable.amount_allocated)) == Decimal("0.00")
+    finally:
+        await _cleanup_direct_credit_graph(Session, ids)
+
+
+async def test_customer_credit_reverse_with_different_key_after_success_is_rejected(_engine):
+    Session = async_sessionmaker(_engine, expire_on_commit=False)
+    ids = await _seed_direct_posted_credit_graph(
+        Session, suffix="REVOTHER", memo_amount="100.00", receivable_amount="100.00")
+    try:
+        allocation = await _manual_allocate_in_new_session(
+            Session, ids, amount="50.00",
+            key=f"reverse-other-seed-{ids['memo_id']}-{ids['receivable_id']}")
+        async with Session() as db:
+            first = await customer_credit_memo_service.reverse_allocation(
+                db,
+                allocation_id=allocation.id,
+                reverse_reason="首次反抵扣",
+                idempotency_key=f"reverse-first-{allocation.id}",
+                actor_user_id=1,
+                actor_user_email="finance@test",
+            )
+        async with Session() as db:
+            replay = await customer_credit_memo_service.reverse_allocation(
+                db,
+                allocation_id=allocation.id,
+                reverse_reason="首次反抵扣",
+                idempotency_key=f"reverse-first-{allocation.id}",
+                actor_user_id=1,
+                actor_user_email="finance@test",
+            )
+        assert first.id == replay.id
+        async with Session() as db:
+            with pytest.raises(AllocationReverseNotFoundError):
+                await customer_credit_memo_service.reverse_allocation(
+                    db,
+                    allocation_id=allocation.id,
+                    reverse_reason="首次反抵扣",
+                    idempotency_key=f"reverse-second-{allocation.id}",
+                    actor_user_id=1,
+                    actor_user_email="finance@test",
+                )
     finally:
         await _cleanup_direct_credit_graph(Session, ids)
 

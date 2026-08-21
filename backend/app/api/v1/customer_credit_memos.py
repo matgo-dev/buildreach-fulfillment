@@ -11,6 +11,7 @@ from app.rbac.guards import require_any_permission, require_permission
 from app.schemas.common import Page, PageParams
 from app.schemas.customer_credit_memo import (
     CustomerCreditAllocationReverseIn,
+    CustomerCreditEligibleReceivableOut,
     CustomerCreditMemoAllocateIn,
     CustomerCreditMemoCreateIn,
     CustomerCreditMemoDetailOut,
@@ -78,6 +79,29 @@ async def list_customer_credit_memos(
     )
     return success(Page(
         items=[CustomerCreditMemoOut.build(item) for item in items],
+        total=total,
+        page=page_params.page,
+        size=page_params.size,
+    ).model_dump())
+
+
+@router.get("/{memo_id}/eligible-receivables", summary="客户余额贷项单可抵扣应收列表")
+async def list_customer_credit_eligible_receivables(
+    memo_id: int,
+    page_params: PageParams = Depends(),
+    q: str | None = Query(default=None, max_length=100),
+    _current: CurrentUser = _POST,
+    db: AsyncSession = Depends(get_db),
+):
+    items, total = await customer_credit_memo_service.list_eligible_receivables(
+        db,
+        memo_id=memo_id,
+        q=q,
+        page=page_params.page,
+        size=page_params.size,
+    )
+    return success(Page(
+        items=[CustomerCreditEligibleReceivableOut.build(item) for item in items],
         total=total,
         page=page_params.page,
         size=page_params.size,
@@ -183,6 +207,7 @@ async def reverse_customer_credit_allocation(
         db,
         allocation_id=allocation_id,
         reverse_reason=body.reverse_reason,
+        idempotency_key=body.idempotency_key,
         actor_user_id=current.id,
         actor_user_email=current.email,
         request=request,
