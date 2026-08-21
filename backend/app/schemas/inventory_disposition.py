@@ -4,6 +4,8 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+from app.schemas.customer_credit_memo import CustomerCreditMemoOut
+
 
 class InventoryDispositionCreateIn(BaseModel):
     inbound_order_id: int
@@ -92,3 +94,4 @@ class InventoryDispositionOut(BaseModel):
 class InventoryDispositionDetail(BaseModel):
     order: InventoryDispositionOut
     lines: list[InventoryDispositionLineOut]
+    customer_credit_memo: CustomerCreditMemoOut | None = None

@@ -30,6 +30,7 @@ class AuditResourceType(str, Enum):
     PURCHASE_RETURN_ORDER = "purchase_return_order"
     AP_CREDIT_MEMO = "ap_credit_memo"
     INVENTORY_DISPOSITION_ORDER = "inventory_disposition_order"
+    CUSTOMER_CREDIT_MEMO = "customer_credit_memo"
 
 
 class AuditAction(str, Enum):

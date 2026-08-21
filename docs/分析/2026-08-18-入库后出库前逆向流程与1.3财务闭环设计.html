@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>入库单创建后、出库单创建前逆向流程与 1.3 财务闭环</title>
+  <style>
+    :root {
+      --ink: #18231f;
+      --muted: #66736f;
+      --line: #d8e2de;
+      --bg: #f6f8f7;
+      --paper: #ffffff;
+      --brand: #0f766e;
+      --brand-2: #155e75;
+      --money: #9a5b13;
+      --danger: #b42318;
+      --warn-bg: #fff7ed;
+      --ok-bg: #ecfdf5;
+      --info-bg: #eff6ff;
+      --doc-bg: #f8fafc;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--bg);
+      font: 14px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { max-width: 1280px; margin: 0 auto; padding: 28px 24px 56px; }
+    h1, h2, h3 { line-height: 1.25; margin: 0; }
+    h1 { font-size: 28px; }
+    h2 { font-size: 20px; margin-top: 30px; }
+    h3 { font-size: 16px; margin-top: 18px; }
+    p { margin: 8px 0 0; }
+    ul, ol { margin: 8px 0 0; padding-left: 20px; }
+    li { margin: 4px 0; }
+    code {
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: #eef2f1;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+    }
+    .hero {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 24px;
+    }
+    .hero-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 3px 10px;
+      background: var(--paper);
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .tag.ok { color: #047857; background: var(--ok-bg); border-color: #bbf7d0; }
+    .tag.warn { color: #b45309; background: var(--warn-bg); border-color: #fed7aa; }
+    .tag.stop { color: var(--danger); background: #fef2f2; border-color: #fecaca; }
+    .section {
+      margin-top: 18px;
+      padding: 18px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .lead { color: var(--muted); max-width: 980px; }
+    .grid { display: grid; gap: 12px; }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .card {
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--brand);
+      border-radius: 8px;
+      background: var(--paper);
+      padding: 14px;
+    }
+    .card.goods { border-left-color: var(--brand-2); }
+    .card.money { border-left-color: var(--money); }
+    .card.danger { border-left-color: var(--danger); }
+    .card.warn { border-left-color: #b45309; }
+    .card h3 { margin-top: 0; }
+    .flow {
+      display: flex;
+      align-items: stretch;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 4px 0 10px;
+    }
+    .node {
+      min-width: 152px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--doc-bg);
+      padding: 12px;
+    }
+    .node strong { display: block; font-size: 13px; }
+    .node span { display: block; color: var(--muted); font-size: 12px; margin-top: 4px; }
+    .node.goods { background: #ecfeff; }
+    .node.money { background: #fff7ed; }
+    .node.settle { background: #eef2ff; border-color: #c7d2fe; }
+    .node.stop { background: #fef2f2; }
+    .node.freeze { background: #f0f9ff; border-color: #bae6fd; }
+    .node.noop { background: #f8fafc; border-style: dashed; }
+    .node .eyebrow {
+      display: inline-flex;
+      margin: 0 0 6px;
+      padding: 1px 7px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.75);
+      color: #475467;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .node ul {
+      margin: 8px 0 0;
+      padding-left: 16px;
+      color: #344054;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .node li { margin: 2px 0; }
+    .node .amount {
+      display: inline-flex;
+      margin-top: 8px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.82);
+      color: #7c2d12;
+      font-weight: 750;
+      font-size: 11px;
+    }
+    .arrow {
+      display: flex;
+      align-items: center;
+      color: var(--muted);
+      font-weight: 700;
+      min-width: 18px;
+    }
+    .process-map {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .lane {
+      display: grid;
+      grid-template-columns: 92px minmax(0, 1fr);
+      gap: 10px;
+      align-items: stretch;
+    }
+    .lane-label {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8fafc;
+      color: #344054;
+      font-weight: 750;
+      letter-spacing: .02em;
+      min-height: 76px;
+    }
+    .lane-track {
+      display: flex;
+      gap: 8px;
+      align-items: stretch;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+    .lane-track .node { min-width: 180px; }
+    .lane-track .arrow { min-width: 22px; justify-content: center; }
+    .branch-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper);
+      padding: 14px;
+    }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .legend .tag { background: #fff; }
+    .checkpoint {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .checkpoint div {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+    }
+    .checkpoint strong { display: block; font-size: 13px; }
+    .checkpoint span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
+    @media (max-width: 860px) {
+      .grid.two, .grid.three { grid-template-columns: 1fr; }
+      .checkpoint { grid-template-columns: 1fr; }
+      .lane { grid-template-columns: 1fr; }
+      .lane-label { min-height: auto; justify-content: flex-start; padding: 8px 10px; }
+    }
+    .matrix {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      overflow: hidden;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+    }
+    .matrix th, .matrix td {
+      border-bottom: 1px solid var(--line);
+      border-right: 1px solid var(--line);
+      padding: 10px;
+      vertical-align: top;
+      text-align: left;
+    }
+    .matrix th { background: #eef7f5; }
+    .matrix tr:last-child td { border-bottom: 0; }
+    .matrix th:last-child, .matrix td:last-child { border-right: 0; }
+    .small { color: var(--muted); font-size: 12px; }
+    .callout {
+      border: 1px solid #fed7aa;
+      background: var(--warn-bg);
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-top: 12px;
+    }
+    .callout.ok { border-color: #bbf7d0; background: var(--ok-bg); }
+    .callout.info { border-color: #bfdbfe; background: var(--info-bg); }
+    .split-title {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .branch-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--brand);
+      display: inline-block;
+    }
+    .dot.money { background: var(--money); }
+    .dot.warn { background: #b45309; }
+    .dot.stop { background: var(--danger); }
+  </style>
+</head>
+<body>
+<main>
+  <section class="hero">
+    <h1>入库单创建后、出库单创建前逆向流程全集</h1>
+    <p class="lead">
+      本文参照平台导览页的表达方式整理:先看正向主链,再看逆向边界,最后把 1.1、1.2、1.3、1.4 的分支拆开。核心目标是让“货、钱、单据、状态”各自有真实承载,不靠直接改状态抹掉已经发生的事实。
+    </p>
+    <div class="hero-meta">
+      <span class="tag">项目 buildreach-fulfillment</span>
+      <span class="tag">范围:入库单创建后、出库单创建前</span>
+      <span class="tag ok">PR #77:1.1 已完成</span>
+      <span class="tag ok">PR #78:1.4 已完成</span>
+      <span class="tag warn">PR #80:1.3 库存/履约基础</span>
+      <span class="tag ok">本分支:补客户侧财务闭环</span>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="split-title">
+      <h2>一、平台正向主链</h2>
+      <span class="small">摘自 /guide 的主链口径</span>
+    </div>
+    <div class="flow" aria-label="正向主链">
+      <div class="node"><strong>报价单</strong><span>销售录入客户需求与成交价</span></div>
+      <div class="arrow">→</div>
+      <div class="node"><strong>销售单</strong><span>客户确认,订单成立</span></div>
+      <div class="arrow">→</div>
+      <div class="node"><strong>采购单</strong><span>按销售单向供应商订货</span></div>
+      <div class="arrow">→</div>
+      <div class="node goods"><strong>入库单</strong><span>供应商发货后登记在途</span></div>
+      <div class="arrow">→</div>
+      <div class="node goods"><strong>确认入库</strong><span>货到货代仓,产生库存</span></div>
+      <div class="arrow">→</div>
+      <div class="node goods"><strong>出库单</strong><span>确认出库,扣库存</span></div>
+      <div class="arrow">→</div>
+      <div class="node goods"><strong>发运柜</strong><span>封柜、离港、物流、报关</span></div>
+    </div>
+    <div class="grid two">
+      <div class="card money">
+        <h3>供应商侧钱</h3>
+        <ul>
+          <li>创建入库单时,供应商应付已经成立。</li>
+          <li>确认入库只产生库存,不再新产生应付。</li>
+          <li>供应商接受退回/取消时,由供应商贷项单冲减应付。</li>
+        </ul>
+      </div>
+      <div class="card money">
+        <h3>客户侧钱</h3>
+        <ul>
+          <li>确认出库时才产生客户应收。</li>
+          <li>出库单形成前,通常还没有客户应收。</li>
+          <li>客户预收/客户余额属于财务实层,不应由库存单据直接改账。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>二、共同边界</h2>
+    <div class="grid three">
+      <div class="card">
+        <h3>单据边界</h3>
+        <ul>
+          <li>创建入库单后,不能裸编辑、裸作废或裸回滚。</li>
+          <li>出库单形成后,原正向履约链路终止。</li>
+          <li>已经发生的事实必须由真实正向或逆向单据承载。</li>
+        </ul>
+      </div>
+      <div class="card goods">
+        <h3>库存边界</h3>
+        <ul>
+          <li>确认入库才产生库存。</li>
+          <li>采购退货出库才扣库存。</li>
+          <li>待处置库存不能混入可发库存。</li>
+        </ul>
+      </div>
+      <div class="card money">
+        <h3>财务边界</h3>
+        <ul>
+          <li>供应商应付不靠状态回滚消失。</li>
+          <li>客户退款不能混用采购币种。</li>
+          <li>公司损失不能在货仍待处置时提前确认为最终损失。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>三、入库单创建后、出库单创建前的分支全集</h2>
+    <table class="matrix">
+      <thead>
+        <tr>
+          <th>分支</th>
+          <th>业务判断</th>
+          <th>使用的专业单据</th>
+          <th>货的结果</th>
+          <th>钱的结果</th>
+          <th>当前状态</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1.1</strong><br />供应商接受退回</td>
+          <td>货已确认入库,尚未形成出库单;供应商同意退回。</td>
+          <td>采购退货单 → 供应商贷项单。</td>
+          <td>确认退货出库时扣减原销售单维度库存。</td>
+          <td>贷项单财务过账后冲减供应商应付。</td>
+          <td><span class="tag ok">已完成 PR #77</span></td>
+        </tr>
+        <tr>
+          <td><strong>1.2</strong><br />供应商不接受,公司不承担</td>
+          <td>供应商拒绝退回/取消,公司也不对客户承担。</td>
+          <td>不新增单据;如已有采购退货/在途取消,走驳回。</td>
+          <td>原正向链路继续;库存不扣减、不转待处置。</td>
+          <td>不退款、不冲应付、不生成贷项单。</td>
+          <td><span class="tag ok">驳回/无动作覆盖</span></td>
+        </tr>
+        <tr>
+          <td><strong>1.3</strong><br />供应商不接受,公司承担</td>
+          <td>供应商侧不冲正;公司决定客户侧结束履约或补偿。</td>
+          <td>库存处置单 → 客户余额贷项单。</td>
+          <td>已入库:可发库存转待处置。在途:关闭未收货或到仓后直接待处置。</td>
+          <td>供应商应付保留。客户侧先进入人民币客户余额;外部提现后续另做。</td>
+          <td><span class="tag ok">本分支补客户侧闭环</span></td>
+        </tr>
+        <tr>
+          <td><strong>1.4</strong><br />在途/未确认入库,供应商接受取消</td>
+          <td>入库单已创建,供应商应付已产生;货未确认入库,供应商接受取消。</td>
+          <td>在途取消单 → 供应商贷项单。</td>
+          <td>入库单 <code>IN_TRANSIT → CANCELLED</code>;不写库存流水,不建库存余额。</td>
+          <td>贷项单财务过账后冲减应付;已付款会反核销释放为预付/未分配余额。</td>
+          <td><span class="tag ok">已完成 PR #78</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="section">
+    <h2>四、1.3 供应商不接受、公司承担</h2>
+    <p class="lead">
+      这个分支不应命名为“公司承担型取消单”。公司承担只是线下业务结论,系统里应该落专业单据:库存侧是库存处置单,客户侧是客户余额/退款类财务单据,供应商侧原应付保持。
+    </p>
+    <div class="grid two">
+      <div class="branch-card">
+        <div class="branch-title"><span class="dot"></span><h3>1.3-A 在途终止,不再入仓</h3></div>
+        <div class="process-map">
+          <div class="lane">
+            <div class="lane-label">履约/货</div>
+            <div class="lane-track">
+              <div class="node goods"><span class="eyebrow">起点</span><strong>入库单 IN_TRANSIT</strong><span>应付已生成,货未入仓</span></div>
+              <div class="arrow">→</div>
+              <div class="node goods"><span class="eyebrow">处置口径</span><strong>库存处置单</strong><span>CLOSE_WITHOUT_RECEIPT</span></div>
+              <div class="arrow">→</div>
+              <div class="node stop"><span class="eyebrow">结果</span><strong>入库单 CLOSED</strong><span>关闭后续收货入口</span></div>
+            </div>
+          </div>
+          <div class="lane">
+            <div class="lane-label">库存</div>
+            <div class="lane-track">
+              <div class="node noop"><span class="eyebrow">不发生</span><strong>不确认入库</strong><span>不写库存流水</span></div>
+              <div class="arrow">→</div>
+              <div class="node noop"><span class="eyebrow">不发生</span><strong>不建库存余额</strong><span>没有待处置实物数量</span></div>
+            </div>
+          </div>
+          <div class="lane">
+            <div class="lane-label">供应商钱</div>
+            <div class="lane-track">
+              <div class="node money"><span class="eyebrow">保持</span><strong>原应付不动</strong><span>不生成供应商贷项单</span></div>
+              <div class="arrow">→</div>
+              <div class="node money noop"><span class="eyebrow">保持</span><strong>amount_credited = 0</strong><span>未结应付仍按原账存在</span></div>
+            </div>
+          </div>
+        </div>
+        <ul>
+          <li>不确认入库,不写库存流水,不创建库存余额。</li>
+          <li>不生成供应商贷项单,不冲 <code>amount_credited</code>。</li>
+          <li>入库单仍作为供应商已发货/我方已拉货的事实锚点,不能删除。</li>
+        </ul>
+      </div>
+      <div class="branch-card">
+        <div class="branch-title"><span class="dot"></span><h3>1.3-B 继续到货代仓,但不可发</h3></div>
+        <div class="process-map">
+          <div class="lane">
+            <div class="lane-label">履约/货</div>
+            <div class="lane-track">
+              <div class="node goods"><span class="eyebrow">起点</span><strong>入库单 IN_TRANSIT</strong><span>货仍会到仓</span></div>
+              <div class="arrow">→</div>
+              <div class="node goods"><span class="eyebrow">收货事实</span><strong>确认入库</strong><span>仍由原入库单承载</span></div>
+              <div class="arrow">→</div>
+              <div class="node freeze"><span class="eyebrow">库存事实</span><strong>待处置库存</strong><span>从可发池隔离</span></div>
+            </div>
+          </div>
+          <div class="lane">
+            <div class="lane-label">库存</div>
+            <div class="lane-track">
+              <div class="node goods"><span class="eyebrow">增加</span><strong>inbound_qty +N</strong><span>实物已经到仓</span></div>
+              <div class="arrow">+</div>
+              <div class="node freeze"><span class="eyebrow">冻结</span><strong>disposition_qty +N</strong><span>DISPOSITION_HOLD</span></div>
+              <div class="arrow">=</div>
+              <div class="node stop"><span class="eyebrow">可发</span><strong>available_qty = 0</strong><span>不再进入出库候选</span></div>
+            </div>
+          </div>
+          <div class="lane">
+            <div class="lane-label">供应商钱</div>
+            <div class="lane-track">
+              <div class="node money"><span class="eyebrow">保持</span><strong>原应付不动</strong><span>供应商不接受,无 AP 贷项</span></div>
+              <div class="arrow">→</div>
+              <div class="node money noop"><span class="eyebrow">保持</span><strong>amount_credited 不变</strong><span>付款/核销按原应付继续</span></div>
+            </div>
+          </div>
+        </div>
+        <ul>
+          <li>入库单就是仓库收货事实单据,到仓事实仍通过原入库单确认。</li>
+          <li>同事务写入入库库存和 <code>DISPOSITION_HOLD</code> 可发口径重分类。</li>
+          <li>库存余额满足 <code>available_qty = inbound_qty - outbound_qty - disposition_qty</code>。</li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout info">
+      <strong>PR #80 的完成范围:</strong>
+      只完成库存/履约基础,包括入库单状态、库存处置单、待处置数量、供应商应付保持、统一锁序与并发测试。它不生成客户退款,不生成公司损失,不声明 1.3 财务闭环已完成。
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>五、1.3 客户侧财务闭环</h2>
+    <p class="lead">
+      本次只做客户侧人民币余额闭环:客户补偿金额先进入客户余额,后续抵扣应收时消耗余额。外部提现、逆向费用/付款单和最终公司损失确认都不在本次展开。
+    </p>
+    <div class="grid two">
+      <div class="branch-card">
+        <h3>客户侧:余额进入 + 余额消耗</h3>
+        <div class="process-map">
+          <div class="lane">
+            <div class="lane-label">库存侧</div>
+            <div class="lane-track">
+              <div class="node goods"><span class="eyebrow">前置完成</span><strong>库存处置单</strong><span>HELD / CLOSED_WITHOUT_RECEIPT</span></div>
+              <div class="arrow">→</div>
+              <div class="node noop"><span class="eyebrow">只读锚点</span><strong>不承载客户金额</strong><span>库存单只记录履约/库存事实</span></div>
+            </div>
+          </div>
+          <div class="lane">
+            <div class="lane-label">余额进入</div>
+            <div class="lane-track">
+              <div class="node money"><span class="eyebrow">业务提交</span><strong>客户余额贷项单</strong><span>CNY / PENDING_APPROVAL</span><span class="amount">amount = N</span></div>
+              <div class="arrow">→</div>
+              <div class="node money"><span class="eyebrow">财务审批</span><strong>过账 POSTED</strong><span>post 权限;创建人不可自过账</span><span class="amount">allocated = 0</span></div>
+              <div class="arrow">→</div>
+              <div class="node money"><span class="eyebrow">余额结果</span><strong>客户未分配余额 +N</strong><span>可后续冲抵或提现</span><span class="amount">unallocated = N</span></div>
+            </div>
+          </div>
+          <div class="lane">
+            <div class="lane-label">余额消耗</div>
+            <div class="lane-track">
+              <div class="node settle"><span class="eyebrow">后续有应收</span><strong>Receivable</strong><span>客户/币种一致,未结金额 &gt; 0</span></div>
+              <div class="arrow">→</div>
+              <div class="node settle"><span class="eyebrow">独立抵扣行</span><strong>customer_credit_allocations</strong><span>AUTO / MANUAL,可反抵扣</span></div>
+              <div class="arrow">→</div>
+              <div class="node settle"><span class="eyebrow">同事务更新</span><strong>两边 amount_allocated +X</strong><span>memo 与 receivable 同步守恒</span></div>
+              <div class="arrow">→</div>
+              <div class="node settle"><span class="eyebrow">应收状态</span><strong>未结 / 部分结 / 已结清</strong><span>不再叫“已收清”</span></div>
+            </div>
+          </div>
+          <div class="lane">
+            <div class="lane-label">供应商钱</div>
+            <div class="lane-track">
+              <div class="node noop"><span class="eyebrow">不发生</span><strong>无供应商贷项单</strong><span>不冲 amount_credited</span></div>
+              <div class="arrow">→</div>
+              <div class="node noop"><span class="eyebrow">保持</span><strong>供应商应付原账</strong><span>付款/核销仍按原 AP 处理</span></div>
+            </div>
+          </div>
+          <div class="lane">
+            <div class="lane-label">本次不做</div>
+            <div class="lane-track">
+              <div class="node noop"><span class="eyebrow">不展开</span><strong>外部提现</strong><span>后续逆向费用/付款单</span></div>
+              <div class="arrow">→</div>
+              <div class="node noop"><span class="eyebrow">不提前</span><strong>最终公司损失</strong><span>等库存最终处置方式确认</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="legend">
+          <span class="tag ok">绿色/青色:货与库存事实</span>
+          <span class="tag warn">橙色:客户侧金额</span>
+          <span class="tag">紫色:余额抵扣应收</span>
+          <span class="tag">虚线:明确不做</span>
+        </div>
+        <div class="checkpoint">
+          <div><strong>余额守恒</strong><span>memo.amount = active allocations + unallocated</span></div>
+          <div><strong>应收守恒</strong><span>original = receipt allocations + credit allocations + outstanding</span></div>
+          <div><strong>并发锁序</strong><span>客户 → 应收 → 客户贷方 FIFO(created_at,id)</span></div>
+          <div><strong>审批边界</strong><span>create / post / void 权限拆分,留审计轨迹</span></div>
+        </div>
+        <ul>
+          <li>币种先固定为 <code>CNY</code>,由发起人填人民币金额,审核人按人民币审核。</li>
+          <li>DB CHECK 固定 <code>currency = 'CNY'</code>,避免“默认传人民币”的隐含假设。</li>
+          <li>客户要打回银行账户时,再走客户退款付款单,减少客户余额和银行现金。</li>
+        </ul>
+      </div>
+      <div class="card money">
+        <h3>公司损失:先不最终确认</h3>
+        <ul>
+          <li>库存处置只是把货转为待处置资产,不是报废事实。</li>
+          <li>后续可能转售、改配、退供应商、报废或获得残值。</li>
+          <li>最终损失应在最终处置方式确认后再设计,不要在库存处置创建时直接过账。</li>
+        </ul>
+        <div class="callout">
+          MVP 里可以记录“客户补偿/余额金额”,但不要自动等同于公司最终损失。
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>六、本次客户侧闭环需要落地的不变量</h2>
+    <div class="grid three">
+      <div class="card">
+        <h3>单据与状态</h3>
+        <ul>
+          <li>客户余额贷项单有 <code>PENDING_APPROVAL / POSTED / REJECTED / VOIDED</code>。</li>
+          <li>同一库存处置单同一时间至多一个活动贷项单。</li>
+          <li>驳回必须填原因;重新提交保留 <code>resubmitted_from_id</code>。</li>
+          <li>已过账未消耗的贷项单可作废;已抵扣的必须先反抵扣。</li>
+        </ul>
+      </div>
+      <div class="card money">
+        <h3>金额与币种</h3>
+        <ul>
+          <li>金额字段使用 Decimal,不接 float。</li>
+          <li>本 MVP 固定 CNY,不与 PO 币种或 SO 币种相加。</li>
+          <li><code>customer_credit_allocations</code> 独立于 <code>receipt_allocations</code>,现金与余额来源可区分。</li>
+          <li>贷项单与应收的 <code>amount_allocated</code> 必须在同一事务同步更新。</li>
+        </ul>
+      </div>
+      <div class="card warn">
+        <h3>权限与并发</h3>
+        <ul>
+          <li>业务侧持 <code>customer_credit:create</code>,财务侧持 <code>customer_credit:post</code> / <code>customer_credit:void</code>。</li>
+          <li>创建人不可过账自己创建的客户余额贷项单。</li>
+          <li>自动抵扣按已过账客户贷方单 <code>created_at ASC, id ASC</code> FIFO。</li>
+          <li>重复提交、重复过账、并发创建、驳回后重试都要测试。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>七、出库单形成后的边界</h2>
+    <div class="card danger">
+      <h3>售后逆向不是本次范围</h3>
+      <ul>
+        <li>出库单形成/确认出库后,原正向履约链路终止。</li>
+        <li>不回滚原销售单、采购单、入库单、出库单。</li>
+        <li>后续客户退货、退款、换货、报废、残值、转售,都应新建售后型逆向流程并关联原单据。</li>
+      </ul>
+    </div>
+  </section>
+</main>
+</body>
+</html>

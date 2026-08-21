@@ -42,6 +42,9 @@ export const Permissions = {
   RECEIVABLE_READ: "receivable:read",
   RECEIPT_READ: "receipt:read",
   RECEIPT_MANAGE: "receipt:manage",
+  CUSTOMER_CREDIT_CREATE: "customer_credit:create",
+  CUSTOMER_CREDIT_POST: "customer_credit:post",
+  CUSTOMER_CREDIT_VOID: "customer_credit:void",
   PAYMENT_READ: "payment:read",
   PAYMENT_MANAGE: "payment:manage",
 } as const;

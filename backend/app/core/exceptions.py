@@ -27,7 +27,7 @@
   22 | 财务       | 422xx(核销引擎:42201 核销超收付款未分配;42202 核销超账未结金额;42203 跨币种;
        |            |       42204 客户/供应商不匹配;42205 反核销记录不存在/已反核销;42206 账已作废不可核销;
        |            |       42207 认领非 UNCLAIMED;42208 已有活动核销不可作废;42209 收付款单已作废不可操作;
-       |            |       42210 同对已有活动核销,先反核销再重核)
+       |            |       42210 同对已有活动核销,先反核销再重核;42211 幂等键复用但请求参数不一致)
 
 兜底码:
   40000 = 通用客户端兜底(裸 HTTPException 降级)
@@ -804,6 +804,13 @@ class AllocationPairAlreadyActiveError(BusinessError):
 
     def __init__(self, message: str = "An active allocation already exists for this pair, reverse it first"):
         super().__init__(status.HTTP_409_CONFLICT, 42210, message)
+
+
+class AllocationIdempotencyConflictError(BusinessError):
+    """42211 — 幂等键已用于不同财务请求,必须换新 key,不可吞掉为成功。"""
+
+    def __init__(self, message: str = "Idempotency key was already used for a different allocation request"):
+        super().__init__(status.HTTP_409_CONFLICT, 42211, message)
 
 
 def success(data: Any = None, message: str = "ok") -> dict:

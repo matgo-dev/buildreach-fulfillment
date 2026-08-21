@@ -13,7 +13,8 @@ from app.schemas.inventory_disposition import (
     InventoryDispositionLineOut,
     InventoryDispositionOut,
 )
-from app.services import inventory_disposition_service
+from app.schemas.customer_credit_memo import CustomerCreditMemoOut
+from app.services import customer_credit_memo_service, inventory_disposition_service
 
 router = APIRouter(prefix="/inventory-dispositions", tags=["inventory-dispositions"])
 
@@ -28,12 +29,15 @@ def _can_see_cost(current: CurrentUser) -> bool:
 async def _detail_payload(db: AsyncSession, order, current: CurrentUser) -> dict:
     can_see_cost = _can_see_cost(current)
     lines = await inventory_disposition_service.list_lines(db, order.id)
+    customer_credit_memo = await customer_credit_memo_service.get_by_inventory_disposition(
+        db, order.id)
     return {
         "order": InventoryDispositionOut.build(order, can_see_cost=can_see_cost),
         "lines": [
             InventoryDispositionLineOut.build(line, can_see_cost=can_see_cost)
             for line in lines
         ],
+        "customer_credit_memo": CustomerCreditMemoOut.build(customer_credit_memo),
     }
 
 
