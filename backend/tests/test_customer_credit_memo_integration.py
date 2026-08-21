@@ -301,7 +301,8 @@ async def test_customer_credit_memo_posts_cny_balance_without_touching_supplier_
         client, db_session, sales_headers, purchaser_headers, finance_headers):
     ctx = await setup_available_stock(
         client, db_session, sales_headers, purchaser_headers,
-        so_qty=10, po_price="5.00", received=10, sku_codes=("SKUCCM_A",))
+        so_qty=10, unit_price="20.00", po_price="5.00", received=10,
+        sku_codes=("SKUCCM_A",))
     disposition = await _create_held_disposition(
         client, purchaser_headers, ctx["inbound_order_id"])
 
@@ -437,6 +438,80 @@ async def test_customer_credit_memo_reject_resubmit_and_active_unique(
         CustomerCreditMemoStatus.REJECTED,
         CustomerCreditMemoStatus.POSTED,
     ]
+
+
+async def test_customer_credit_memo_amount_cannot_exceed_disposition_sales_value(
+        client, db_session, sales_headers, purchaser_headers, finance_headers):
+    create_ctx = await setup_available_stock(
+        client, db_session, sales_headers, purchaser_headers,
+        so_currency="CNY", so_qty=10, unit_price="10.00", po_price="5.00", received=10,
+        sku_codes=("SKUCCM_CAP_CREATE",))
+    create_disposition = await _create_held_disposition(
+        client, purchaser_headers, create_ctx["inbound_order_id"])
+    over_create = await client.post(
+        "/api/v1/customer-credit-memos",
+        headers=purchaser_headers,
+        json={"inventory_disposition_order_id": create_disposition["order"]["id"],
+              "amount": "100.01", "currency": "CNY"},
+    )
+    assert over_create.status_code == 409
+    assert over_create.json()["code"] == 41718
+
+    resubmit_ctx = await setup_available_stock(
+        client, db_session, sales_headers, purchaser_headers,
+        so_currency="CNY", so_qty=10, unit_price="10.00", po_price="5.00", received=10,
+        sku_codes=("SKUCCM_CAP_RESUBMIT",))
+    resubmit_disposition = await _create_held_disposition(
+        client, purchaser_headers, resubmit_ctx["inbound_order_id"])
+    first = await client.post(
+        "/api/v1/customer-credit-memos",
+        headers=sales_headers,
+        json={"inventory_disposition_order_id": resubmit_disposition["order"]["id"],
+              "amount": "80.00", "currency": "CNY"},
+    )
+    assert first.status_code == 200, first.text
+    first_id = first.json()["data"]["id"]
+    rejected = await client.post(
+        f"/api/v1/customer-credit-memos/{first_id}/reject",
+        headers=finance_headers,
+        json={"reject_reason": "金额需重提"},
+    )
+    assert rejected.status_code == 200, rejected.text
+    over_resubmit = await client.post(
+        f"/api/v1/customer-credit-memos/{first_id}/resubmit",
+        headers=sales_headers,
+        json={"amount": "100.01", "reason": "重提超额"},
+    )
+    assert over_resubmit.status_code == 409
+    assert over_resubmit.json()["code"] == 41718
+
+    post_ctx = await setup_available_stock(
+        client, db_session, sales_headers, purchaser_headers,
+        so_currency="CNY", so_qty=10, unit_price="10.00", po_price="5.00", received=10,
+        sku_codes=("SKUCCM_CAP_POST",))
+    post_disposition = await _create_held_disposition(
+        client, purchaser_headers, post_ctx["inbound_order_id"])
+    pending = await client.post(
+        "/api/v1/customer-credit-memos",
+        headers=purchaser_headers,
+        json={"inventory_disposition_order_id": post_disposition["order"]["id"],
+              "amount": "90.00", "currency": "CNY"},
+    )
+    assert pending.status_code == 200, pending.text
+    memo_id = pending.json()["data"]["id"]
+    memo = (await db_session.execute(
+        select(CustomerCreditMemo).where(CustomerCreditMemo.id == memo_id)
+    )).scalar_one()
+    memo.amount = Decimal("100.01")
+    await db_session.commit()
+
+    over_post = await client.post(
+        f"/api/v1/customer-credit-memos/{memo_id}/post",
+        headers=finance_headers,
+        json={},
+    )
+    assert over_post.status_code == 409
+    assert over_post.json()["code"] == 41718
 
 
 async def test_customer_credit_memo_allocates_to_receivable_and_can_reverse_then_void(
@@ -669,7 +744,7 @@ async def test_customer_credit_eligible_receivables_are_memo_scoped_and_paginate
         client, db_session, sales_headers, purchaser_headers, finance_headers, logistics_headers):
     ctx = await setup_available_stock(
         client, db_session, sales_headers, purchaser_headers,
-        so_currency="CNY", so_qty=10, po_price="5.00", received=10,
+        so_currency="CNY", so_qty=10, unit_price="30.00", po_price="5.00", received=10,
         sku_codes=("SKUCCM_ELIGIBLE",))
     disposition = await _create_held_disposition(
         client, purchaser_headers, ctx["inbound_order_id"])
@@ -1094,7 +1169,7 @@ async def test_customer_credit_auto_allocate_one_memo_across_multiple_receivable
         client, db_session, sales_headers, purchaser_headers, finance_headers, logistics_headers):
     source = await setup_available_stock(
         client, db_session, sales_headers, purchaser_headers,
-        so_currency="CNY", so_qty=10, po_price="5.00", received=10,
+        so_currency="CNY", so_qty=10, unit_price="12.00", po_price="5.00", received=10,
         sku_codes=("SKUCCM_MULTI_SRC",))
     disp = await _create_held_disposition(client, purchaser_headers, source["inbound_order_id"])
     memo = (await client.post(

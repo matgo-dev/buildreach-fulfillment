@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import func, nullslast, select
 from sqlalchemy.exc import IntegrityError
@@ -19,6 +19,7 @@ from app.core.exceptions import (
     AllocationIdempotencyConflictError,
     AllocationExceedsSourceError,
     AllocationReverseNotFoundError,
+    CustomerCreditMemoExceedsSourceAmountError,
     NotFoundError,
     PurchaseReturnSourceInvalidError,
     SourceHasActiveAllocationsError,
@@ -32,13 +33,15 @@ from app.db.models.customer_credit_memo import (
     CustomerCreditMemoType,
 )
 from app.db.models.inventory_disposition import (
+    InventoryDispositionLine,
     InventoryDispositionOrder,
     InventoryDispositionStatus,
 )
 from app.db.models.outbound_order import OutboundOrder, OutboundOrderStatus
+from app.db.models.purchase_order import PurchaseOrderLine
 from app.db.models.receipt_allocation import AllocationType
 from app.db.models.receivable import Receivable
-from app.db.models.sales_order import SalesOrder
+from app.db.models.sales_order import SalesOrder, SalesOrderLine
 from app.services.numbering import allocate
 from app.services.repo import paginate
 
@@ -46,6 +49,7 @@ _OPEN_MEMO_STATUSES = (
     CustomerCreditMemoStatus.PENDING_APPROVAL,
     CustomerCreditMemoStatus.POSTED,
 )
+_CENT = Decimal("0.01")
 
 
 def _utcnow() -> datetime:
@@ -54,6 +58,10 @@ def _utcnow() -> datetime:
 
 def _d(value) -> Decimal:
     return Decimal(str(value))
+
+
+def _money(qty, unit_price) -> Decimal:
+    return (_d(qty) * _d(unit_price)).quantize(_CENT, rounding=ROUND_HALF_UP)
 
 
 def _memo_remaining(memo: CustomerCreditMemo) -> Decimal:
@@ -92,6 +100,55 @@ async def _open_memo_id_for_disposition(db: AsyncSession, order_id: int) -> int 
         )
         .limit(1)
     )).scalar_one_or_none()
+
+
+async def _source_credit_limit(
+    db: AsyncSession,
+    inventory_disposition_order_id: int,
+    *,
+    exclude_memo_id: int | None = None,
+) -> Decimal:
+    rows = (await db.execute(
+        select(InventoryDispositionLine.qty, SalesOrderLine.unit_price)
+        .join(PurchaseOrderLine,
+              PurchaseOrderLine.id == InventoryDispositionLine.purchase_order_line_id)
+        .join(SalesOrderLine,
+              SalesOrderLine.id == PurchaseOrderLine.source_sales_order_line_id)
+        .where(
+            InventoryDispositionLine.inventory_disposition_order_id
+            == inventory_disposition_order_id,
+        )
+    )).all()
+    gross = sum((_money(qty, unit_price) for qty, unit_price in rows), Decimal("0.00"))
+
+    conds = [
+        CustomerCreditMemo.inventory_disposition_order_id == inventory_disposition_order_id,
+        CustomerCreditMemo.status == CustomerCreditMemoStatus.POSTED,
+    ]
+    if exclude_memo_id is not None:
+        conds.append(CustomerCreditMemo.id != exclude_memo_id)
+    posted = (await db.execute(
+        select(func.coalesce(func.sum(CustomerCreditMemo.amount), 0)).where(*conds)
+    )).scalar_one()
+    return gross - _d(posted)
+
+
+async def _assert_amount_within_source_limit(
+    db: AsyncSession,
+    *,
+    inventory_disposition_order_id: int,
+    amount: Decimal,
+    exclude_memo_id: int | None = None,
+) -> Decimal:
+    limit = await _source_credit_limit(
+        db,
+        inventory_disposition_order_id,
+        exclude_memo_id=exclude_memo_id,
+    )
+    if _d(amount) > limit:
+        raise CustomerCreditMemoExceedsSourceAmountError(
+            f"客户余额贷项单金额超过处置单可贷金额 {limit}")
+    return limit
 
 
 async def get(db: AsyncSession, memo_id: int) -> CustomerCreditMemo:
@@ -270,6 +327,11 @@ async def create_memo(
     )).scalar_one_or_none()
     if customer is None:
         raise PurchaseReturnSourceInvalidError("销售单关联的客户不存在")
+    source_credit_limit = await _assert_amount_within_source_limit(
+        db,
+        inventory_disposition_order_id=order.id,
+        amount=amount,
+    )
 
     memo = CustomerCreditMemo(
         no=await _next_no(db),
@@ -299,7 +361,8 @@ async def create_memo(
         action=AuditAction.CREATE, user_id=actor_user_id, user_email=actor_user_email,
         resource_id=memo.id, request=request,
         extra={"inventory_disposition_order_id": order.id, "sales_order_id": sales_order.id,
-               "customer_id": customer.id, "amount": str(amount), "currency": "CNY"},
+               "customer_id": customer.id, "amount": str(amount), "currency": "CNY",
+               "source_credit_limit": str(source_credit_limit)},
         commit=False)
     await db.commit()
     await db.refresh(memo)
@@ -355,6 +418,12 @@ async def post_memo(
     )).scalar_one_or_none()
     if customer is None:
         raise PurchaseReturnSourceInvalidError("客户余额贷项单关联的客户不存在")
+    source_credit_limit = await _assert_amount_within_source_limit(
+        db,
+        inventory_disposition_order_id=order.id,
+        amount=memo.amount,
+        exclude_memo_id=memo.id,
+    )
 
     memo.status = CustomerCreditMemoStatus.POSTED
     memo.posted_at = _utcnow()
@@ -364,7 +433,8 @@ async def post_memo(
         action=AuditAction.POST, user_id=actor_user_id, user_email=actor_user_email,
         resource_id=memo.id, request=request,
         extra={"inventory_disposition_order_id": order.id, "customer_id": customer.id,
-               "amount": str(memo.amount), "currency": memo.currency},
+               "amount": str(memo.amount), "currency": memo.currency,
+               "source_credit_limit": str(source_credit_limit)},
         commit=False)
     await db.commit()
     await db.refresh(memo)
@@ -453,6 +523,12 @@ async def resubmit_memo(
     )).scalar_one_or_none()
     if customer is None:
         raise PurchaseReturnSourceInvalidError("客户余额贷项单关联的客户不存在")
+    source_credit_limit = await _assert_amount_within_source_limit(
+        db,
+        inventory_disposition_order_id=order.id,
+        amount=amount,
+        exclude_memo_id=old.id,
+    )
 
     memo = CustomerCreditMemo(
         no=await _next_no(db),
@@ -485,7 +561,7 @@ async def resubmit_memo(
         extra={"inventory_disposition_order_id": order.id, "customer_id": customer.id,
                "resubmitted_from_customer_credit_memo_id": old.id,
                "rejected_reason": old.reject_reason, "amount": str(amount),
-               "currency": "CNY"},
+               "currency": "CNY", "source_credit_limit": str(source_credit_limit)},
         commit=False)
     await db.commit()
     await db.refresh(memo)

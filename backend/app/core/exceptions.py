@@ -16,7 +16,7 @@
   15 | 供应商     | 415xx
   16 | 采购单     | 416xx
   17 | 入库/应付  | 417xx(含 41710 撤销入库穿仓守卫;41712 入库财务边界;
-       |            |       41713–41717 采购退货/供应商贷项单)
+       |            |       41713–41718 采购退货/供应商贷项单/客户贷项单)
   18 | 销售单     | 418xx
   19 | 出库单     | 419xx
   20 | 柜/发运    | 420xx(42002 非法转移·单义;42003/42004 封柜守卫;42005 字段门禁;42006 编辑冲突;
@@ -451,6 +451,13 @@ class APCreditMemoExceedsOutstandingError(BusinessError):
 
     def __init__(self, message: str = "AP credit memo exceeds outstanding payable amount"):
         super().__init__(status.HTTP_409_CONFLICT, 41717, message)
+
+
+class CustomerCreditMemoExceedsSourceAmountError(BusinessError):
+    """客户余额贷项单金额超过库存处置单对应销售货值。"""
+
+    def __init__(self, message: str = "Customer credit memo exceeds source amount"):
+        super().__init__(status.HTTP_409_CONFLICT, 41718, message)
 
 
 # 模块段 18 = 销售单(SO 状态机)。见 db/models/sales_order.py SalesOrderStatus。
