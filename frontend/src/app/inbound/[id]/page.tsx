@@ -444,7 +444,7 @@ export default function InboundOrderDetailPage() {
             <Space>
               {!inventoryDisposition.customer_credit_memo
                 && ["HELD", "CLOSED_WITHOUT_RECEIPT"].includes(inventoryDisposition.order.status) ? (
-                <Can perm={Permissions.PURCHASE_MANAGE}>
+                <Can perm={Permissions.CUSTOMER_CREDIT_CREATE}>
                   <Button
                     size="small"
                     icon={<DollarOutlined />}

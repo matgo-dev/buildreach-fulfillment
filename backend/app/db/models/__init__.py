@@ -36,7 +36,7 @@ from app.db.models.inventory_disposition import (  # noqa: F401
     InventoryDispositionLine,
     InventoryDispositionOrder,
 )
-from app.db.models.customer_credit_memo import CustomerCreditMemo  # noqa: F401
+from app.db.models.customer_credit_memo import CustomerCreditAllocation, CustomerCreditMemo  # noqa: F401
 from app.db.models.refresh_token_family import RefreshTokenFamily  # noqa: F401
 from app.db.models.refresh_token import RefreshToken  # noqa: F401
 
@@ -52,5 +52,5 @@ __all__ = [
     "Receipt", "Payment", "ReceiptAllocation", "PaymentAllocation",
     "InventoryBalance", "InventoryMovement", "PurchaseReturnOrder", "PurchaseReturnLine",
     "APCreditMemo", "InventoryDispositionOrder", "InventoryDispositionLine",
-    "CustomerCreditMemo", "RefreshTokenFamily", "RefreshToken",
+    "CustomerCreditMemo", "CustomerCreditAllocation", "RefreshTokenFamily", "RefreshToken",
 ]

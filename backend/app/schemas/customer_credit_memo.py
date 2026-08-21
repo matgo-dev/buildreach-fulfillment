@@ -15,7 +15,26 @@ class CustomerCreditMemoCreateIn(BaseModel):
 
 
 class CustomerCreditMemoRejectIn(BaseModel):
-    reject_reason: str | None = Field(default=None, max_length=500)
+    reject_reason: str = Field(..., min_length=1, max_length=500)
+
+
+class CustomerCreditMemoResubmitIn(BaseModel):
+    amount: Decimal = Field(..., gt=0, max_digits=18, decimal_places=2)
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class CustomerCreditMemoAllocateIn(BaseModel):
+    account_id: int = Field(..., description="receivable_id")
+    amount: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=2)
+    idempotency_key: str = Field(..., min_length=1, max_length=120)
+
+
+class CustomerCreditMemoVoidIn(BaseModel):
+    void_reason: str | None = Field(default=None, max_length=500)
+
+
+class CustomerCreditAllocationReverseIn(BaseModel):
+    reverse_reason: str | None = Field(default=None, max_length=500)
 
 
 class CustomerCreditMemoOut(BaseModel):
@@ -36,6 +55,10 @@ class CustomerCreditMemoOut(BaseModel):
     rejected_at: datetime | None
     rejected_by: int | None
     reject_reason: str | None
+    resubmitted_from_id: int | None
+    voided_at: datetime | None
+    voided_by: int | None
+    void_reason: str | None
     created_by: int
     created_at: datetime
 
@@ -61,6 +84,58 @@ class CustomerCreditMemoOut(BaseModel):
             "rejected_at": memo.rejected_at,
             "rejected_by": memo.rejected_by,
             "reject_reason": memo.reject_reason,
+            "resubmitted_from_id": memo.resubmitted_from_id,
+            "voided_at": memo.voided_at,
+            "voided_by": memo.voided_by,
+            "void_reason": memo.void_reason,
             "created_by": memo.created_by,
             "created_at": memo.created_at,
+        }
+
+
+class CustomerCreditAllocationOut(BaseModel):
+    id: int
+    customer_credit_memo_id: int
+    receivable_id: int
+    account_id: int
+    account_no: str
+    outbound_order_id: int
+    amount: Decimal
+    alloc_type: str
+    source_type: str = "CUSTOMER_CREDIT_MEMO"
+    idempotency_key: str
+    created_by: int
+    created_at: datetime
+
+    @classmethod
+    def build(cls, row) -> dict:
+        alloc, outbound_order_id, outbound_no = row
+        return {
+            "id": alloc.id,
+            "customer_credit_memo_id": alloc.customer_credit_memo_id,
+            "receivable_id": alloc.receivable_id,
+            "account_id": alloc.receivable_id,
+            "account_no": outbound_no,
+            "outbound_order_id": outbound_order_id,
+            "amount": Decimal(str(alloc.amount)),
+            "alloc_type": alloc.alloc_type,
+            "source_type": "CUSTOMER_CREDIT_MEMO",
+            "idempotency_key": alloc.idempotency_key,
+            "created_by": alloc.created_by,
+            "created_at": alloc.created_at,
+        }
+
+
+class CustomerCreditMemoDetailOut(BaseModel):
+    memo: CustomerCreditMemoOut
+    allocations: list[CustomerCreditAllocationOut]
+
+    @classmethod
+    def build(cls, detail: dict) -> dict:
+        return {
+            "memo": CustomerCreditMemoOut.build(detail["memo"]),
+            "allocations": [
+                CustomerCreditAllocationOut.build(row)
+                for row in detail["allocations"]
+            ],
         }

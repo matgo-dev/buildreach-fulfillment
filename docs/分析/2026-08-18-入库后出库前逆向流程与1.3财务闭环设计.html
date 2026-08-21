@@ -110,6 +110,7 @@
     .node span { display: block; color: var(--muted); font-size: 12px; margin-top: 4px; }
     .node.goods { background: #ecfeff; }
     .node.money { background: #fff7ed; }
+    .node.settle { background: #eef2ff; border-color: #c7d2fe; }
     .node.stop { background: #fef2f2; }
     .node.freeze { background: #f0f9ff; border-color: #bae6fd; }
     .node.noop { background: #f8fafc; border-style: dashed; }
@@ -131,6 +132,16 @@
       line-height: 1.45;
     }
     .node li { margin: 2px 0; }
+    .node .amount {
+      display: inline-flex;
+      margin-top: 8px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.82);
+      color: #7c2d12;
+      font-weight: 750;
+      font-size: 11px;
+    }
     .arrow {
       display: flex;
       align-items: center;
@@ -183,8 +194,23 @@
       margin-top: 10px;
     }
     .legend .tag { background: #fff; }
+    .checkpoint {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .checkpoint div {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+    }
+    .checkpoint strong { display: block; font-size: 13px; }
+    .checkpoint span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
     @media (max-width: 860px) {
       .grid.two, .grid.three { grid-template-columns: 1fr; }
+      .checkpoint { grid-template-columns: 1fr; }
       .lane { grid-template-columns: 1fr; }
       .lane-label { min-height: auto; justify-content: flex-start; padding: 8px 10px; }
     }
@@ -467,13 +493,13 @@
   </section>
 
   <section class="section">
-    <h2>五、1.3 财务闭环 MVP 建议</h2>
+    <h2>五、1.3 客户侧财务闭环</h2>
     <p class="lead">
-      本次 MVP 只做客户侧人民币余额闭环,不做最终损失确认。这样能把业务跑通,又不会把采购成本、客户补偿、库存资产和公司损失混成一个金额。
+      本次只做客户侧人民币余额闭环:客户补偿金额先进入客户余额,后续抵扣应收时消耗余额。外部提现、逆向费用/付款单和最终公司损失确认都不在本次展开。
     </p>
     <div class="grid two">
       <div class="branch-card">
-        <h3>客户侧:人民币客户余额</h3>
+        <h3>客户侧:余额进入 + 余额消耗</h3>
         <div class="process-map">
           <div class="lane">
             <div class="lane-label">库存侧</div>
@@ -484,13 +510,25 @@
             </div>
           </div>
           <div class="lane">
-            <div class="lane-label">客户钱</div>
+            <div class="lane-label">余额进入</div>
             <div class="lane-track">
-              <div class="node money"><span class="eyebrow">创建</span><strong>客户余额贷项单</strong><span>CNY / PENDING_APPROVAL</span></div>
+              <div class="node money"><span class="eyebrow">业务提交</span><strong>客户余额贷项单</strong><span>CNY / PENDING_APPROVAL</span><span class="amount">amount = N</span></div>
               <div class="arrow">→</div>
-              <div class="node money"><span class="eyebrow">财务动作</span><strong>过账 POSTED</strong><span>需要财务权限</span></div>
+              <div class="node money"><span class="eyebrow">财务审批</span><strong>过账 POSTED</strong><span>post 权限;创建人不可自过账</span><span class="amount">allocated = 0</span></div>
               <div class="arrow">→</div>
-              <div class="node money"><span class="eyebrow">余额结果</span><strong>客户未分配余额 +N</strong><span>可后续冲抵或提现</span></div>
+              <div class="node money"><span class="eyebrow">余额结果</span><strong>客户未分配余额 +N</strong><span>可后续冲抵或提现</span><span class="amount">unallocated = N</span></div>
+            </div>
+          </div>
+          <div class="lane">
+            <div class="lane-label">余额消耗</div>
+            <div class="lane-track">
+              <div class="node settle"><span class="eyebrow">后续有应收</span><strong>Receivable</strong><span>客户/币种一致,未结金额 &gt; 0</span></div>
+              <div class="arrow">→</div>
+              <div class="node settle"><span class="eyebrow">独立抵扣行</span><strong>customer_credit_allocations</strong><span>AUTO / MANUAL,可反抵扣</span></div>
+              <div class="arrow">→</div>
+              <div class="node settle"><span class="eyebrow">同事务更新</span><strong>两边 amount_allocated +X</strong><span>memo 与 receivable 同步守恒</span></div>
+              <div class="arrow">→</div>
+              <div class="node settle"><span class="eyebrow">应收状态</span><strong>未结 / 部分结 / 已结清</strong><span>不再叫“已收清”</span></div>
             </div>
           </div>
           <div class="lane">
@@ -498,14 +536,29 @@
             <div class="lane-track">
               <div class="node noop"><span class="eyebrow">不发生</span><strong>无供应商贷项单</strong><span>不冲 amount_credited</span></div>
               <div class="arrow">→</div>
-              <div class="node noop"><span class="eyebrow">不发生</span><strong>不确认最终损失</strong><span>待处置库存仍是资产</span></div>
+              <div class="node noop"><span class="eyebrow">保持</span><strong>供应商应付原账</strong><span>付款/核销仍按原 AP 处理</span></div>
+            </div>
+          </div>
+          <div class="lane">
+            <div class="lane-label">本次不做</div>
+            <div class="lane-track">
+              <div class="node noop"><span class="eyebrow">不展开</span><strong>外部提现</strong><span>后续逆向费用/付款单</span></div>
+              <div class="arrow">→</div>
+              <div class="node noop"><span class="eyebrow">不提前</span><strong>最终公司损失</strong><span>等库存最终处置方式确认</span></div>
             </div>
           </div>
         </div>
         <div class="legend">
           <span class="tag ok">绿色/青色:货与库存事实</span>
           <span class="tag warn">橙色:客户侧金额</span>
+          <span class="tag">紫色:余额抵扣应收</span>
           <span class="tag">虚线:明确不做</span>
+        </div>
+        <div class="checkpoint">
+          <div><strong>余额守恒</strong><span>memo.amount = active allocations + unallocated</span></div>
+          <div><strong>应收守恒</strong><span>original = receipt allocations + credit allocations + outstanding</span></div>
+          <div><strong>并发锁序</strong><span>客户 → 应收 → 客户贷方 FIFO(created_at,id)</span></div>
+          <div><strong>审批边界</strong><span>create / post / void 权限拆分,留审计轨迹</span></div>
         </div>
         <ul>
           <li>币种先固定为 <code>CNY</code>,由发起人填人民币金额,审核人按人民币审核。</li>
@@ -535,7 +588,8 @@
         <ul>
           <li>客户余额贷项单有 <code>PENDING_APPROVAL / POSTED / REJECTED / VOIDED</code>。</li>
           <li>同一库存处置单同一时间至多一个活动贷项单。</li>
-          <li>驳回后可以重新提交,旧单保留审计历史。</li>
+          <li>驳回必须填原因;重新提交保留 <code>resubmitted_from_id</code>。</li>
+          <li>已过账未消耗的贷项单可作废;已抵扣的必须先反抵扣。</li>
         </ul>
       </div>
       <div class="card money">
@@ -543,14 +597,16 @@
         <ul>
           <li>金额字段使用 Decimal,不接 float。</li>
           <li>本 MVP 固定 CNY,不与 PO 币种或 SO 币种相加。</li>
-          <li>客户余额增加、退款付款、作废/反向都要金额守恒。</li>
+          <li><code>customer_credit_allocations</code> 独立于 <code>receipt_allocations</code>,现金与余额来源可区分。</li>
+          <li>贷项单与应收的 <code>amount_allocated</code> 必须在同一事务同步更新。</li>
         </ul>
       </div>
       <div class="card warn">
         <h3>权限与并发</h3>
         <ul>
-          <li>采购/物流可发起库存处置,但财务过账客户余额。</li>
-          <li>锁序沿用源单/客户余额/财务单据的稳定顺序。</li>
+          <li>业务侧持 <code>customer_credit:create</code>,财务侧持 <code>customer_credit:post</code> / <code>customer_credit:void</code>。</li>
+          <li>创建人不可过账自己创建的客户余额贷项单。</li>
+          <li>自动抵扣按已过账客户贷方单 <code>created_at ASC, id ASC</code> FIFO。</li>
           <li>重复提交、重复过账、并发创建、驳回后重试都要测试。</li>
         </ul>
       </div>

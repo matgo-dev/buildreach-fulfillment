@@ -67,6 +67,9 @@ class Permissions:
     # receipt = 客户售价侧(同 receivable:read 域,非红线);payment = 供应商+采购付款,红线。
     RECEIPT_READ = "receipt:read"
     RECEIPT_MANAGE = "receipt:manage"      # 登记收款、认领、核销、反核销
+    CUSTOMER_CREDIT_CREATE = "customer_credit:create"  # 业务提交客户余额贷项单
+    CUSTOMER_CREDIT_POST = "customer_credit:post"      # 财务审核/过账/抵扣/反抵扣
+    CUSTOMER_CREDIT_VOID = "customer_credit:void"      # 财务作废未消耗客户余额贷项单
     # 🔴红线开关:付款单/付侧核销整域(供应商 + 采购付款金额)可见 + 可写;端点级门控。
     PAYMENT_READ = "payment:read"
     PAYMENT_MANAGE = "payment:manage"
@@ -126,6 +129,12 @@ PERMISSION_META: dict[str, dict[str, str]] = {
 
     Permissions.RECEIPT_READ: {"name": "收款单查看", "module": ModuleLabel.FULFILLMENT},
     Permissions.RECEIPT_MANAGE: {"name": "收款单管理", "module": ModuleLabel.FULFILLMENT},
+    Permissions.CUSTOMER_CREDIT_CREATE: {
+        "name": "客户余额贷项创建", "module": ModuleLabel.FULFILLMENT},
+    Permissions.CUSTOMER_CREDIT_POST: {
+        "name": "客户余额贷项过账", "module": ModuleLabel.FULFILLMENT},
+    Permissions.CUSTOMER_CREDIT_VOID: {
+        "name": "客户余额贷项作废", "module": ModuleLabel.FULFILLMENT},
     Permissions.PAYMENT_READ: {"name": "付款单查看", "module": ModuleLabel.FULFILLMENT},
     Permissions.PAYMENT_MANAGE: {"name": "付款单管理", "module": ModuleLabel.FULFILLMENT},
 }

@@ -11,9 +11,22 @@ from starlette.requests import Request
 from app.audit.constants import AuditAction, AuditResourceType
 from app.audit.logger import write_audit
 from app.core.codegen import NumberScope, format_code
-from app.core.exceptions import NotFoundError, PurchaseReturnSourceInvalidError
+from app.core.exceptions import (
+    AccountVoidedCannotAllocateError,
+    AllocationCounterpartyMismatchError,
+    AllocationCurrencyMismatchError,
+    AllocationExceedsAccountError,
+    AllocationExceedsSourceError,
+    AllocationPairAlreadyActiveError,
+    AllocationReverseNotFoundError,
+    NotFoundError,
+    PurchaseReturnSourceInvalidError,
+    SourceHasActiveAllocationsError,
+    SourceVoidedError,
+)
 from app.db.models.customer import Customer
 from app.db.models.customer_credit_memo import (
+    CustomerCreditAllocation,
     CustomerCreditMemo,
     CustomerCreditMemoStatus,
     CustomerCreditMemoType,
@@ -23,6 +36,8 @@ from app.db.models.inventory_disposition import (
     InventoryDispositionStatus,
 )
 from app.db.models.outbound_order import OutboundOrder, OutboundOrderStatus
+from app.db.models.receipt_allocation import AllocationType
+from app.db.models.receivable import Receivable
 from app.db.models.sales_order import SalesOrder
 from app.services.numbering import allocate
 from app.services.repo import paginate
@@ -35,6 +50,18 @@ _OPEN_MEMO_STATUSES = (
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _d(value) -> Decimal:
+    return Decimal(str(value))
+
+
+def _memo_remaining(memo: CustomerCreditMemo) -> Decimal:
+    return _d(memo.amount) - _d(memo.amount_allocated)
+
+
+def _receivable_outstanding(receivable: Receivable) -> Decimal:
+    return _d(receivable.amount_outstanding)
 
 
 async def _next_no(db: AsyncSession) -> str:
@@ -91,6 +118,31 @@ async def get_by_inventory_disposition(
     )).scalar_one_or_none()
 
 
+async def active_allocations(
+    db: AsyncSession,
+    memo_id: int,
+) -> list[tuple[CustomerCreditAllocation, int, str]]:
+    """客户贷方单活动抵扣行,附带应收来源出库单号。"""
+    return list((await db.execute(
+        select(CustomerCreditAllocation, Receivable.outbound_order_id, OutboundOrder.no)
+        .join(Receivable, Receivable.id == CustomerCreditAllocation.receivable_id)
+        .join(OutboundOrder, OutboundOrder.id == Receivable.outbound_order_id)
+        .where(
+            CustomerCreditAllocation.customer_credit_memo_id == memo_id,
+            CustomerCreditAllocation.reversed_at.is_(None),
+        )
+        .order_by(CustomerCreditAllocation.id)
+    )).all())
+
+
+async def get_detail(db: AsyncSession, memo_id: int) -> dict:
+    memo = await get(db, memo_id)
+    return {
+        "memo": memo,
+        "allocations": await active_allocations(db, memo_id),
+    }
+
+
 async def list_memos(
     db: AsyncSession, *,
     status: str | None = None,
@@ -100,9 +152,10 @@ async def list_memos(
     page: int = 1,
     size: int = 20,
 ) -> tuple[list[CustomerCreditMemo], int]:
-    conds = [CustomerCreditMemo.status != CustomerCreditMemoStatus.VOIDED]
     if status:
-        conds.append(CustomerCreditMemo.status == status)
+        conds = [CustomerCreditMemo.status == status]
+    else:
+        conds = [CustomerCreditMemo.status != CustomerCreditMemoStatus.VOIDED]
     if customer_id:
         conds.append(CustomerCreditMemo.customer_id == customer_id)
     if sales_order_id:
@@ -246,6 +299,8 @@ async def post_memo(
         raise PurchaseReturnSourceInvalidError("客户余额贷项单来源销售单已变化,请刷新后重试")
     if memo.status != CustomerCreditMemoStatus.PENDING_APPROVAL:
         raise PurchaseReturnSourceInvalidError("仅待财务审核客户余额贷项单可过账")
+    if memo.created_by == actor_user_id:
+        raise PurchaseReturnSourceInvalidError("创建人与过账人不可为同一人")
     order = (await db.execute(
         select(InventoryDispositionOrder)
         .where(InventoryDispositionOrder.id == memo.inventory_disposition_order_id)
@@ -261,7 +316,6 @@ async def post_memo(
     if order.sales_order_id != memo.sales_order_id:
         raise PurchaseReturnSourceInvalidError("客户余额贷项单与库存处置单销售单不一致")
 
-    await _assert_no_active_outbound(db, memo.sales_order_id)
     customer = (await db.execute(
         select(Customer).where(Customer.id == memo.customer_id).with_for_update()
     )).scalar_one_or_none()
@@ -286,7 +340,7 @@ async def post_memo(
 async def reject_memo(
     db: AsyncSession, *,
     memo_id: int,
-    reject_reason: str | None,
+    reject_reason: str,
     actor_user_id: int,
     actor_user_email: str,
     request: Request | None = None,
@@ -317,6 +371,8 @@ async def reject_memo(
 async def resubmit_memo(
     db: AsyncSession, *,
     memo_id: int,
+    amount: Decimal,
+    reason: str | None,
     actor_user_id: int,
     actor_user_email: str,
     request: Request | None = None,
@@ -357,7 +413,6 @@ async def resubmit_memo(
         raise PurchaseReturnSourceInvalidError("库存处置单未完成,不可重新提交客户余额贷项单")
     if order.sales_order_id != old.sales_order_id:
         raise PurchaseReturnSourceInvalidError("客户余额贷项单与库存处置单销售单不一致")
-    await _assert_no_active_outbound(db, old.sales_order_id)
     customer = (await db.execute(
         select(Customer).where(Customer.id == old.customer_id).with_for_update()
     )).scalar_one_or_none()
@@ -372,9 +427,10 @@ async def resubmit_memo(
         currency="CNY",
         memo_type=old.memo_type,
         status=CustomerCreditMemoStatus.PENDING_APPROVAL,
-        amount=old.amount,
+        amount=amount,
         amount_allocated=Decimal("0.00"),
-        reason=old.reason,
+        reason=reason,
+        resubmitted_from_id=old.id,
         created_by=actor_user_id,
     )
     db.add(memo)
@@ -393,7 +449,309 @@ async def resubmit_memo(
         resource_id=memo.id, request=request,
         extra={"inventory_disposition_order_id": order.id, "customer_id": customer.id,
                "resubmitted_from_customer_credit_memo_id": old.id,
-               "rejected_reason": old.reject_reason},
+               "rejected_reason": old.reject_reason, "amount": str(amount),
+               "currency": "CNY"},
+        commit=False)
+    await db.commit()
+    await db.refresh(memo)
+    return memo
+
+
+async def _lock_customer(db: AsyncSession, customer_id: int) -> None:
+    exists = (await db.execute(
+        select(Customer.id).where(Customer.id == customer_id).with_for_update()
+    )).scalar_one_or_none()
+    if exists is None:
+        raise PurchaseReturnSourceInvalidError("客户不存在")
+
+
+def _assert_memo_allocatable(memo: CustomerCreditMemo) -> None:
+    if memo.status == CustomerCreditMemoStatus.VOIDED:
+        raise SourceVoidedError("客户余额贷项单已作废,不可抵扣")
+    if memo.status != CustomerCreditMemoStatus.POSTED:
+        raise PurchaseReturnSourceInvalidError("仅已过账客户余额贷项单可抵扣应收")
+    if _memo_remaining(memo) <= 0:
+        raise AllocationExceedsSourceError("客户余额贷项单未分配余额不足")
+
+
+def _assert_receivable_allocatable(memo: CustomerCreditMemo, receivable: Receivable) -> None:
+    if receivable.voided_at is not None:
+        raise AccountVoidedCannotAllocateError("应收款已作废,不可抵扣")
+    if receivable.customer_id != memo.customer_id:
+        raise AllocationCounterpartyMismatchError("客户余额贷项单与应收客户不一致")
+    if receivable.currency != memo.currency:
+        raise AllocationCurrencyMismatchError("客户余额贷项单与应收币种不一致")
+    if _receivable_outstanding(receivable) <= 0:
+        raise AllocationExceedsAccountError("应收款未结金额不足")
+
+
+async def manual_allocate(
+    db: AsyncSession, *,
+    memo_id: int,
+    receivable_id: int,
+    amount: Decimal | None,
+    idempotency_key: str,
+    actor_user_id: int,
+    actor_user_email: str,
+    request: Request | None = None,
+) -> CustomerCreditAllocation:
+    existing = (await db.execute(
+        select(CustomerCreditAllocation)
+        .where(CustomerCreditAllocation.idempotency_key == idempotency_key)
+    )).scalar_one_or_none()
+    if existing is not None:
+        return existing
+
+    snapshot = (await db.execute(
+        select(CustomerCreditMemo.customer_id)
+        .where(CustomerCreditMemo.id == memo_id)
+    )).scalar_one_or_none()
+    if snapshot is None:
+        raise NotFoundError(f"客户余额贷项单不存在: {memo_id}")
+    await _lock_customer(db, snapshot)
+
+    memo = (await db.execute(
+        select(CustomerCreditMemo)
+        .where(CustomerCreditMemo.id == memo_id)
+        .with_for_update()
+    )).scalar_one_or_none()
+    if memo is None:
+        raise NotFoundError(f"客户余额贷项单不存在: {memo_id}")
+    _assert_memo_allocatable(memo)
+
+    receivable = (await db.execute(
+        select(Receivable)
+        .where(Receivable.id == receivable_id)
+        .with_for_update()
+    )).scalar_one_or_none()
+    if receivable is None:
+        raise NotFoundError(f"应收款不存在: {receivable_id}")
+    _assert_receivable_allocatable(memo, receivable)
+
+    dup = (await db.execute(
+        select(CustomerCreditAllocation.id)
+        .where(
+            CustomerCreditAllocation.customer_credit_memo_id == memo.id,
+            CustomerCreditAllocation.receivable_id == receivable.id,
+            CustomerCreditAllocation.reversed_at.is_(None),
+        )
+        .limit(1)
+    )).scalar_one_or_none()
+    if dup is not None:
+        raise AllocationPairAlreadyActiveError()
+
+    take = min(_memo_remaining(memo), _receivable_outstanding(receivable))
+    if amount is not None:
+        requested = _d(amount)
+        if requested > _memo_remaining(memo):
+            raise AllocationExceedsSourceError("客户余额贷项单未分配余额不足")
+        if requested > _receivable_outstanding(receivable):
+            raise AllocationExceedsAccountError("应收款未结金额不足")
+        take = requested
+    if take <= 0:
+        raise AllocationExceedsSourceError("客户余额贷项单未分配余额不足")
+
+    alloc = CustomerCreditAllocation(
+        customer_credit_memo_id=memo.id,
+        receivable_id=receivable.id,
+        amount=take,
+        alloc_type=AllocationType.MANUAL,
+        idempotency_key=idempotency_key,
+        created_by=actor_user_id,
+    )
+    db.add(alloc)
+    memo.amount_allocated = _d(memo.amount_allocated) + take
+    receivable.amount_allocated = _d(receivable.amount_allocated) + take
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        await db.rollback()
+        if "uq_customer_credit_alloc_active" in str(exc.orig):
+            raise AllocationPairAlreadyActiveError() from exc
+        raise
+
+    await write_audit(
+        db, resource_type=AuditResourceType.CUSTOMER_CREDIT_MEMO,
+        action=AuditAction.ALLOCATE, user_id=actor_user_id, user_email=actor_user_email,
+        resource_id=memo.id, request=request,
+        extra={"allocation_id": alloc.id, "receivable_id": receivable.id,
+               "amount": str(take), "alloc_type": AllocationType.MANUAL},
+        commit=False)
+    await db.commit()
+    await db.refresh(alloc)
+    return alloc
+
+
+async def auto_allocate_for_receivable(
+    db: AsyncSession, *,
+    receivable: Receivable,
+    actor_user_id: int,
+) -> list[CustomerCreditAllocation]:
+    """出库确认生成 CNY 应收后,自动消耗客户已过账余额。
+
+    锁序:客户 → 目标应收 → posted 客户贷方单 FIFO(created_at,id)。
+    """
+    if receivable.currency != "CNY" or _receivable_outstanding(receivable) <= 0:
+        return []
+    await _lock_customer(db, receivable.customer_id)
+    locked_receivable = (await db.execute(
+        select(Receivable)
+        .where(Receivable.id == receivable.id)
+        .with_for_update()
+    )).scalar_one_or_none()
+    if locked_receivable is None or locked_receivable.voided_at is not None:
+        return []
+
+    ids = (await db.execute(
+        select(CustomerCreditMemo.id)
+        .where(
+            CustomerCreditMemo.customer_id == locked_receivable.customer_id,
+            CustomerCreditMemo.currency == locked_receivable.currency,
+            CustomerCreditMemo.status == CustomerCreditMemoStatus.POSTED,
+            CustomerCreditMemo.amount_unallocated > 0,
+        )
+        .order_by(CustomerCreditMemo.created_at.asc(), CustomerCreditMemo.id.asc())
+    )).scalars().all()
+
+    created: list[CustomerCreditAllocation] = []
+    for credit_id in ids:
+        if _receivable_outstanding(locked_receivable) <= 0:
+            break
+        memo = (await db.execute(
+            select(CustomerCreditMemo)
+            .where(CustomerCreditMemo.id == credit_id)
+            .with_for_update()
+        )).scalar_one_or_none()
+        if memo is None or memo.status != CustomerCreditMemoStatus.POSTED:
+            continue
+        if memo.customer_id != locked_receivable.customer_id or memo.currency != locked_receivable.currency:
+            continue
+        if _memo_remaining(memo) <= 0:
+            continue
+        key = f"auto:{memo.id}:{locked_receivable.id}"
+        existing = (await db.execute(
+            select(CustomerCreditAllocation.id)
+            .where(CustomerCreditAllocation.idempotency_key == key)
+            .limit(1)
+        )).scalar_one_or_none()
+        if existing is not None:
+            continue
+        take = min(_memo_remaining(memo), _receivable_outstanding(locked_receivable))
+        alloc = CustomerCreditAllocation(
+            customer_credit_memo_id=memo.id,
+            receivable_id=locked_receivable.id,
+            amount=take,
+            alloc_type=AllocationType.AUTO,
+            idempotency_key=key,
+            created_by=actor_user_id,
+        )
+        db.add(alloc)
+        memo.amount_allocated = _d(memo.amount_allocated) + take
+        locked_receivable.amount_allocated = _d(locked_receivable.amount_allocated) + take
+        created.append(alloc)
+    await db.flush()
+    return created
+
+
+async def reverse_allocation(
+    db: AsyncSession, *,
+    allocation_id: int,
+    reverse_reason: str | None,
+    actor_user_id: int,
+    actor_user_email: str,
+    request: Request | None = None,
+) -> CustomerCreditAllocation:
+    snapshot = (await db.execute(
+        select(
+            CustomerCreditAllocation.id,
+            CustomerCreditAllocation.customer_credit_memo_id,
+            CustomerCreditAllocation.receivable_id,
+            CustomerCreditAllocation.reversed_at,
+        )
+        .where(CustomerCreditAllocation.id == allocation_id)
+    )).one_or_none()
+    if snapshot is None or snapshot.reversed_at is not None:
+        raise AllocationReverseNotFoundError()
+
+    memo_snapshot = (await db.execute(
+        select(CustomerCreditMemo.customer_id)
+        .where(CustomerCreditMemo.id == snapshot.customer_credit_memo_id)
+    )).scalar_one()
+    await _lock_customer(db, memo_snapshot)
+    memo = (await db.execute(
+        select(CustomerCreditMemo)
+        .where(CustomerCreditMemo.id == snapshot.customer_credit_memo_id)
+        .with_for_update()
+    )).scalar_one()
+    receivable = (await db.execute(
+        select(Receivable)
+        .where(Receivable.id == snapshot.receivable_id)
+        .with_for_update()
+    )).scalar_one()
+    alloc = (await db.execute(
+        select(CustomerCreditAllocation)
+        .where(CustomerCreditAllocation.id == allocation_id)
+        .with_for_update()
+    )).scalar_one_or_none()
+    if alloc is None or alloc.reversed_at is not None:
+        raise AllocationReverseNotFoundError()
+
+    amt = _d(alloc.amount)
+    alloc.reversed_at = _utcnow()
+    alloc.reversed_by = actor_user_id
+    alloc.reverse_reason = reverse_reason
+    memo.amount_allocated = _d(memo.amount_allocated) - amt
+    receivable.amount_allocated = _d(receivable.amount_allocated) - amt
+    await db.flush()
+    await write_audit(
+        db, resource_type=AuditResourceType.CUSTOMER_CREDIT_MEMO,
+        action=AuditAction.REVERSE, user_id=actor_user_id, user_email=actor_user_email,
+        resource_id=memo.id, request=request,
+        extra={"allocation_id": alloc.id, "receivable_id": receivable.id,
+               "amount": str(amt), "reverse_reason": reverse_reason},
+        commit=False)
+    await db.commit()
+    await db.refresh(alloc)
+    return alloc
+
+
+async def void_memo(
+    db: AsyncSession, *,
+    memo_id: int,
+    void_reason: str | None,
+    actor_user_id: int,
+    actor_user_email: str,
+    request: Request | None = None,
+) -> CustomerCreditMemo:
+    memo = (await db.execute(
+        select(CustomerCreditMemo)
+        .where(CustomerCreditMemo.id == memo_id)
+        .with_for_update()
+    )).scalar_one_or_none()
+    if memo is None:
+        raise NotFoundError(f"客户余额贷项单不存在: {memo_id}")
+    if memo.status == CustomerCreditMemoStatus.VOIDED:
+        raise SourceVoidedError("客户余额贷项单已作废")
+    has_alloc = (await db.execute(
+        select(CustomerCreditAllocation.id)
+        .where(
+            CustomerCreditAllocation.customer_credit_memo_id == memo.id,
+            CustomerCreditAllocation.reversed_at.is_(None),
+        )
+        .limit(1)
+    )).scalar_one_or_none()
+    if has_alloc is not None:
+        raise SourceHasActiveAllocationsError("客户余额贷项单已有抵扣,需先反抵扣再作废")
+
+    memo.status = CustomerCreditMemoStatus.VOIDED
+    memo.voided_at = _utcnow()
+    memo.voided_by = actor_user_id
+    memo.void_reason = void_reason
+    await write_audit(
+        db, resource_type=AuditResourceType.CUSTOMER_CREDIT_MEMO,
+        action=AuditAction.VOID, user_id=actor_user_id, user_email=actor_user_email,
+        resource_id=memo.id, request=request,
+        extra={"void_reason": void_reason},
         commit=False)
     await db.commit()
     await db.refresh(memo)

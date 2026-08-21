@@ -332,6 +332,9 @@ async def confirm_order(db: AsyncSession, *, order_id, actor_user_id, actor_user
         if "uq_receivables_outbound_active" in str(e.orig or e):
             raise OutboundOrderInvalidTransitionError("出库单已确认,不可重复确认")
         raise
+    from app.services import customer_credit_memo_service
+    await customer_credit_memo_service.auto_allocate_for_receivable(
+        db, receivable=receivable, actor_user_id=actor_user_id)
     await write_audit(db, resource_type=AuditResourceType.OUTBOUND_ORDER, action=AuditAction.ISSUE,
                       user_id=actor_user_id, user_email=actor_user_email,
                       resource_id=order.id, request=request,

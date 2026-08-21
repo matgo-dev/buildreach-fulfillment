@@ -1,7 +1,7 @@
 """应收款 schemas。
 
 🔴 整表红线域(客户售价):仅在持 receivable:read 的端点出现,不做字段级脱敏(整端点即红线门)。
-status(未收/部分收/已收清)由 amount_* 派生输出(derive_receivable_status,单一口径)。
+status(未收/部分收/已结清)由 amount_* 派生输出(derive_receivable_status,单一口径)。
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ class ReceivableListItem(BaseModel):
     status: str
     due_at: date | None
     created_at: datetime
-    # D10:该客户是否有未分配收款(预收),供列表提示「一键核销」入口(纯提示,非自动)。
+    # D10:该客户是否有未分配收款或客户贷方余额,供列表提示「可抵扣/核销」入口。
     counterparty_has_unallocated: bool = False
 
     @classmethod

@@ -54,14 +54,23 @@ class CustomerCreditMemo(Base, TimestampMixin):
             "amount_allocated >= 0 AND amount_allocated <= amount",
             name="ck_customer_credit_memos_allocated_range"),
         CheckConstraint(
-            "(status = 'POSTED') = (posted_at IS NOT NULL AND posted_by IS NOT NULL)",
-            name="ck_customer_credit_memos_post_trace"),
+            "(posted_at IS NULL) = (posted_by IS NULL)",
+            name="ck_customer_credit_memos_post_pair"),
         CheckConstraint(
-            "(status = 'REJECTED') = (rejected_at IS NOT NULL AND rejected_by IS NOT NULL)",
-            name="ck_customer_credit_memos_reject_trace"),
+            "(rejected_at IS NULL) = (rejected_by IS NULL)",
+            name="ck_customer_credit_memos_reject_pair"),
         CheckConstraint(
-            "(status = 'VOIDED') = (voided_at IS NOT NULL AND voided_by IS NOT NULL)",
-            name="ck_customer_credit_memos_void_trace"),
+            "(voided_at IS NULL) = (voided_by IS NULL)",
+            name="ck_customer_credit_memos_void_pair"),
+        CheckConstraint(
+            "status != 'POSTED' OR (posted_at IS NOT NULL AND posted_by IS NOT NULL)",
+            name="ck_customer_credit_memos_post_required"),
+        CheckConstraint(
+            "status != 'REJECTED' OR (rejected_at IS NOT NULL AND rejected_by IS NOT NULL)",
+            name="ck_customer_credit_memos_reject_required"),
+        CheckConstraint(
+            "status != 'VOIDED' OR (voided_at IS NOT NULL AND voided_by IS NOT NULL)",
+            name="ck_customer_credit_memos_void_required"),
         Index("uq_customer_credit_memos_idp_active", "inventory_disposition_order_id",
               unique=True,
               postgresql_where=text("status IN ('PENDING_APPROVAL','POSTED')")),
@@ -70,6 +79,7 @@ class CustomerCreditMemo(Base, TimestampMixin):
               text("created_at DESC")),
         Index("ix_customer_credit_memos_sales_created", "sales_order_id",
               text("created_at DESC")),
+        Index("ix_customer_credit_memos_resubmitted_from", "resubmitted_from_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -97,9 +107,53 @@ class CustomerCreditMemo(Base, TimestampMixin):
     rejected_by: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, index=True)
     reject_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resubmitted_from_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("customer_credit_memos.id", ondelete="RESTRICT"),
+        nullable=True)
     voided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     voided_by: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, index=True)
     void_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
+
+
+class CustomerCreditAllocation(Base):
+    """客户余额抵扣应收记录。
+
+    独立于 receipt_allocations:这里不是现金收款,而是客户贷方余额消耗。活动行
+    reversed_at IS NULL 才计入 memo.amount_allocated 与 receivable.amount_allocated。
+    """
+    __tablename__ = "customer_credit_allocations"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_customer_credit_alloc_amount_pos"),
+        CheckConstraint("alloc_type IN ('AUTO','MANUAL')",
+                        name="ck_customer_credit_alloc_type"),
+        CheckConstraint(
+            "(reversed_at IS NULL) = (reversed_by IS NULL)",
+            name="ck_customer_credit_alloc_reverse_pair"),
+        Index("uq_customer_credit_alloc_active", "customer_credit_memo_id", "receivable_id",
+              unique=True, postgresql_where=text("reversed_at IS NULL")),
+        Index("uq_customer_credit_alloc_idempotency", "idempotency_key", unique=True),
+        Index("ix_customer_credit_alloc_credit_active", "customer_credit_memo_id",
+              "reversed_at"),
+        Index("ix_customer_credit_alloc_receivable_active", "receivable_id", "reversed_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_credit_memo_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("customer_credit_memos.id", ondelete="RESTRICT"),
+        nullable=False, index=True)
+    receivable_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("receivables.id", ondelete="RESTRICT"), nullable=False, index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    alloc_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    reversed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    reversed_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, index=True)
+    reverse_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_by: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=text("now()"))

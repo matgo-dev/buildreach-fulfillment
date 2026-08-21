@@ -46,11 +46,11 @@ async def seed_inventory_catalog(db, *, sku_codes=("SKUINV_A",), unit="ton",
     return cust, skus
 
 
-async def make_confirmed_so(client, sales_headers, cust, lines):
+async def make_confirmed_so(client, sales_headers, cust, lines, *, currency="USD"):
     """报价(多行,行可指定不同 sku_id / 同 sku_id)→锁档→转销售。
     lines: [{"sku_id":.., "unit_price":.., "qty":..}]。返回 (sales_order_id, [so_line dict...])。"""
     r = await client.post("/api/v1/quotations", headers=sales_headers, json={
-        "customer_id": cust.id, "currency": "USD", "summary": "库存测试单", "lines": lines})
+        "customer_id": cust.id, "currency": currency, "summary": "库存测试单", "lines": lines})
     assert r.status_code == 200, r.text
     qid = r.json()["data"]["id"]
     lk = await client.post(f"/api/v1/quotations/{qid}/lock", headers=sales_headers)

@@ -2,7 +2,7 @@
 
 🔴 整表红线域(客户售价):端点级 receivable:read 门控(见 api/v1/receivables.py),
 不做字段级脱敏。所有未结应收/列表聚合一律 WHERE voided_at IS NULL(作废行留痕、不进聚合)。
-status(未收/部分收/已收清)派生自 amount_*,不落列(receivable.derive_receivable_status)。
+status(未收/部分收/已结清)派生自 amount_*,不落列(receivable.derive_receivable_status)。
 """
 from __future__ import annotations
 
@@ -16,6 +16,11 @@ from app.db.models._settlement import (
     is_unsettled,
 )
 from app.db.models.customer import Customer
+from app.db.models.customer_credit_memo import (
+    CustomerCreditAllocation,
+    CustomerCreditMemo,
+    CustomerCreditMemoStatus,
+)
 from app.db.models.outbound_order import OutboundOrder
 from app.db.models.receipt import Receipt
 from app.db.models.receipt_allocation import ReceiptAllocation
@@ -42,7 +47,8 @@ async def get(db: AsyncSession, receivable_id: int) -> Receivable | None:
 async def list_receivables(db: AsyncSession, *, customer_id=None, status: str | None = None,
                            currency: str | None = None, q: str | None = None,
                            page: int = 1, size: int = 20,
-                           can_read_receipt: bool = False) -> tuple[list[dict], int]:
+                           can_read_receipt: bool = False,
+                           can_read_customer_credit: bool = False) -> tuple[list[dict], int]:
     """应收列表(仅活动行):客户/状态/币种/搜索过滤 + 分页,created_at 降序。
     投影客户名 + 出库单号 + SO 号(账层无自身业务号);q = 出库单号 / SO 号 / 客户名 模糊。"""
     conds = [Receivable.voided_at.is_(None)]
@@ -64,12 +70,15 @@ async def list_receivables(db: AsyncSession, *, customer_id=None, status: str | 
             .where(*conds))
     rows, total = await paginate(
         db, base.order_by(Receivable.created_at.desc()), page=page, size=size, scalars=False)
-    # D10:本页涉及客户中,谁有未分配收款(预收)。单条聚合查询(走 receipts.customer_id
-    # 索引 + amount_unallocated>0 谓词),按页有界,无 N+1;标志纯提示,不自动核销。
-    # 提示位派生自收款域:无 receipt:read 不计算不下发(恒 False),权限跟数据走
-    # (SALES 持 receivable:read 无 receipt:read,不该经账层列表旁路感知收款单存在性)。
-    cust_ids = {r.customer_id for (r, *_rest) in rows} if can_read_receipt else set()
-    unalloc = await _customers_with_unallocated(db, cust_ids)
+    # D10:本页涉及客户中,谁有未分配现金收款或已过账客户贷方余额。标志纯提示,
+    # 不自动核销;权限跟数据走,无相关财务/客户贷方权限则恒 False。
+    cust_ids = (
+        {r.customer_id for (r, *_rest) in rows}
+        if can_read_receipt or can_read_customer_credit else set()
+    )
+    unalloc = await _customers_with_unallocated(
+        db, cust_ids, include_receipts=can_read_receipt,
+        include_customer_credits=can_read_customer_credit)
     items = [{
         "id": r.id, "outbound_order_id": r.outbound_order_id, "outbound_order_no": ob_no,
         "sales_order_id": r.sales_order_id, "sales_order_no": so_no,
@@ -81,17 +90,36 @@ async def list_receivables(db: AsyncSession, *, customer_id=None, status: str | 
     return items, total
 
 
-async def _customers_with_unallocated(db: AsyncSession, customer_ids: set[int]) -> set[int]:
+async def _customers_with_unallocated(
+    db: AsyncSession,
+    customer_ids: set[int],
+    *,
+    include_receipts: bool,
+    include_customer_credits: bool,
+) -> set[int]:
     if not customer_ids:
         return set()
-    return set((await db.execute(
+    receipt_customers = set((await db.execute(
         select(distinct(Receipt.customer_id)).where(
             Receipt.customer_id.in_(customer_ids),
             Receipt.voided_at.is_(None),
-            Receipt.amount_unallocated > 0))).scalars().all())
+            Receipt.amount_unallocated > 0))).scalars().all()) if include_receipts else set()
+    credit_customers = set((await db.execute(
+        select(distinct(CustomerCreditMemo.customer_id)).where(
+            CustomerCreditMemo.customer_id.in_(customer_ids),
+            CustomerCreditMemo.status == CustomerCreditMemoStatus.POSTED,
+            CustomerCreditMemo.amount_unallocated > 0))).scalars().all()
+    ) if include_customer_credits else set()
+    return receipt_customers | credit_customers
 
 
-async def get_detail(db: AsyncSession, receivable_id: int, *, can_read_receipt: bool) -> dict:
+async def get_detail(
+    db: AsyncSession,
+    receivable_id: int,
+    *,
+    can_read_receipt: bool,
+    can_read_customer_credit: bool,
+) -> dict:
     """应收款详情:账头 + 活动核销记录(哪笔收款冲了多少、何时、操作人),供「怎么收清的」追溯。
 
     核销记录属收款域:无 receipt:read 者整块不下发(空列表),与列表提示位同源门控
@@ -99,12 +127,19 @@ async def get_detail(db: AsyncSession, receivable_id: int, *, can_read_receipt: 
     r = await get(db, receivable_id)
     if r is None:
         raise NotFoundError(f"应收款不存在: {receivable_id}")
-    rows = (await db.execute(
+    receipt_rows = (await db.execute(
         select(ReceiptAllocation, Receipt.receipt_no)
         .join(Receipt, Receipt.id == ReceiptAllocation.receipt_id)
         .where(ReceiptAllocation.receivable_id == receivable_id,
                ReceiptAllocation.reversed_at.is_(None))
         .order_by(ReceiptAllocation.id))).all() if can_read_receipt else []
+    credit_rows = (await db.execute(
+        select(CustomerCreditAllocation, CustomerCreditMemo.no)
+        .join(CustomerCreditMemo,
+              CustomerCreditMemo.id == CustomerCreditAllocation.customer_credit_memo_id)
+        .where(CustomerCreditAllocation.receivable_id == receivable_id,
+               CustomerCreditAllocation.reversed_at.is_(None))
+        .order_by(CustomerCreditAllocation.id))).all() if can_read_customer_credit else []
     cust_name = (await db.execute(
         select(Customer.name).where(Customer.id == r.customer_id))).scalar_one_or_none()
     ob_no = (await db.execute(
@@ -117,8 +152,25 @@ async def get_detail(db: AsyncSession, receivable_id: int, *, can_read_receipt: 
         "amount_outstanding": float(r.amount_outstanding), "due_at": r.due_at,
         "status": derive_receivable_status(r.amount_original, r.amount_allocated),
         "created_at": r.created_at,
-        "allocations": [{
-            "id": a.id, "receipt_id": a.receipt_id, "receipt_no": rc_no,
-            "amount": float(a.amount), "alloc_type": a.alloc_type, "created_at": a.created_at,
-        } for a, rc_no in rows],
+        "allocations": [
+            {
+                "id": a.id, "source_type": "RECEIPT", "source_id": a.receipt_id,
+                "source_no": rc_no, "receipt_id": a.receipt_id, "receipt_no": rc_no,
+                "customer_credit_memo_id": None, "customer_credit_memo_no": None,
+                "amount": float(a.amount), "alloc_type": a.alloc_type,
+                "created_at": a.created_at,
+            }
+            for a, rc_no in receipt_rows
+        ] + [
+            {
+                "id": a.id, "source_type": "CUSTOMER_CREDIT_MEMO",
+                "source_id": a.customer_credit_memo_id, "source_no": memo_no,
+                "receipt_id": None, "receipt_no": None,
+                "customer_credit_memo_id": a.customer_credit_memo_id,
+                "customer_credit_memo_no": memo_no,
+                "amount": float(a.amount), "alloc_type": a.alloc_type,
+                "created_at": a.created_at,
+            }
+            for a, memo_no in credit_rows
+        ],
     }
