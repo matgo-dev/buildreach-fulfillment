@@ -354,3 +354,35 @@ async def record_disposition_hold(
             sku_id=impact.sku_id,
             disposition_delta=impact.qty,
         )
+
+
+async def record_customer_return_receive(
+    db: AsyncSession, *,
+    customer_return_order_id: int,
+    impacts: list[StockImpact],
+    occurred_at: datetime | None,
+    actor_user_id: int,
+    note: str | None = None,
+) -> None:
+    """客户退回入售后库存:物理回仓,但同步转待处置,不增加可发库存。"""
+    for impact in impacts:
+        await _record_movement(
+            db,
+            movement_type=InventoryMovementType.CUSTOMER_RETURN_RECEIVE,
+            source_type=InventorySourceType.CUSTOMER_RETURN_ORDER,
+            source_id=customer_return_order_id,
+            source_line_id=impact.source_line_id,
+            sales_order_id=impact.sales_order_id,
+            sku_id=impact.sku_id,
+            qty_delta=impact.qty,
+            occurred_at=occurred_at,
+            created_by=actor_user_id,
+            note=note,
+        )
+        await _apply_balance_delta(
+            db,
+            sales_order_id=impact.sales_order_id,
+            sku_id=impact.sku_id,
+            inbound_delta=impact.qty,
+            disposition_delta=impact.qty,
+        )
