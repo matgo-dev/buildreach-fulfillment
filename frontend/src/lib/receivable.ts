@@ -40,6 +40,10 @@ export interface ReceivableAllocationRow {
   amount: number;
   alloc_type: "AUTO" | "MANUAL";
   created_at: string;
+  status: "ACTIVE" | "REVERSED";
+  reversed_at: string | null;
+  reversed_by: number | null;
+  reverse_reason: string | null;
 }
 
 /** 应收详情(账头 + 活动核销记录),GET /receivables/{id}。 */

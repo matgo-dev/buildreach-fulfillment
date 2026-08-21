@@ -60,6 +60,10 @@ export interface CustomerCreditAllocationOut {
   idempotency_key: string;
   created_by: number;
   created_at: string;
+  status: "ACTIVE" | "REVERSED";
+  reversed_at: string | null;
+  reversed_by: number | null;
+  reverse_reason: string | null;
 }
 
 export interface CustomerCreditMemoDetailOut {
@@ -92,11 +96,11 @@ export const customerCreditMemoApi = {
     api.post<CustomerCreditMemoOut>(`/api/v1/customer-credit-memos/${id}/resubmit`, body),
   allocate: (id: number, body: { account_id: number; amount?: number | string; idempotency_key: string }) =>
     api.post<{ allocation_id: number }>(`/api/v1/customer-credit-memos/${id}/allocations`, body),
-  reverseAllocation: (allocationId: number, reverse_reason?: string | null) =>
+  reverseAllocation: (allocationId: number, reverse_reason: string) =>
     api.post<{ allocation_id: number }>(
       `/api/v1/customer-credit-memos/allocations/${allocationId}/reverse`,
       { reverse_reason },
     ),
-  void: (id: number, void_reason?: string | null) =>
+  void: (id: number, void_reason: string) =>
     api.post<CustomerCreditMemoOut>(`/api/v1/customer-credit-memos/${id}/void`, { void_reason }),
 };

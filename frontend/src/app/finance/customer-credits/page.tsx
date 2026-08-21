@@ -1,7 +1,14 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { App, Button, Input, Modal, Segmented, Select, Space, Table } from "antd";
-import { CheckOutlined, DeleteOutlined, RedoOutlined, StopOutlined } from "@ant-design/icons";
+import { App, Button, Input, Modal, Segmented, Select, Space, Table, Tag } from "antd";
+import {
+  CheckOutlined,
+  DeleteOutlined,
+  LinkOutlined,
+  RedoOutlined,
+  RollbackOutlined,
+  StopOutlined,
+} from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { Can } from "@/components/common/Can";
 import { StatusTag } from "@/components/common/StatusTag";
@@ -20,6 +27,7 @@ import {
   type CustomerCreditMemoOut,
   type CustomerCreditMemoStatus,
 } from "@/lib/customerCreditMemo";
+import { receivableApi, type ReceivableListItem } from "@/lib/receivable";
 
 const STATUS_TABS = [
   { label: "全部", value: "" },
@@ -44,6 +52,12 @@ export default function CustomerCreditMemoPage() {
   const [resubmitReason, setResubmitReason] = useState("");
   const [voidTarget, setVoidTarget] = useState<CustomerCreditMemoOut | null>(null);
   const [voidReason, setVoidReason] = useState("");
+  const [allocateTarget, setAllocateTarget] = useState<CustomerCreditMemoOut | null>(null);
+  const [eligibleReceivables, setEligibleReceivables] = useState<ReceivableListItem[]>([]);
+  const [receivableId, setReceivableId] = useState<number | undefined>(undefined);
+  const [allocateAmount, setAllocateAmount] = useState("");
+  const [reverseTarget, setReverseTarget] = useState<{ id: number; memoId: number } | null>(null);
+  const [reverseReason, setReverseReason] = useState("");
 
   const fetcher = useCallback(
     ({ page, size }: { page: number; size: number }) =>
@@ -72,6 +86,7 @@ export default function CustomerCreditMemoPage() {
     try {
       await fn();
       message.success(ok);
+      setDetailById({});
       load();
     } catch (e) {
       message.error(resolveBizError(e, "操作失败"));
@@ -80,8 +95,8 @@ export default function CustomerCreditMemoPage() {
     }
   }
 
-  async function loadDetail(id: number) {
-    if (detailById[id]) return;
+  async function loadDetail(id: number, force = false) {
+    if (!force && detailById[id]) return;
     setDetailLoadingId(id);
     try {
       const detail = await customerCreditMemoApi.get(id);
@@ -91,6 +106,65 @@ export default function CustomerCreditMemoPage() {
     } finally {
       setDetailLoadingId(null);
     }
+  }
+
+  function defaultAmount(memo: CustomerCreditMemoOut, receivable?: ReceivableListItem) {
+    if (!receivable) return "";
+    return String(Math.min(Number(memo.amount_unallocated), Number(receivable.amount_outstanding)));
+  }
+
+  async function openAllocate(row: CustomerCreditMemoOut) {
+    setAllocateTarget(row);
+    setEligibleReceivables([]);
+    setReceivableId(undefined);
+    setAllocateAmount("");
+    setActingKey(`${row.id}:load-receivables`);
+    try {
+      const [unpaid, partial] = await Promise.all([
+        receivableApi.list({
+          customer_id: row.customer_id,
+          currency: "CNY",
+          status: "UNPAID",
+          size: 100,
+        }),
+        receivableApi.list({
+          customer_id: row.customer_id,
+          currency: "CNY",
+          status: "PARTIALLY_PAID",
+          size: 100,
+        }),
+      ]);
+      const items = [...unpaid.items, ...partial.items]
+        .filter((item) => Number(item.amount_outstanding) > 0);
+      setEligibleReceivables(items);
+      const first = items[0];
+      if (first) {
+        setReceivableId(first.id);
+        setAllocateAmount(defaultAmount(row, first));
+      }
+    } catch (e) {
+      message.error(resolveBizError(e, "加载未结应收失败"));
+      setAllocateTarget(null);
+    } finally {
+      setActingKey(null);
+    }
+  }
+
+  function selectReceivable(id: number | undefined) {
+    setReceivableId(id);
+    if (!allocateTarget || id == null) {
+      setAllocateAmount("");
+      return;
+    }
+    setAllocateAmount(defaultAmount(
+      allocateTarget,
+      eligibleReceivables.find((item) => item.id === id),
+    ));
+  }
+
+  function idempotencyKey(memoId: number, targetReceivableId: number) {
+    const random = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+    return `manual:${memoId}:${targetReceivableId}:${random}`;
   }
 
   const columns: ColumnsType<CustomerCreditMemoOut> = [
@@ -186,6 +260,18 @@ export default function CustomerCreditMemoPage() {
               </Button>
             ) : null}
           </Can>
+          <Can perm={Permissions.CUSTOMER_CREDIT_POST} fallback={null}>
+            {row.status === "POSTED" && Number(row.amount_unallocated) > 0 ? (
+              <Button
+                size="small"
+                icon={<LinkOutlined />}
+                loading={actingKey === `${row.id}:load-receivables`}
+                onClick={() => openAllocate(row)}
+              >
+                抵扣
+              </Button>
+            ) : null}
+          </Can>
           <Can perm={Permissions.CUSTOMER_CREDIT_VOID} fallback={null}>
             {row.status === "POSTED" && Number(row.amount_allocated) === 0 ? (
               <Button
@@ -253,30 +339,90 @@ export default function CustomerCreditMemoPage() {
                 if (expanded) void loadDetail(row.id);
               },
               expandedRowRender: (row) => (
-                <Table
-                  size="small"
-                  rowKey={(item, index) => `${item.label}-${index ?? 0}`}
-                  pagination={false}
-                  loading={detailLoadingId === row.id}
-                  columns={[
-                    { title: "内容", dataIndex: "label", width: 140 },
-                    { title: "值", dataIndex: "value" },
-                  ]}
-                  dataSource={[
-                    { label: "原因", value: row.reason || "—" },
-                    { label: "驳回原因", value: row.reject_reason || "—" },
-                    { label: "过账时间", value: row.posted_at ? formatDateTime(row.posted_at) : "—" },
-                    { label: "作废原因", value: row.void_reason || "—" },
-                    { label: "重提交来源", value: row.resubmitted_from_id || "—" },
-                    ...(detailById[row.id]?.allocations || []).map((a) => ({
-                      id: `alloc-${a.id}`,
-                      label: "抵扣记录",
-                      value: `${a.account_no} · ${formatMoney(a.amount)} CNY · ${
-                        a.alloc_type === "AUTO" ? "自动" : "人工"
-                      }`,
-                    })),
-                  ]}
-                />
+                <Space orientation="vertical" style={{ width: "100%" }}>
+                  <Table
+                    size="small"
+                    rowKey={(item, index) => `${item.label}-${index ?? 0}`}
+                    pagination={false}
+                    loading={detailLoadingId === row.id}
+                    columns={[
+                      { title: "内容", dataIndex: "label", width: 140 },
+                      { title: "值", dataIndex: "value" },
+                    ]}
+                    dataSource={[
+                      { label: "原因", value: row.reason || "—" },
+                      { label: "驳回原因", value: row.reject_reason || "—" },
+                      { label: "过账时间", value: row.posted_at ? formatDateTime(row.posted_at) : "—" },
+                      { label: "作废原因", value: row.void_reason || "—" },
+                      { label: "重提交来源", value: row.resubmitted_from_id || "—" },
+                    ]}
+                  />
+                  <Table
+                    size="small"
+                    rowKey="id"
+                    pagination={false}
+                    loading={detailLoadingId === row.id}
+                    locale={{ emptyText: "暂无抵扣记录" }}
+                    dataSource={detailById[row.id]?.allocations || []}
+                    columns={[
+                      { title: "应收单", dataIndex: "account_no", width: 160 },
+                      {
+                        title: "金额",
+                        dataIndex: "amount",
+                        width: 110,
+                        align: "right",
+                        render: (v) => formatMoney(v),
+                      },
+                      {
+                        title: "类型",
+                        dataIndex: "alloc_type",
+                        width: 80,
+                        render: (v) => v === "AUTO" ? "自动" : "人工",
+                      },
+                      {
+                        title: "状态",
+                        dataIndex: "status",
+                        width: 90,
+                        render: (v) => v === "ACTIVE"
+                          ? <Tag color="success">有效</Tag>
+                          : <Tag>已反抵扣</Tag>,
+                      },
+                      {
+                        title: "时间",
+                        dataIndex: "created_at",
+                        width: 160,
+                        render: (v) => formatDateTime(v),
+                      },
+                      {
+                        title: "反抵扣信息",
+                        key: "reverse_info",
+                        render: (_, a) => a.status === "REVERSED"
+                          ? `${a.reverse_reason || "—"} · ${a.reversed_at ? formatDateTime(a.reversed_at) : "—"}`
+                          : "—",
+                      },
+                      {
+                        title: "操作",
+                        key: "actions",
+                        width: 110,
+                        render: (_, a) => a.status === "ACTIVE" ? (
+                          <Can perm={Permissions.CUSTOMER_CREDIT_POST} fallback={null}>
+                            <Button
+                              size="small"
+                              icon={<RollbackOutlined />}
+                              loading={actingKey === `alloc:${a.id}:reverse`}
+                              onClick={() => {
+                                setReverseTarget({ id: a.id, memoId: row.id });
+                                setReverseReason("");
+                              }}
+                            >
+                              反抵扣
+                            </Button>
+                          </Can>
+                        ) : null,
+                      },
+                    ]}
+                  />
+                </Space>
               ),
             }}
           />
@@ -347,12 +493,16 @@ export default function CustomerCreditMemoPage() {
         title="作废客户余额贷项单"
         open={!!voidTarget}
         okText="作废"
-        okButtonProps={{ danger: true, loading: actingKey === `${voidTarget?.id}:void` }}
+        okButtonProps={{
+          danger: true,
+          disabled: !voidReason.trim(),
+          loading: actingKey === `${voidTarget?.id}:void`,
+        }}
         cancelText="取消"
         onCancel={() => setVoidTarget(null)}
         onOk={() => voidTarget && act(
           `${voidTarget.id}:void`,
-          () => customerCreditMemoApi.void(voidTarget.id, voidReason || null),
+          () => customerCreditMemoApi.void(voidTarget.id, voidReason.trim()),
           "客户余额贷项单已作废",
         ).then(() => setVoidTarget(null))}
       >
@@ -363,6 +513,79 @@ export default function CustomerCreditMemoPage() {
           showCount
           onChange={(e) => setVoidReason(e.target.value)}
           placeholder="作废原因"
+        />
+      </Modal>
+      <Modal
+        title="抵扣应收"
+        open={!!allocateTarget}
+        okText="确认抵扣"
+        okButtonProps={{
+          disabled: !receivableId || !allocateAmount,
+          loading: actingKey === `${allocateTarget?.id}:allocate`,
+        }}
+        cancelText="取消"
+        onCancel={() => setAllocateTarget(null)}
+        onOk={() => allocateTarget && receivableId && act(
+          `${allocateTarget.id}:allocate`,
+          () => customerCreditMemoApi.allocate(allocateTarget.id, {
+            account_id: receivableId,
+            amount: allocateAmount,
+            idempotency_key: idempotencyKey(allocateTarget.id, receivableId),
+          }),
+          "客户余额已抵扣应收",
+        ).then(() => {
+          setAllocateTarget(null);
+          void loadDetail(allocateTarget.id, true);
+        })}
+      >
+        <Space orientation="vertical" style={{ width: "100%" }}>
+          <Select
+            showSearch
+            placeholder="选择未结应收"
+            optionFilterProp="label"
+            value={receivableId}
+            onChange={selectReceivable}
+            options={eligibleReceivables.map((item) => ({
+              value: item.id,
+              label: `${item.outbound_order_no} · 未结 ${formatMoney(item.amount_outstanding)} CNY`,
+            }))}
+            notFoundContent="暂无同客户 CNY 未结应收"
+          />
+          <Input
+            value={allocateAmount}
+            onChange={(e) => setAllocateAmount(e.target.value)}
+            placeholder="抵扣金额"
+          />
+        </Space>
+      </Modal>
+      <Modal
+        title="反抵扣客户余额"
+        open={!!reverseTarget}
+        okText="反抵扣"
+        okButtonProps={{
+          danger: true,
+          disabled: !reverseReason.trim(),
+          loading: actingKey === `alloc:${reverseTarget?.id}:reverse`,
+        }}
+        cancelText="取消"
+        onCancel={() => setReverseTarget(null)}
+        onOk={() => reverseTarget && act(
+          `alloc:${reverseTarget.id}:reverse`,
+          () => customerCreditMemoApi.reverseAllocation(reverseTarget.id, reverseReason.trim()),
+          "抵扣记录已反抵扣",
+        ).then(() => {
+          const memoId = reverseTarget.memoId;
+          setReverseTarget(null);
+          void loadDetail(memoId, true);
+        })}
+      >
+        <Input.TextArea
+          rows={4}
+          value={reverseReason}
+          maxLength={500}
+          showCount
+          onChange={(e) => setReverseReason(e.target.value)}
+          placeholder="反抵扣原因"
         />
       </Modal>
     </ListPageCard>

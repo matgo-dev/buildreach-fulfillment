@@ -1,21 +1,48 @@
+import asyncio
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.audit.constants import AuditAction, AuditResourceType
+from app.core.exceptions import (
+    AllocationExceedsSourceError,
+    AllocationReverseNotFoundError,
+    SourceHasActiveAllocationsError,
+    SourceVoidedError,
+)
 from app.db.models.ap_credit_memo import APCreditMemo
+from app.db.models.audit_log import AuditLog
+from app.db.models.customer import Customer
 from app.db.models.customer_credit_memo import (
     CustomerCreditAllocation,
     CustomerCreditMemo,
     CustomerCreditMemoStatus,
     CustomerCreditMemoType,
 )
+from app.db.models.inbound_order import InboundOrder, InboundOrderStatus
+from app.db.models.inventory_disposition import (
+    InventoryDispositionOrder,
+    InventoryDispositionReceiptHandling,
+    InventoryDispositionStatus,
+)
 from app.db.models.outbound_order import OutboundOrder, OutboundOrderStatus
 from app.db.models.payable import Payable
+from app.db.models.purchase_order import PurchaseOrder, PurchaseOrderStatus
+from app.db.models.quotation import QuotationOrder, QuotationStatus
 from app.db.models.receivable import Receivable
+from app.db.models.sales_order import SalesOrder, SalesOrderStatus
+from app.db.models.shipment_order import ShipmentOrder, ShipmentOrderStatus
+from app.db.models.supplier import Supplier
 from app.services import customer_credit_memo_service
-from tests.outbound_helpers import create_shipment, setup_available_stock
+from tests.outbound_helpers import (
+    create_and_confirm_outbound,
+    create_shipment,
+    setup_available_stock,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -59,6 +86,215 @@ async def _direct_cny_receivable(
     await db_session.commit()
     await db_session.refresh(receivable)
     return receivable
+
+
+async def _direct_cancelled_outbound(
+    db_session, *, sales_order_id: int, shipment_id: int,
+) -> OutboundOrder:
+    outbound = OutboundOrder(
+        no=f"OBCCMCANCEL{sales_order_id}{shipment_id}",
+        sales_order_id=sales_order_id,
+        shipment_id=shipment_id,
+        status=OutboundOrderStatus.CANCELLED,
+        created_by=1,
+    )
+    db_session.add(outbound)
+    await db_session.commit()
+    await db_session.refresh(outbound)
+    return outbound
+
+
+async def _seed_direct_posted_credit_graph(
+    Session,
+    *,
+    suffix: str,
+    memo_amount: str = "100.00",
+    receivable_amount: str = "100.00",
+) -> dict[str, int]:
+    """Commit a minimal visible graph for true multi-connection concurrency tests."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    code = suffix[:12]
+    async with Session() as db:
+        customer = Customer(code=f"CC{code}"[:20], name=f"并发客户{suffix}")
+        supplier = Supplier(code=f"SC{code}"[:20], name=f"并发供应商{suffix}")
+        db.add_all([customer, supplier])
+        await db.flush()
+
+        quote = QuotationOrder(
+            no=f"QCC{suffix}"[:30],
+            customer_id=customer.id,
+            salesperson_id=1,
+            language="zh",
+            currency="CNY",
+            status=QuotationStatus.CONVERTED,
+            total_amount=Decimal(receivable_amount),
+            created_by=1,
+        )
+        db.add(quote)
+        await db.flush()
+        sales_order = SalesOrder(
+            no=f"SOCC{suffix}"[:30],
+            source_quotation_id=quote.id,
+            customer_id=customer.id,
+            salesperson_id=1,
+            language="zh",
+            currency="CNY",
+            status=SalesOrderStatus.CONFIRMED,
+            total_amount=Decimal(receivable_amount),
+            created_by=1,
+        )
+        db.add(sales_order)
+        await db.flush()
+
+        purchase_order = PurchaseOrder(
+            no=f"POCC{suffix}"[:30],
+            source_sales_order_id=sales_order.id,
+            supplier_id=supplier.id,
+            currency="USD",
+            status=PurchaseOrderStatus.CONFIRMED,
+            total_amount=Decimal("0.00"),
+            created_by=1,
+        )
+        shipment = ShipmentOrder(
+            no=f"SHCC{suffix}"[:30],
+            status=ShipmentOrderStatus.OPEN,
+            created_by=1,
+        )
+        db.add_all([purchase_order, shipment])
+        await db.flush()
+
+        inbound = InboundOrder(
+            no=f"IBCC{suffix}"[:30],
+            purchase_order_id=purchase_order.id,
+            status=InboundOrderStatus.RECEIVED,
+            arrived_at=now.date(),
+            created_by=1,
+        )
+        outbound = OutboundOrder(
+            no=f"OBCC{suffix}"[:30],
+            sales_order_id=sales_order.id,
+            shipment_id=shipment.id,
+            status=OutboundOrderStatus.ISSUED,
+            issued_at=now,
+            created_by=1,
+        )
+        db.add_all([inbound, outbound])
+        await db.flush()
+
+        payable = Payable(
+            inbound_order_id=inbound.id,
+            purchase_order_id=purchase_order.id,
+            supplier_id=supplier.id,
+            currency="USD",
+            amount_original=Decimal("0.00"),
+            amount_allocated=Decimal("0.00"),
+            amount_credited=Decimal("0.00"),
+            created_by=1,
+        )
+        receivable = Receivable(
+            outbound_order_id=outbound.id,
+            sales_order_id=sales_order.id,
+            customer_id=customer.id,
+            currency="CNY",
+            amount_original=Decimal(receivable_amount),
+            amount_allocated=Decimal("0.00"),
+            created_by=1,
+        )
+        db.add_all([payable, receivable])
+        await db.flush()
+
+        disposition = InventoryDispositionOrder(
+            no=f"IDCC{suffix}"[:30],
+            inbound_order_id=inbound.id,
+            purchase_order_id=purchase_order.id,
+            sales_order_id=sales_order.id,
+            payable_id=payable.id,
+            purchase_currency="USD",
+            status=InventoryDispositionStatus.HELD,
+            receipt_handling=InventoryDispositionReceiptHandling.RECEIVE_TO_DISPOSITION,
+            supplier_payable_amount=Decimal("0.00"),
+            created_by=1,
+            held_at=now,
+            held_by=1,
+        )
+        db.add(disposition)
+        await db.flush()
+
+        memo = CustomerCreditMemo(
+            no=f"CCM{suffix}"[:30],
+            inventory_disposition_order_id=disposition.id,
+            sales_order_id=sales_order.id,
+            customer_id=customer.id,
+            currency="CNY",
+            memo_type=CustomerCreditMemoType.INVENTORY_DISPOSITION,
+            status=CustomerCreditMemoStatus.POSTED,
+            amount=Decimal(memo_amount),
+            amount_allocated=Decimal("0.00"),
+            posted_at=now,
+            posted_by=1,
+            created_by=1,
+        )
+        db.add(memo)
+        await db.commit()
+        return {
+            "customer_id": customer.id,
+            "supplier_id": supplier.id,
+            "quotation_id": quote.id,
+            "sales_order_id": sales_order.id,
+            "purchase_order_id": purchase_order.id,
+            "shipment_id": shipment.id,
+            "inbound_id": inbound.id,
+            "outbound_id": outbound.id,
+            "payable_id": payable.id,
+            "receivable_id": receivable.id,
+            "disposition_id": disposition.id,
+            "memo_id": memo.id,
+        }
+
+
+async def _cleanup_direct_credit_graph(Session, ids: dict[str, int]) -> None:
+    async with Session() as db:
+        await db.execute(delete(AuditLog).where(
+            AuditLog.resource_type == AuditResourceType.CUSTOMER_CREDIT_MEMO,
+            AuditLog.resource_id == str(ids["memo_id"]),
+        ))
+        await db.execute(delete(CustomerCreditAllocation).where(
+            CustomerCreditAllocation.customer_credit_memo_id == ids["memo_id"]))
+        for model, key in [
+            (CustomerCreditMemo, "memo_id"),
+            (Receivable, "receivable_id"),
+            (InventoryDispositionOrder, "disposition_id"),
+            (Payable, "payable_id"),
+            (OutboundOrder, "outbound_id"),
+            (InboundOrder, "inbound_id"),
+            (PurchaseOrder, "purchase_order_id"),
+            (ShipmentOrder, "shipment_id"),
+            (SalesOrder, "sales_order_id"),
+            (QuotationOrder, "quotation_id"),
+            (Supplier, "supplier_id"),
+            (Customer, "customer_id"),
+        ]:
+            await db.execute(delete(model).where(model.id == ids[key]))
+        await db.commit()
+
+
+async def _manual_allocate_in_new_session(
+    Session,
+    ids: dict[str, int],
+    *,
+    amount: str,
+    key: str,
+):
+    async with Session() as db:
+        return await customer_credit_memo_service.manual_allocate(
+            db,
+            memo_id=ids["memo_id"],
+            receivable_id=ids["receivable_id"],
+            amount=Decimal(amount),
+            idempotency_key=key,
+            actor_user_id=1,
+            actor_user_email="finance@test",
+        )
 
 
 async def test_customer_credit_memo_posts_cny_balance_without_touching_supplier_ap(
@@ -245,20 +481,31 @@ async def test_customer_credit_memo_allocates_to_receivable_and_can_reverse_then
     )
     assert allocated.status_code == 200, allocated.text
     alloc_id = allocated.json()["data"]["allocation_id"]
+    allocated_again = await client.post(
+        f"/api/v1/customer-credit-memos/{memo_id}/allocations",
+        headers=finance_headers,
+        json={
+            "account_id": receivable.id,
+            "amount": "20.00",
+            "idempotency_key": f"manual-test-2-{memo_id}-{receivable.id}",
+        },
+    )
+    assert allocated_again.status_code == 200, allocated_again.text
     await db_session.refresh(receivable)
     memo = (await db_session.execute(
         select(CustomerCreditMemo).where(CustomerCreditMemo.id == memo_id)
     )).scalar_one()
-    assert Decimal(str(receivable.amount_allocated)) == Decimal("50.00")
-    assert Decimal(str(receivable.amount_outstanding)) == Decimal("50.00")
-    assert Decimal(str(memo.amount_allocated)) == Decimal("50.00")
-    assert Decimal(str(memo.amount_unallocated)) == Decimal("20.00")
+    assert Decimal(str(receivable.amount_allocated)) == Decimal("70.00")
+    assert Decimal(str(receivable.amount_outstanding)) == Decimal("30.00")
+    assert Decimal(str(memo.amount_allocated)) == Decimal("70.00")
+    assert Decimal(str(memo.amount_unallocated)) == Decimal("0.00")
 
     detail = await client.get(f"/api/v1/receivables/{receivable.id}", headers=finance_headers)
     assert detail.status_code == 200, detail.text
     alloc_rows = detail.json()["data"]["allocations"]
     assert alloc_rows[0]["source_type"] == "CUSTOMER_CREDIT_MEMO"
     assert alloc_rows[0]["customer_credit_memo_id"] == memo_id
+    assert len([row for row in alloc_rows if row["source_type"] == "CUSTOMER_CREDIT_MEMO"]) == 2
 
     blocked_void = await client.post(
         f"/api/v1/customer-credit-memos/{memo_id}/void",
@@ -266,6 +513,13 @@ async def test_customer_credit_memo_allocates_to_receivable_and_can_reverse_then
         json={"void_reason": "测试作废"},
     )
     assert blocked_void.status_code == 409
+
+    empty_reverse = await client.post(
+        f"/api/v1/customer-credit-memos/allocations/{alloc_id}/reverse",
+        headers=finance_headers,
+        json={"reverse_reason": "   "},
+    )
+    assert empty_reverse.status_code == 422
 
     reversed_alloc = await client.post(
         f"/api/v1/customer-credit-memos/allocations/{alloc_id}/reverse",
@@ -275,12 +529,38 @@ async def test_customer_credit_memo_allocates_to_receivable_and_can_reverse_then
     assert reversed_alloc.status_code == 200, reversed_alloc.text
     await db_session.refresh(receivable)
     await db_session.refresh(memo)
-    assert Decimal(str(receivable.amount_allocated)) == Decimal("0.00")
-    assert Decimal(str(memo.amount_allocated)) == Decimal("0.00")
+    assert Decimal(str(receivable.amount_allocated)) == Decimal("20.00")
+    assert Decimal(str(memo.amount_allocated)) == Decimal("20.00")
     allocation = (await db_session.execute(
         select(CustomerCreditAllocation).where(CustomerCreditAllocation.id == alloc_id)
     )).scalar_one()
     assert allocation.reversed_at is not None
+
+    memo_detail = await client.get(f"/api/v1/customer-credit-memos/{memo_id}",
+                                   headers=finance_headers)
+    assert memo_detail.status_code == 200, memo_detail.text
+    history = memo_detail.json()["data"]["allocations"]
+    reversed_rows = [row for row in history if row["id"] == alloc_id]
+    assert reversed_rows and reversed_rows[0]["status"] == "REVERSED"
+    assert reversed_rows[0]["reverse_reason"] == "测试反抵扣"
+    receivable_detail = await client.get(f"/api/v1/receivables/{receivable.id}",
+                                         headers=finance_headers)
+    assert any(row["id"] == alloc_id and row["status"] == "REVERSED"
+               for row in receivable_detail.json()["data"]["allocations"])
+
+    second_alloc_id = allocated_again.json()["data"]["allocation_id"]
+    second_reverse = await client.post(
+        f"/api/v1/customer-credit-memos/allocations/{second_alloc_id}/reverse",
+        headers=finance_headers,
+        json={"reverse_reason": "清空剩余抵扣"},
+    )
+    assert second_reverse.status_code == 200, second_reverse.text
+    empty_void = await client.post(
+        f"/api/v1/customer-credit-memos/{memo_id}/void",
+        headers=finance_headers,
+        json={"void_reason": " "},
+    )
+    assert empty_void.status_code == 422
 
     voided = await client.post(
         f"/api/v1/customer-credit-memos/{memo_id}/void",
@@ -292,6 +572,424 @@ async def test_customer_credit_memo_allocates_to_receivable_and_can_reverse_then
     assert data["status"] == "VOIDED"
     assert data["posted_at"] is not None
     assert data["posted_by"] is not None
+
+
+async def test_customer_credit_allocation_idempotency_is_bound_to_request(
+        client, db_session, sales_headers, purchaser_headers, finance_headers, logistics_headers):
+    ctx = await setup_available_stock(
+        client, db_session, sales_headers, purchaser_headers,
+        so_currency="CNY", so_qty=10, po_price="5.00", received=10,
+        sku_codes=("SKUCCM_IDP",))
+    disposition = await _create_held_disposition(
+        client, purchaser_headers, ctx["inbound_order_id"])
+    created = await client.post(
+        "/api/v1/customer-credit-memos",
+        headers=purchaser_headers,
+        json={"inventory_disposition_order_id": disposition["order"]["id"],
+              "amount": "90.00", "currency": "CNY"},
+    )
+    memo_id = created.json()["data"]["id"]
+    posted = await client.post(
+        f"/api/v1/customer-credit-memos/{memo_id}/post",
+        headers=finance_headers,
+        json={},
+    )
+    assert posted.status_code == 200, posted.text
+    ship = await create_shipment(client, logistics_headers)
+    receivable = await _direct_cny_receivable(
+        db_session,
+        sales_order_id=ctx["sales_order_id"],
+        customer_id=ctx["customer"].id,
+        shipment_id=ship["id"],
+        amount="100.00",
+    )
+
+    key = f"idp-bound-{memo_id}-{receivable.id}"
+    first = await client.post(
+        f"/api/v1/customer-credit-memos/{memo_id}/allocations",
+        headers=finance_headers,
+        json={"account_id": receivable.id, "amount": "30.00", "idempotency_key": key},
+    )
+    assert first.status_code == 200, first.text
+    first_id = first.json()["data"]["allocation_id"]
+    replay = await client.post(
+        f"/api/v1/customer-credit-memos/{memo_id}/allocations",
+        headers=finance_headers,
+        json={"account_id": receivable.id, "amount": "30.00", "idempotency_key": key},
+    )
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["data"]["allocation_id"] == first_id
+
+    mismatched_amount = await client.post(
+        f"/api/v1/customer-credit-memos/{memo_id}/allocations",
+        headers=finance_headers,
+        json={"account_id": receivable.id, "amount": "20.00", "idempotency_key": key},
+    )
+    assert mismatched_amount.status_code == 409
+    assert mismatched_amount.json()["code"] == 42211
+    ship2 = await create_shipment(client, logistics_headers)
+    receivable2 = await _direct_cny_receivable(
+        db_session,
+        sales_order_id=ctx["sales_order_id"],
+        customer_id=ctx["customer"].id,
+        shipment_id=ship2["id"],
+        amount="100.00",
+    )
+    mismatched_account = await client.post(
+        f"/api/v1/customer-credit-memos/{memo_id}/allocations",
+        headers=finance_headers,
+        json={"account_id": receivable2.id, "amount": "30.00", "idempotency_key": key},
+    )
+    assert mismatched_account.status_code == 409
+    assert mismatched_account.json()["code"] == 42211
+
+
+async def test_customer_credit_same_idempotency_key_concurrent_replay_is_single_allocation(
+        _engine):
+    Session = async_sessionmaker(_engine, expire_on_commit=False)
+    ids = await _seed_direct_posted_credit_graph(
+        Session, suffix="IDPCONC", memo_amount="100.00", receivable_amount="100.00")
+    key = f"idp-concurrent-{ids['memo_id']}-{ids['receivable_id']}"
+    try:
+        results = await asyncio.gather(
+            _manual_allocate_in_new_session(Session, ids, amount="40.00", key=key),
+            _manual_allocate_in_new_session(Session, ids, amount="40.00", key=key),
+        )
+        assert results[0].id == results[1].id
+        async with Session() as db:
+            allocations = (await db.execute(
+                select(CustomerCreditAllocation).where(
+                    CustomerCreditAllocation.idempotency_key == key)
+            )).scalars().all()
+            memo = await db.get(CustomerCreditMemo, ids["memo_id"])
+            receivable = await db.get(Receivable, ids["receivable_id"])
+        assert len(allocations) == 1
+        assert Decimal(str(memo.amount_allocated)) == Decimal("40.00")
+        assert Decimal(str(receivable.amount_allocated)) == Decimal("40.00")
+    finally:
+        await _cleanup_direct_credit_graph(Session, ids)
+
+
+async def test_customer_credit_concurrent_allocations_do_not_overconsume_balance(_engine):
+    Session = async_sessionmaker(_engine, expire_on_commit=False)
+    ids = await _seed_direct_posted_credit_graph(
+        Session, suffix="RACEALLOC", memo_amount="100.00", receivable_amount="100.00")
+    try:
+        results = await asyncio.gather(
+            _manual_allocate_in_new_session(
+                Session, ids, amount="70.00",
+                key=f"race-a-{ids['memo_id']}-{ids['receivable_id']}"),
+            _manual_allocate_in_new_session(
+                Session, ids, amount="70.00",
+                key=f"race-b-{ids['memo_id']}-{ids['receivable_id']}"),
+            return_exceptions=True,
+        )
+        assert sum(isinstance(r, CustomerCreditAllocation) for r in results) == 1
+        assert sum(isinstance(r, AllocationExceedsSourceError) for r in results) == 1
+        async with Session() as db:
+            memo = await db.get(CustomerCreditMemo, ids["memo_id"])
+            receivable = await db.get(Receivable, ids["receivable_id"])
+            allocations = (await db.execute(
+                select(CustomerCreditAllocation).where(
+                    CustomerCreditAllocation.customer_credit_memo_id == ids["memo_id"],
+                    CustomerCreditAllocation.reversed_at.is_(None),
+                )
+            )).scalars().all()
+        assert len(allocations) == 1
+        assert Decimal(str(receivable.amount_allocated)) == Decimal("70.00")
+        assert Decimal(str(memo.amount_allocated)) == Decimal("70.00")
+    finally:
+        await _cleanup_direct_credit_graph(Session, ids)
+
+
+async def test_customer_credit_allocate_and_void_concurrency_keeps_single_outcome(_engine):
+    Session = async_sessionmaker(_engine, expire_on_commit=False)
+    ids = await _seed_direct_posted_credit_graph(
+        Session, suffix="RACEVOID", memo_amount="100.00", receivable_amount="100.00")
+
+    async def void_in_new_session():
+        async with Session() as db:
+            return await customer_credit_memo_service.void_memo(
+                db,
+                memo_id=ids["memo_id"],
+                void_reason="并发作废",
+                actor_user_id=1,
+                actor_user_email="finance@test",
+            )
+
+    try:
+        results = await asyncio.gather(
+            _manual_allocate_in_new_session(
+                Session, ids, amount="60.00",
+                key=f"void-race-{ids['memo_id']}-{ids['receivable_id']}"),
+            void_in_new_session(),
+            return_exceptions=True,
+        )
+        alloc_won = any(isinstance(r, CustomerCreditAllocation) for r in results)
+        void_won = any(isinstance(r, CustomerCreditMemo) for r in results)
+        assert alloc_won != void_won
+        if alloc_won:
+            assert any(isinstance(r, SourceHasActiveAllocationsError) for r in results)
+        else:
+            assert any(isinstance(r, SourceVoidedError) for r in results)
+    finally:
+        await _cleanup_direct_credit_graph(Session, ids)
+
+
+async def test_customer_credit_concurrent_reverse_allocation_is_idempotently_blocked(_engine):
+    Session = async_sessionmaker(_engine, expire_on_commit=False)
+    ids = await _seed_direct_posted_credit_graph(
+        Session, suffix="RACEREV", memo_amount="100.00", receivable_amount="100.00")
+    try:
+        allocation = await _manual_allocate_in_new_session(
+            Session, ids, amount="50.00",
+            key=f"reverse-seed-{ids['memo_id']}-{ids['receivable_id']}")
+
+        async def reverse_in_new_session():
+            async with Session() as db:
+                return await customer_credit_memo_service.reverse_allocation(
+                    db,
+                    allocation_id=allocation.id,
+                    reverse_reason="并发反抵扣",
+                    actor_user_id=1,
+                    actor_user_email="finance@test",
+                )
+
+        results = await asyncio.gather(
+            reverse_in_new_session(),
+            reverse_in_new_session(),
+            return_exceptions=True,
+        )
+        assert sum(isinstance(r, CustomerCreditAllocation) for r in results) == 1
+        assert sum(isinstance(r, AllocationReverseNotFoundError) for r in results) == 1
+        async with Session() as db:
+            memo = await db.get(CustomerCreditMemo, ids["memo_id"])
+            receivable = await db.get(Receivable, ids["receivable_id"])
+            refreshed_alloc = await db.get(CustomerCreditAllocation, allocation.id)
+        assert refreshed_alloc.reversed_at is not None
+        assert Decimal(str(memo.amount_allocated)) == Decimal("0.00")
+        assert Decimal(str(receivable.amount_allocated)) == Decimal("0.00")
+    finally:
+        await _cleanup_direct_credit_graph(Session, ids)
+
+
+async def test_customer_credit_post_and_resubmit_recheck_no_active_outbound(
+        client, db_session, sales_headers, purchaser_headers, finance_headers, logistics_headers):
+    post_ctx = await setup_available_stock(
+        client, db_session, sales_headers, purchaser_headers,
+        so_currency="CNY", so_qty=10, po_price="5.00", received=10,
+        sku_codes=("SKUCCM_POST_OB",))
+    post_disposition = await _create_held_disposition(
+        client, purchaser_headers, post_ctx["inbound_order_id"])
+    pending = await client.post(
+        "/api/v1/customer-credit-memos",
+        headers=purchaser_headers,
+        json={"inventory_disposition_order_id": post_disposition["order"]["id"],
+              "amount": "30.00", "currency": "CNY"},
+    )
+    assert pending.status_code == 200, pending.text
+    post_memo_id = pending.json()["data"]["id"]
+    ship = await create_shipment(client, logistics_headers)
+    await _direct_cny_receivable(
+        db_session,
+        sales_order_id=post_ctx["sales_order_id"],
+        customer_id=post_ctx["customer"].id,
+        shipment_id=ship["id"],
+        amount="10.00",
+    )
+    blocked_post = await client.post(
+        f"/api/v1/customer-credit-memos/{post_memo_id}/post",
+        headers=finance_headers,
+        json={},
+    )
+    assert blocked_post.status_code == 409
+
+    resubmit_ctx = await setup_available_stock(
+        client, db_session, sales_headers, purchaser_headers,
+        so_currency="CNY", so_qty=10, po_price="5.00", received=10,
+        sku_codes=("SKUCCM_RESUB_OB",))
+    resubmit_disposition = await _create_held_disposition(
+        client, purchaser_headers, resubmit_ctx["inbound_order_id"])
+    first = await client.post(
+        "/api/v1/customer-credit-memos",
+        headers=sales_headers,
+        json={"inventory_disposition_order_id": resubmit_disposition["order"]["id"],
+              "amount": "30.00", "currency": "CNY"},
+    )
+    first_id = first.json()["data"]["id"]
+    rejected = await client.post(
+        f"/api/v1/customer-credit-memos/{first_id}/reject",
+        headers=finance_headers,
+        json={"reject_reason": "先驳回"},
+    )
+    assert rejected.status_code == 200, rejected.text
+    ship2 = await create_shipment(client, logistics_headers)
+    await _direct_cny_receivable(
+        db_session,
+        sales_order_id=resubmit_ctx["sales_order_id"],
+        customer_id=resubmit_ctx["customer"].id,
+        shipment_id=ship2["id"],
+        amount="10.00",
+    )
+    blocked_resubmit = await client.post(
+        f"/api/v1/customer-credit-memos/{first_id}/resubmit",
+        headers=sales_headers,
+        json={"amount": "30.00"},
+    )
+    assert blocked_resubmit.status_code == 409
+
+
+async def test_customer_credit_cancelled_outbound_does_not_block_post(
+        client, db_session, sales_headers, purchaser_headers, finance_headers, logistics_headers):
+    ctx = await setup_available_stock(
+        client, db_session, sales_headers, purchaser_headers,
+        so_currency="CNY", so_qty=10, po_price="5.00", received=10,
+        sku_codes=("SKUCCM_CANCELLED_OB",))
+    disposition = await _create_held_disposition(
+        client, purchaser_headers, ctx["inbound_order_id"])
+    created = await client.post(
+        "/api/v1/customer-credit-memos",
+        headers=purchaser_headers,
+        json={"inventory_disposition_order_id": disposition["order"]["id"],
+              "amount": "30.00", "currency": "CNY"},
+    )
+    memo_id = created.json()["data"]["id"]
+    ship = await create_shipment(client, logistics_headers)
+    await _direct_cancelled_outbound(
+        db_session, sales_order_id=ctx["sales_order_id"], shipment_id=ship["id"])
+    posted = await client.post(
+        f"/api/v1/customer-credit-memos/{memo_id}/post",
+        headers=finance_headers,
+        json={},
+    )
+    assert posted.status_code == 200, posted.text
+
+
+async def test_customer_credit_auto_allocate_fifo_and_audit_on_outbound(
+        client, db_session, sales_headers, purchaser_headers, finance_headers, logistics_headers):
+    source_a = await setup_available_stock(
+        client, db_session, sales_headers, purchaser_headers,
+        so_currency="CNY", so_qty=10, po_price="5.00", received=10,
+        sku_codes=("SKUCCM_FIFO_A",))
+    disp_a = await _create_held_disposition(
+        client, purchaser_headers, source_a["inbound_order_id"])
+    memo_a = (await client.post(
+        "/api/v1/customer-credit-memos",
+        headers=purchaser_headers,
+        json={"inventory_disposition_order_id": disp_a["order"]["id"],
+              "amount": "30.00", "currency": "CNY"},
+    )).json()["data"]
+    posted_a = await client.post(
+        f"/api/v1/customer-credit-memos/{memo_a['id']}/post",
+        headers=finance_headers,
+        json={},
+    )
+    assert posted_a.status_code == 200, posted_a.text
+
+    source_b = await setup_available_stock(
+        client, db_session, sales_headers, purchaser_headers,
+        so_currency="CNY", so_qty=10, po_price="5.00", received=10,
+        sku_codes=("SKUCCM_FIFO_B",), customer=source_a["customer"])
+    disp_b = await _create_held_disposition(
+        client, purchaser_headers, source_b["inbound_order_id"])
+    memo_b = (await client.post(
+        "/api/v1/customer-credit-memos",
+        headers=purchaser_headers,
+        json={"inventory_disposition_order_id": disp_b["order"]["id"],
+              "amount": "80.00", "currency": "CNY"},
+    )).json()["data"]
+    posted_b = await client.post(
+        f"/api/v1/customer-credit-memos/{memo_b['id']}/post",
+        headers=finance_headers,
+        json={},
+    )
+    assert posted_b.status_code == 200, posted_b.text
+
+    outbound_ctx = await setup_available_stock(
+        client, db_session, sales_headers, purchaser_headers,
+        so_currency="CNY", so_qty=10, unit_price="10.00", po_price="5.00", received=10,
+        sku_codes=("SKUCCM_FIFO_OB",), customer=source_a["customer"])
+    ship = await create_shipment(client, logistics_headers)
+    outbound_id, confirmed = await create_and_confirm_outbound(
+        client, logistics_headers, sales_order_id=outbound_ctx["sales_order_id"],
+        shipment_id=ship["id"],
+        lines=[{"sales_order_line_id": outbound_ctx["so_lines"][0]["id"], "qty": 10}])
+    assert confirmed.status_code == 200, confirmed.text
+
+    receivable = (await db_session.execute(
+        select(Receivable).where(Receivable.outbound_order_id == outbound_id)
+    )).scalar_one()
+    assert Decimal(str(receivable.amount_allocated)) == Decimal("100.00")
+    allocs = (await db_session.execute(
+        select(CustomerCreditAllocation)
+        .where(CustomerCreditAllocation.receivable_id == receivable.id)
+        .order_by(CustomerCreditAllocation.id)
+    )).scalars().all()
+    assert [(a.customer_credit_memo_id, Decimal(str(a.amount))) for a in allocs] == [
+        (memo_a["id"], Decimal("30.00")),
+        (memo_b["id"], Decimal("70.00")),
+    ]
+    audit = (await db_session.execute(
+        select(AuditLog)
+        .where(
+            AuditLog.resource_type == AuditResourceType.OUTBOUND_ORDER,
+            AuditLog.action == AuditAction.ISSUE,
+            AuditLog.resource_id == str(outbound_id),
+        )
+        .order_by(AuditLog.id.desc())
+        .limit(1)
+    )).scalar_one()
+    assert audit.extra["customer_credit_allocations"] == [
+        {"allocation_id": allocs[0].id, "customer_credit_memo_id": memo_a["id"],
+         "amount": "30.00"},
+        {"allocation_id": allocs[1].id, "customer_credit_memo_id": memo_b["id"],
+         "amount": "70.00"},
+    ]
+
+
+async def test_customer_credit_auto_allocate_one_memo_across_multiple_receivables(
+        client, db_session, sales_headers, purchaser_headers, finance_headers, logistics_headers):
+    source = await setup_available_stock(
+        client, db_session, sales_headers, purchaser_headers,
+        so_currency="CNY", so_qty=10, po_price="5.00", received=10,
+        sku_codes=("SKUCCM_MULTI_SRC",))
+    disp = await _create_held_disposition(client, purchaser_headers, source["inbound_order_id"])
+    memo = (await client.post(
+        "/api/v1/customer-credit-memos",
+        headers=purchaser_headers,
+        json={"inventory_disposition_order_id": disp["order"]["id"],
+              "amount": "120.00", "currency": "CNY"},
+    )).json()["data"]
+    posted = await client.post(
+        f"/api/v1/customer-credit-memos/{memo['id']}/post",
+        headers=finance_headers,
+        json={},
+    )
+    assert posted.status_code == 200, posted.text
+
+    amounts = []
+    for idx, qty in enumerate([5, 4], start=1):
+        ctx = await setup_available_stock(
+            client, db_session, sales_headers, purchaser_headers,
+            so_currency="CNY", so_qty=10, unit_price="10.00", po_price="5.00", received=10,
+            sku_codes=(f"SKUCCM_MULTI_OB_{idx}",), customer=source["customer"])
+        ship = await create_shipment(client, logistics_headers)
+        ob_id, confirmed = await create_and_confirm_outbound(
+            client, logistics_headers, sales_order_id=ctx["sales_order_id"],
+            shipment_id=ship["id"],
+            lines=[{"sales_order_line_id": ctx["so_lines"][0]["id"], "qty": qty}])
+        assert confirmed.status_code == 200, confirmed.text
+        receivable = (await db_session.execute(
+            select(Receivable).where(Receivable.outbound_order_id == ob_id)
+        )).scalar_one()
+        amounts.append(Decimal(str(receivable.amount_allocated)))
+
+    assert amounts == [Decimal("50.00"), Decimal("40.00")]
+    refreshed = (await db_session.execute(
+        select(CustomerCreditMemo).where(CustomerCreditMemo.id == memo["id"])
+    )).scalar_one()
+    assert Decimal(str(refreshed.amount_allocated)) == Decimal("90.00")
+    assert Decimal(str(refreshed.amount_unallocated)) == Decimal("30.00")
 
 
 async def test_customer_credit_reject_requires_reason_and_finance_cannot_resubmit(

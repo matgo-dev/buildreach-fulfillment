@@ -4,7 +4,16 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+def _strip_required(value: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError("reason is required")
+    stripped = value.strip()
+    if not stripped:
+        raise ValueError("reason is required")
+    return stripped
 
 
 class CustomerCreditMemoCreateIn(BaseModel):
@@ -16,6 +25,8 @@ class CustomerCreditMemoCreateIn(BaseModel):
 
 class CustomerCreditMemoRejectIn(BaseModel):
     reject_reason: str = Field(..., min_length=1, max_length=500)
+
+    _strip_reason = field_validator("reject_reason", mode="before")(_strip_required)
 
 
 class CustomerCreditMemoResubmitIn(BaseModel):
@@ -30,11 +41,15 @@ class CustomerCreditMemoAllocateIn(BaseModel):
 
 
 class CustomerCreditMemoVoidIn(BaseModel):
-    void_reason: str | None = Field(default=None, max_length=500)
+    void_reason: str = Field(..., min_length=1, max_length=500)
+
+    _strip_reason = field_validator("void_reason", mode="before")(_strip_required)
 
 
 class CustomerCreditAllocationReverseIn(BaseModel):
-    reverse_reason: str | None = Field(default=None, max_length=500)
+    reverse_reason: str = Field(..., min_length=1, max_length=500)
+
+    _strip_reason = field_validator("reverse_reason", mode="before")(_strip_required)
 
 
 class CustomerCreditMemoOut(BaseModel):
@@ -106,6 +121,10 @@ class CustomerCreditAllocationOut(BaseModel):
     idempotency_key: str
     created_by: int
     created_at: datetime
+    status: str
+    reversed_at: datetime | None
+    reversed_by: int | None
+    reverse_reason: str | None
 
     @classmethod
     def build(cls, row) -> dict:
@@ -123,6 +142,10 @@ class CustomerCreditAllocationOut(BaseModel):
             "idempotency_key": alloc.idempotency_key,
             "created_by": alloc.created_by,
             "created_at": alloc.created_at,
+            "status": "REVERSED" if alloc.reversed_at is not None else "ACTIVE",
+            "reversed_at": alloc.reversed_at,
+            "reversed_by": alloc.reversed_by,
+            "reverse_reason": alloc.reverse_reason,
         }
 
 

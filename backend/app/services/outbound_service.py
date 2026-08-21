@@ -333,12 +333,22 @@ async def confirm_order(db: AsyncSession, *, order_id, actor_user_id, actor_user
             raise OutboundOrderInvalidTransitionError("出库单已确认,不可重复确认")
         raise
     from app.services import customer_credit_memo_service
-    await customer_credit_memo_service.auto_allocate_for_receivable(
+    customer_credit_allocations = await customer_credit_memo_service.auto_allocate_for_receivable(
         db, receivable=receivable, actor_user_id=actor_user_id)
     await write_audit(db, resource_type=AuditResourceType.OUTBOUND_ORDER, action=AuditAction.ISSUE,
                       user_id=actor_user_id, user_email=actor_user_email,
                       resource_id=order.id, request=request,
-                      extra={"receivable_id": receivable.id}, commit=False)
+                      extra={
+                          "receivable_id": receivable.id,
+                          "customer_credit_allocations": [
+                              {
+                                  "allocation_id": a.id,
+                                  "customer_credit_memo_id": a.customer_credit_memo_id,
+                                  "amount": str(a.amount),
+                              }
+                              for a in customer_credit_allocations
+                          ],
+                      }, commit=False)
     await db.commit()
     await db.refresh(order)
     return order

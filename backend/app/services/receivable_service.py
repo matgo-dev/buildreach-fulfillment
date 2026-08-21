@@ -137,8 +137,7 @@ async def get_detail(
         select(CustomerCreditAllocation, CustomerCreditMemo.no)
         .join(CustomerCreditMemo,
               CustomerCreditMemo.id == CustomerCreditAllocation.customer_credit_memo_id)
-        .where(CustomerCreditAllocation.receivable_id == receivable_id,
-               CustomerCreditAllocation.reversed_at.is_(None))
+        .where(CustomerCreditAllocation.receivable_id == receivable_id)
         .order_by(CustomerCreditAllocation.id))).all() if can_read_customer_credit else []
     cust_name = (await db.execute(
         select(Customer.name).where(Customer.id == r.customer_id))).scalar_one_or_none()
@@ -158,7 +157,8 @@ async def get_detail(
                 "source_no": rc_no, "receipt_id": a.receipt_id, "receipt_no": rc_no,
                 "customer_credit_memo_id": None, "customer_credit_memo_no": None,
                 "amount": float(a.amount), "alloc_type": a.alloc_type,
-                "created_at": a.created_at,
+                "created_at": a.created_at, "status": "ACTIVE",
+                "reversed_at": None, "reversed_by": None, "reverse_reason": None,
             }
             for a, rc_no in receipt_rows
         ] + [
@@ -170,6 +170,10 @@ async def get_detail(
                 "customer_credit_memo_no": memo_no,
                 "amount": float(a.amount), "alloc_type": a.alloc_type,
                 "created_at": a.created_at,
+                "status": "REVERSED" if a.reversed_at is not None else "ACTIVE",
+                "reversed_at": a.reversed_at,
+                "reversed_by": a.reversed_by,
+                "reverse_reason": a.reverse_reason,
             }
             for a, memo_no in credit_rows
         ],

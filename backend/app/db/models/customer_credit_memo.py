@@ -132,8 +132,6 @@ class CustomerCreditAllocation(Base):
         CheckConstraint(
             "(reversed_at IS NULL) = (reversed_by IS NULL)",
             name="ck_customer_credit_alloc_reverse_pair"),
-        Index("uq_customer_credit_alloc_active", "customer_credit_memo_id", "receivable_id",
-              unique=True, postgresql_where=text("reversed_at IS NULL")),
         Index("uq_customer_credit_alloc_idempotency", "idempotency_key", unique=True),
         Index("ix_customer_credit_alloc_credit_active", "customer_credit_memo_id",
               "reversed_at"),
